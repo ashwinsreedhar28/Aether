@@ -100,6 +100,11 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
   §11 First Task removed and replaced with an Architect Review
   Heuristics checklist self-applied before each PR. §7 self-review
   template gains a heuristics-check section.
+- CLAUDE.md §1/§12 updated: Director-authorized Implementer execution
+  of `gh pr merge` and tag push is now formally part of the workflow,
+  codifying the pattern used in every prior merged PR. The "no
+  unilateral Implementer merge" guarantee is preserved (chat-
+  authorization is mandatory).
 
 ### Fixed
 

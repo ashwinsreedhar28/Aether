@@ -22,15 +22,16 @@ This is a four-party project. Internalize this — most of your behavior is shap
 
 **Flow of a unit of work:**
 
-1. Architect writes a task spec (see §9 for the format) in chat. Director reviews it and approves or tweaks.
-2. Director hands the spec to you (you, Claude Code).
-3. You implement on a feature branch. Open PR. Fill out the self-review template (§7).
-4. Director pastes the PR URL or diff into chat with Architect.
-5. Architect responds: **approve** / **request-changes** (with specific notes) / **questions** (for you to answer before re-review).
-6. If changes requested, you push commits to the same branch and re-comment on the PR. Loop with Architect until approve.
-7. Director merges.
+1. Architect writes a task spec in chat. Director reviews and approves or tweaks.
+2. Director hands the spec to you (Claude Code) by paste.
+3. You implement on a feature branch. Open PR. Fill out the §7 self-review template.
+4. Director drops the PR URL in chat with Architect.
+5. Architect reviews via web_fetch and responds in chat. **If clean:** Director runs any visual checks Architect flagged, then merges. **If request-changes:** Director copy-pastes Architect's chat reply as a single comment on the PR.
+6. You read the PR comment via `gh pr view <n> --comments`, address the requests, push the fixup, and post a follow-up PR comment summarising what changed (e.g. "addressed: nav order set explicitly; traffic-light inset added; CLAUDE.md gotcha appended").
+7. Architect re-reviews via web_fetch. Loop on the PR (not in chat) until clean.
+8. Director merges. Architect cuts the tag.
 
-**You never push to `main` directly. Ever.**
+You still never push to main. The review *conversation* lives on the PR; chat between Director and Architect is reserved for direction-level decisions and visual-test feedback.
 
 ---
 
@@ -199,6 +200,12 @@ is to make life easy for Architect's review.>
 <list things you noticed could be improved but deliberately did not touch, with a
 one-line rationale each. Architect uses this to confirm scope discipline.>
 
+## Pre-PR heuristics
+<Confirm you've considered each item in §11 Architect Review Heuristics. Note any
+that were skipped (with reason) or deliberately deviated from. "Considered" means
+thought about — most items will be N/A on most PRs, that's fine; the prompt is
+what matters.>
+
 ## Verification
 <how you tested this — commands run, what you saw, screenshots if visual.>
 
@@ -327,68 +334,27 @@ These are from `_ingest/NEXUS/AUDIT.md`. **Do not lift NEXUS code unfixed.**
 
 ---
 
-## 11. First Task: `feat/shell-skeleton`
+## 11. Architect Review Heuristics (self-apply before opening any PR)
 
-> This is your kickoff. Treat it as the canonical worked example of the task spec format from §9.
+These are patterns Architect has repeatedly flagged in review. Self-apply them BEFORE opening a PR — every one of them caught early saves a review round-trip. If you deviate, flag it in the §7 self-review under "Risks / TODOs / Skipped" with reasoning.
 
-```markdown
-# Task: feat/shell-skeleton — runnable Electron shell with holographic theme
+1. **Semantic ordering, not alphabetical.** When listing user-facing items (nav buttons, dropdown options, table rows), default to a semantic order — importance, flow position, conventional reading order. If `AppDefinition`-style ordering keys exist, set them explicitly. Don't rely on `id.localeCompare` for anything the user sees.
 
-## Goal
-A runnable Electron app named "homeOS" that opens to a single welcome window styled
-in the holographic theme. Zero apps, zero data, zero mesh. Just the canvas.
+2. **UI near window edges must respect platform chrome.** macOS traffic lights occupy ~12–80px top-left under `titleBarStyle: 'hiddenInset'`. Windows window controls occupy ~135px top-right under custom title bars. Any nav/header/toolbar extending to a window edge needs platform-conditional inset AND `-webkit-app-region: drag` on the empty strip (with `no-drag` overrides on interactive elements).
 
-## Why
-We're top-down this week (see §3). Director needs something visible on Day 1 to
-react to. Every subsequent PR (first real app, faked data layer, eventually nodes)
-plugs into this shell. This is the substrate of the user-facing half of homeOS.
+3. **Code/comment accuracy.** Numeric values in comments must match the code (`setTimeout(180)` is "180ms," not "two frames"). React hook timing matters: `useEffect(() => { ... }, [])` fires after the first commit; synchronous code after `ReactDOM.createRoot().render(...)` fires before the commit. Words like "after mount" and "after paint" are not interchangeable.
 
-## Branch
-`feat/shell-skeleton`
+4. **Pre-flight before destructive operations.** Before any `rm -rf`, `git push --force`, schema migration, or filesystem mutation: capture rollback data, validate preconditions, and surface blockers in the PR (or to Architect) before proceeding. Order of operations: capture → validate → mutate, never the reverse.
 
-## Scope (DO)
-- Initialize `shell/` with the layout from §4 of CLAUDE.md.
-- Electron 33+ main process under `shell/electron/main/`, preload under `shell/electron/preload/`, renderer under `shell/src/`.
-- Use `pnpm`, Vite, React 19, Tailwind 4, TypeScript strict.
-- Implement the VIEWER-style splash → renderer-ready → reveal sequence (reference `_ingest/VIEWER/apps/viewer/electron/main/` and `_ingest/Pulse/src/main/index.ts:189-213`).
-- Holographic theme as CSS variables in `shell/src/theme/holographic.css`: `--holo-bg`, `--holo-text`, `--holo-muted`, `--holo-accent`, `--holo-border`. Translucent panels via `rgba(15,15,25,0.5)`. Subtle accent glows. Reference `_ingest/VIEWER` for the values they use; tweak only if you have a reason.
-- One welcome window with: app title "homeOS", a one-line tagline ("the personal OS, in progress"), today's date, and the current `package.json` version. Centered. No interactivity beyond closing the window.
-- Tray icon (macOS-only this PR) that opens/focuses the welcome window. Use a placeholder PNG; we'll commission art later.
-- `pnpm dev` runs the app in dev mode with hot-reload. `pnpm build` produces a working unsigned dev build. `pnpm package` is OK to leave as a TODO (electron-builder config is a later PR).
-- Update `CHANGELOG.md` under `[Unreleased] → Added`.
-- Write a one-paragraph entry in `DECISIONS.md` recording: top-down strategy chosen, holographic theme adopted from VIEWER, pnpm chosen.
+5. **Atomic git state hygiene.** `git status --short`: column 1 is staged state, column 2 is working-tree state. ` M file` (leading space + M) is NOT going into the next commit. Read the column semantics, not just the filename. `git diff --staged` is the ground truth for what gets committed.
 
-## Out of Scope (DON'T)
-- No mesh, no Core, no nodes. We'll add those in a later PR series.
-- No app-discovery system yet — just the welcome window hardcoded.
-- No file watcher, no daemon manager, no MCP, no voice. All later.
-- No SQLite / no `better-sqlite3` install. We don't have data yet.
-- No Windows-specific work — collaborator owns that side. Mac-only acceptable for this PR; document the cross-platform debt in the PR's "Risks / TODOs."
-- No `dock.hide()`. (See §10.)
-- No `backdrop-blur` on the welcome window. (See §10.)
-- No CHANGELOG.md version section — only update `[Unreleased]`. Architect cuts the tag.
+6. **Reserve space for future entries.** When introducing ordering keys (`order: 50`), enum values, port numbers, version-component slots, or any sequence likely to gain entries: leave gaps. 0/50/100/150 admits later insertions; 0/1/2/3 doesn't.
 
-## Acceptance criteria
-- `pnpm dev` from a clean clone (after `pnpm install`) launches the welcome window inside 3 seconds on a 2024 MacBook Pro.
-- Splash is visible before the welcome window appears; no compositor jitter at reveal.
-- Tray icon present in the macOS menu bar; clicking it opens/focuses the welcome window.
-- Closing the welcome window quits the app on macOS (`app.quit()` on `window-all-closed` after the welcome window). This is the right behavior for week 1 — we'll change it when the app earns a "background mode."
-- TypeScript strict mode passes with zero `any`.
-- ESLint passes with zero warnings (use a sensible baseline config — `eslint-config-prettier` + `@typescript-eslint/recommended`).
-- CHANGELOG.md and DECISIONS.md updated as specified.
-- PR description follows the §7 self-review template.
+7. **Cross-platform UI debts must be explicit.** Any macOS-only styling, IPC, or Electron API needs (a) an explicit note in the PR ("Mac-only this PR; Windows path TODO") and (b) ideally a `process.platform === 'darwin'` guard rather than silent assumption. The collaborator's Windows tree must not need to undo silent macOS choices.
 
-## Notes / hints
-- VIEWER's electron main split (per-concern handler files) is the pattern to grow into. For this PR you can keep `electron/main/index.ts` monolithic — split when you have a reason.
-- For the splash, a static HTML file loaded via `BrowserWindow` works fine; no need for Vite to compile it.
-- Holographic theme values from VIEWER are in `_ingest/VIEWER/apps/viewer/src/` (look for CSS files referencing `--holo-`). Copy with attribution comment.
-- Tray-icon PNG: use a 16x16 / 32x32 placeholder. macOS expects `@2x` and `Template` variants for menu-bar icons — if you don't have time to generate all variants, single PNG is fine and note it in TODOs.
+8. **Pattern-lifting from `_ingest/` should aggressively simplify.** When adapting code from Pulse/VIEWER/NEXUS/RAVEN_MESH: cut what we don't need yet (multi-window, file types, OAuth, retry queues, etc.). Document what was cut and why in the PR description and DECISIONS.md if the cut is non-obvious or reversible.
 
-## Open questions
-- None this PR — answer everything else in scope and ask if anything blocks you.
-```
-
-Open the PR. Fill out the self-review template. Notify Director when done.
+This list will grow. When Architect flags a new recurring pattern, add it here in a follow-up PR.
 
 ---
 

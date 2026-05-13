@@ -208,43 +208,70 @@ export class RavenDaemonManager extends EventEmitter {
   }
 
   /**
-   * Run a bootstrap step with captured output. Mirrors stdio to the main
-   * process console (so the user can see progress in the `pnpm dev`
-   * terminal) and returns a `{ ok, summary }` tuple where summary carries
-   * enough detail to put in the availability reason on failure.
+   * Run a bootstrap step with captured output. ASYNC: returns a promise
+   * that resolves when the spawned process exits. Mirrors stdio to the
+   * main process console (so the user can see progress in the `pnpm dev`
+   * terminal). On failure resolves with a `summary` string suitable for
+   * the voice-control pill.
    *
-   * Why capture instead of inherit: on failure we want the error in the
-   * voice-control pill, not just buried in console output. PATH-resolution
-   * failures (ENOENT) and non-zero exits both go through this path.
+   * Why async: pip install for pyaudio+opencv takes ~30s, and spawnSync
+   * blocks Electron's main thread for the entire duration. That freezes
+   * IPC, trips the network service watchdog, and lands a black-screen
+   * renderer. Async spawn keeps the event loop responsive — the pill
+   * updates, the splash → reveal sequence completes normally, and the
+   * user can navigate other apps while voice bootstraps in the
+   * background.
    */
   private runStep(
     label: string,
     cmd: string,
     args: string[],
     cwd: string
-  ): { ok: true } | { ok: false; summary: string } {
+  ): Promise<{ ok: true; output: string } | { ok: false; summary: string; output: string }> {
     console.log(`[ravenDaemonManager] ${label}: cwd=${cwd} cmd=${cmd} ${args.join(' ')}`)
-    // ENOENT-on-cwd is sneaky: spawnSync reports the same code as
+    // ENOENT-on-cwd is sneaky: spawn reports the same code as
     // ENOENT-on-bin and the surfaced error message blames the binary.
     // Pre-check cwd so the failure mode is unambiguous.
     if (!fs.existsSync(cwd)) {
-      return { ok: false, summary: `${label}: cwd does not exist: ${cwd}` }
+      return Promise.resolve({
+        ok: false,
+        summary: `${label}: cwd does not exist: ${cwd}`,
+        output: '',
+      })
     }
-    const r = spawnSync(cmd, args, { cwd, encoding: 'utf-8' })
-    if (r.stdout) process.stdout.write(r.stdout)
-    if (r.stderr) process.stderr.write(r.stderr)
-    if (r.error) {
-      const code = (r.error as NodeJS.ErrnoException).code
-      // ENOENT now genuinely means the executable isn't on PATH (cwd was
-      // ruled out above).
-      const detail = code === 'ENOENT' ? `${cmd} not found on PATH` : r.error.message
-      return { ok: false, summary: `${label}: ${detail}` }
-    }
-    if (r.status !== 0) {
-      const tail = (r.stderr || r.stdout || '').trim().split('\n').slice(-1)[0] || `exit ${r.status}`
-      return { ok: false, summary: `${label}: ${tail.slice(0, 140)}` }
-    }
-    return { ok: true }
+
+    return new Promise((resolve) => {
+      const child = spawn(cmd, args, { cwd })
+      let stdout = ''
+      let stderr = ''
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        const s = chunk.toString()
+        stdout += s
+        process.stdout.write(s)
+      })
+      child.stderr?.on('data', (chunk: Buffer) => {
+        const s = chunk.toString()
+        stderr += s
+        process.stderr.write(s)
+      })
+
+      child.on('error', (err) => {
+        const code = (err as NodeJS.ErrnoException).code
+        const detail = code === 'ENOENT' ? `${cmd} not found on PATH` : err.message
+        resolve({ ok: false, summary: `${label}: ${detail}`, output: stderr + stdout })
+      })
+
+      child.on('exit', (code) => {
+        const output = stderr + stdout
+        if (code === 0) {
+          resolve({ ok: true, output })
+        } else {
+          const tail = (stderr || stdout).trim().split('\n').filter(Boolean).slice(-1)[0] || `exit ${code}`
+          resolve({ ok: false, summary: `${label}: ${tail.slice(0, 140)}`, output })
+        }
+      })
+    })
   }
 
   /**
@@ -262,13 +289,13 @@ export class RavenDaemonManager extends EventEmitter {
    * parent process has it. `pnpm dev` working is the proof that `pnpm`
    * is reachable.
    */
-  private ensureBuilt(): boolean {
+  private async ensureBuilt(): Promise<boolean> {
     const daemonDist = path.join(this.daemonDir, 'dist', 'index.js')
     const daemonModules = path.join(this.daemonDir, 'node_modules')
 
     if (!fs.existsSync(daemonModules)) {
       this.setAvailability({ kind: 'unavailable', reason: 'installing daemon deps…' })
-      const r = this.runStep(
+      const r = await this.runStep(
         'installing daemon deps',
         this.resolveBin('pnpm'),
         ['install', '--prefer-offline'],
@@ -283,7 +310,7 @@ export class RavenDaemonManager extends EventEmitter {
     if (!fs.existsSync(daemonDist)) {
       this.setAvailability({ kind: 'unavailable', reason: 'building daemon…' })
       const tsc = path.join(this.daemonDir, 'node_modules', '.bin', 'tsc')
-      const r = this.runStep('building daemon', tsc, [], this.daemonDir)
+      const r = await this.runStep('building daemon', tsc, [], this.daemonDir)
       if (!r.ok) {
         this.setAvailability({ kind: 'unavailable', reason: r.summary })
         return false
@@ -293,7 +320,7 @@ export class RavenDaemonManager extends EventEmitter {
     const venvPython = path.join(this.coreDir, '.venv', 'bin', 'python')
     if (!fs.existsSync(venvPython)) {
       this.setAvailability({ kind: 'unavailable', reason: 'creating python venv…' })
-      const venv = this.runStep(
+      const venv = await this.runStep(
         'creating venv',
         this.resolveBin('python3'),
         ['-m', 'venv', '.venv'],
@@ -304,14 +331,25 @@ export class RavenDaemonManager extends EventEmitter {
         return false
       }
       this.setAvailability({ kind: 'unavailable', reason: 'installing python deps (~30s)…' })
-      const pip = this.runStep(
+      const pip = await this.runStep(
         'installing python deps',
         path.join(this.coreDir, '.venv', 'bin', 'pip'),
         ['install', '-q', '-r', 'requirements.txt'],
         this.coreDir
       )
       if (!pip.ok) {
-        this.setAvailability({ kind: 'unavailable', reason: pip.summary })
+        // pyaudio is the most common stumble — its build needs portaudio
+        // headers that don't ship with macOS. Detect the signature in
+        // the captured output and rewrite the pill reason with an
+        // actionable hint instead of the raw last-line gore.
+        let reason = pip.summary
+        if (
+          pip.output.includes("'portaudio.h' file not found") ||
+          /Failed building wheel for pyaudio/i.test(pip.output)
+        ) {
+          reason = 'pyaudio needs portaudio — run: brew install portaudio'
+        }
+        this.setAvailability({ kind: 'unavailable', reason })
         return false
       }
     }
@@ -379,7 +417,7 @@ export class RavenDaemonManager extends EventEmitter {
       }
 
       this.reapStalePid()
-      if (!this.ensureBuilt()) return this.availability
+      if (!(await this.ensureBuilt())) return this.availability
 
       this.setAvailability({ kind: 'unavailable', reason: 'starting daemon…' })
       this.spawnDaemon()

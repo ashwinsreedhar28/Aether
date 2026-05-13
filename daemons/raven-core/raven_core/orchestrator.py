@@ -220,6 +220,14 @@ class Orchestrator:
             if not JsonLogger.is_enabled():
                 print("[AUDIO] Received turn from API")
 
+            # Track whether this turn was actually interrupted by the user
+            # (vs. completing normally). The vendored loop unconditionally
+            # drained the playback queue at end-of-turn, which truncated
+            # the tail of every normal response — the last few audio
+            # chunks were still queued for playback when the turn-complete
+            # signal arrived. Only flush on a real interruption.
+            interrupted = False
+
             async for response in turn:
                 # Handle function calls (tool calls)
                 if response.tool_call and response.tool_call.function_calls:
@@ -247,6 +255,15 @@ class Orchestrator:
                             print("[TOOL CALL] Sent function responses back to API")
                     continue
 
+                # Gemini Live signals interruption via
+                # response.server_content.interrupted (bool). Use getattr
+                # defensively in case the SDK shape shifts.
+                server_content = getattr(response, "server_content", None)
+                if server_content is not None and getattr(
+                    server_content, "interrupted", False
+                ):
+                    interrupted = True
+
                 if data := response.data:
                     audio_chunk_count += 1
                     if audio_chunk_count % 50 == 0 and not JsonLogger.is_enabled():
@@ -259,20 +276,18 @@ class Orchestrator:
                         JsonLogger.transcript("raven", text)
                     else:
                         print(f"\n[API TEXT]: {text}", end="")
-                        if "grounding" in str(response).lower() or hasattr(
-                            response, "grounding_metadata"
-                        ):
-                            print("\n[GROUNDING] Google Search was used")
 
-            # Turn complete - clear audio queue for interruption handling
-            if not JsonLogger.is_enabled():
-                print("[AUDIO] Turn complete - clearing audio queue")
-            cleared_count = 0
-            while not self.audio_in_queue.empty():
-                self.audio_in_queue.get_nowait()
-                cleared_count += 1
-            if cleared_count > 0 and not JsonLogger.is_enabled():
-                print(f"[AUDIO] Cleared {cleared_count} audio chunks from queue")
+            # Only flush the playback queue on a real interruption (so
+            # we don't keep speaking over the user). On normal turn
+            # completion, leave the buffered chunks alone so play_audio
+            # can drain them.
+            if interrupted:
+                cleared_count = 0
+                while not self.audio_in_queue.empty():
+                    self.audio_in_queue.get_nowait()
+                    cleared_count += 1
+                if not JsonLogger.is_enabled():
+                    print(f"[AUDIO] Interrupted — cleared {cleared_count} chunks")
             audio_chunk_count = 0
 
     async def play_audio(self) -> None:

@@ -23,6 +23,7 @@ from .audio_devices import validate_input_device, validate_output_device
 from .client import create_client, create_live_config
 from .config import Config
 from .json_logger import JsonLogger
+from . import mesh_client
 from .tools import handle_function_call
 from .tools.system_tool import set_visual_mode_callback
 from .vision import CameraCapture, ScreenCapture
@@ -210,7 +211,7 @@ class Orchestrator:
         start_time = time.time()
 
         try:
-            result = handle_function_call(function_name, function_args)
+            result = await handle_function_call(function_name, function_args)
             duration_ms = int((time.time() - start_time) * 1000)
 
             if JsonLogger.is_enabled():
@@ -481,6 +482,14 @@ class Orchestrator:
 
         self._pya = pyaudio.PyAudio()
 
+        # Bring up the mesh client BEFORE opening the Gemini Live
+        # session so mesh-routed tools (notify) are ready by the time
+        # the user can speak. Failure here is non-fatal — setup() logs
+        # and returns False; raven-internal tools (time, memory) still
+        # work, and notify will surface a structured "mesh unavailable"
+        # error to Gemini if invoked.
+        await mesh_client.setup()
+
         try:
             if JsonLogger.is_enabled():
                 JsonLogger.status("connecting", model=self.config.model)
@@ -540,5 +549,14 @@ class Orchestrator:
                 JsonLogger.error(str(eg))
             traceback.print_exception(eg)
         finally:
+            # Close the mesh aiohttp session before tearing down audio.
+            # Order matters less than completeness — leaking the session
+            # would leave a dangling connector in the asyncio runtime
+            # warnings on shutdown.
+            try:
+                await mesh_client.shutdown()
+            except Exception as e:
+                if not JsonLogger.is_enabled():
+                    print(f"[SHUTDOWN] mesh_client.shutdown raised: {e}")
             if self._pya:
                 self._pya.terminate()

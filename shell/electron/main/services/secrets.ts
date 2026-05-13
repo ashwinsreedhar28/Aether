@@ -8,6 +8,7 @@ export interface MeshSecrets {
   coreSecret: string
   shellSecret: string
   hostNotificationsSecret: string
+  ravenSecret: string
 }
 
 function hex32(): string {
@@ -20,5 +21,6 @@ export function generateMeshSecrets(): MeshSecrets {
     coreSecret: hex32(),
     shellSecret: hex32(),
     hostNotificationsSecret: hex32(),
+    ravenSecret: hex32(),
   }
 }

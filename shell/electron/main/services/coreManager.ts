@@ -77,6 +77,11 @@ export class CoreManager {
       MESH_CORE_SECRET: this.secrets.coreSecret,
       MESH_SHELL_SECRET: this.secrets.shellSecret,
       MESH_HOST_NOTIFICATIONS_SECRET: this.secrets.hostNotificationsSecret,
+      // Raven (the voice daemon) is spawned by ravenDaemonManager — not
+      // by this manager — but Core has to resolve env:MESH_RAVEN_SECRET
+      // against the same value when it loads the manifest at startup,
+      // so both children receive it from the shared MeshSecrets bag.
+      MESH_RAVEN_SECRET: this.secrets.ravenSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

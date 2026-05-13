@@ -40,7 +40,24 @@ nodes:
         invocation_mode: request_response
         schema: nodes/host_notifications/schemas/notify.json
 
+  - id: raven
+    runtime: local-process
+    identity_secret: env:MESH_RAVEN_SECRET
+    metadata:
+      description: |
+        Voice assistant daemon (Gemini Live). Outbound-only mesh client —
+        registers with Core so its signed envelopes are recognised, but
+        exposes no inbound surfaces. Voice tools that touch homeOS data
+        or capabilities (e.g. notify) route through mesh.invoke instead
+        of living in raven's internal Python tool registry.
+    surfaces: []
+
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
   - from: shell
+    to: host_notifications.notify
+
+  # Voice tools dispatch desktop notifications via the host_notifications
+  # node. Added when raven was rebased onto the mesh (v0.2.1).
+  - from: raven
     to: host_notifications.notify

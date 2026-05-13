@@ -576,3 +576,97 @@ unchanged.
   removing Director from the loop entirely, which is the whole point
   of the "Merge gate" role in §1. CI greenness is necessary, not
   sufficient.
+
+---
+
+## [2026-05-13] Voice tool dispatch routes through mesh for homeOS-data tools
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Post-v0.1.0 (mesh awake, PR #10) and post-v0.2.0 (voice
+running via daemon pattern, PR #9), the obvious next architectural unlock
+was making voice a real mesh participant rather than a sibling-with-its-
+own-tools. The follow-up was foreshadowed in the `Voice via daemon
+pattern; mesh rebase deferred` ADR above. This ADR closes the loop.
+
+raven's tool registry historically embedded each tool's implementation
+as direct Python — `time_tool.py` reads `datetime.now()`, `memory_tool.py`
+talks to a local JSON store. That works for raven-internal state but
+doesn't generalise: any future tool that touches homeOS data (news
+feeds, finance quotes, agent briefs) would either reimplement the
+capability inside raven or call out to a different process via some
+bespoke transport. The mesh exists precisely so we don't reimplement
+or invent transports per tool.
+
+**Decision:** raven becomes a mesh node `raven`, outbound-only. Tools
+split into two categories by data-locality:
+- **raven-internal** (time, memory) stay direct Python. Not homeOS
+  data; not worth a mesh hop.
+- **homeOS data or capabilities** (notify in this PR, news/finance/
+  agents in future PRs) route through `mesh_client.mesh_invoke`. The
+  tool function is a thin wrapper that calls into the mesh; the
+  capability lives on its dedicated mesh node.
+
+Implementation:
+- `manifest.yaml` gains a `raven` node (identity-only, `surfaces: []`)
+  and an edge `raven → host_notifications.notify`.
+- `raven-core/raven_core/mesh_client.py` instantiates the vendored
+  Python `MeshNode` (from `core/node_sdk/`, prepended to PYTHONPATH at
+  spawn time by the shell's daemon manager — not pip-installed because
+  the vendored tree is managed by re-copy from `_ingest`). Setup runs
+  at orchestrator startup before the Gemini Live session opens; teardown
+  in the orchestrator's finally block.
+- `raven-core/raven_core/tools/__init__.py`'s `handle_function_call`
+  becomes async to support `await mesh_invoke(...)` in tool handlers
+  on the orchestrator's running event loop. Sync tools (time, memory)
+  are detected and called without await; async tools (notify) expose
+  `handle_call_async` and are awaited. This avoids the
+  `run_until_complete`-on-a-running-loop deadlock that a sync wrapper
+  would hit.
+- The shell generates `MESH_RAVEN_SECRET` per cold start alongside the
+  existing `MESH_*` secrets and injects it into Core (so the manifest's
+  `env:MESH_RAVEN_SECRET` resolves) and into the raven daemon's spawn
+  env. Raven daemon spawn now waits for mesh-ready (max 30s) before
+  starting Python so the secret/URL are guaranteed available.
+
+**Consequences:**
+- Every future voice tool that touches homeOS data lands as a single
+  mesh-edge declaration + a thin `await mesh_invoke(target, payload)`
+  wrapper. Tool additions don't require changes to raven internals or
+  the audio loop.
+- Capabilities get reused across surfaces: `host_notifications.notify`
+  is now invoked from both the Mesh Dev Tools app's button and from
+  voice. Adding a third caller (e.g. an agent) is a manifest edge,
+  not a code change.
+- `core/node_sdk/__init__.py` stays vendored unchanged — no
+  pyproject.toml, no setup.py. Python finds the module via PYTHONPATH
+  injection at spawn time. This preserves the upstream re-copy story
+  documented in `core/README.md`.
+- raven daemon spawn now hard-fails (`voice: mesh not ready`) when
+  mesh isn't ready within 30s. Acceptable: mesh-routed voice tools
+  are useless without mesh, and raven's pip-install bootstrap usually
+  takes longer than mesh's startup anyway.
+- `requirements.txt` gains `aiohttp` (the Python SDK's HTTP client).
+  Bootstrap marker filename bumped from `.requirements-installed` to
+  `.requirements-installed-v2` so existing dev venvs re-run pip and
+  pick up the new dep without a manual `rm -rf .venv`.
+
+**Alternatives considered:**
+- *Mesh-ify time and memory too.* Rejected as over-engineering. These
+  are raven-internal state with no callers outside the voice daemon;
+  routing them through the mesh adds two network hops to a 1ms
+  operation and gains nothing.
+- *Expose a generic `mesh_invoke(target, payload)` tool to Gemini.*
+  Rejected — blast radius too wide. Gemini could be cajoled into
+  calling arbitrary mesh surfaces; we want each voice tool curated,
+  with explicit edges in the manifest.
+- *Wait for `news_feeds` to land before doing the rebase.* Rejected.
+  Demonstrate the pattern with the simplest existing node
+  (`host_notifications`) so the architecture is proven and the pattern
+  is locked in before more nodes layer on top.
+- *Add `core/node_sdk/pyproject.toml` and `pip install -e core/node_sdk`
+  in the raven bootstrap.* Tempting (cleaner imports, no PYTHONPATH
+  manipulation) but rejected: `core/{core,node_sdk,schemas}` is
+  managed by re-copy from `_ingest/RAVEN_MESH`, and a stray
+  `pyproject.toml` would either be lost on the next vendor bump or
+  force us to upstream it. PYTHONPATH stays inside the homeOS layer.

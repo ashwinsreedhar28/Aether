@@ -4,9 +4,18 @@ RAVEN Tool Registry
 Automatically discovers and registers tool modules.
 Each tool module should export:
     - get_tools() -> list[types.Tool]
-    - handle_call(name: str, args: dict) -> dict | None
+    - handle_call(name: str, args: dict) -> dict | None        (sync tools)
+      OR
+      handle_call_async(name, args) -> Awaitable[dict | None]  (async tools)
+
+Sync handlers stay direct — time + memory tools have no I/O and don't
+need an event loop. Async handlers exist so mesh-routed tools (notify
+and successors) can `await mesh_invoke(...)` inside the orchestrator's
+running event loop without the run_until_complete deadlock that would
+hit a sync-wrapped async call.
 """
 
+import inspect
 from typing import Any
 from google.genai import types
 
@@ -18,6 +27,7 @@ from google.genai import types
 # (cerebras_tool) is sorted.
 from . import time_tool
 from . import memory_tool
+from . import notify_tool
 
 # Disabled until mesh integration:
 # from . import cerebras_tool   # second-LLM HTML generator, needs Flask sidecar
@@ -27,6 +37,7 @@ from . import memory_tool
 _TOOL_MODULES = [
     time_tool,
     memory_tool,
+    notify_tool,
 ]
 
 
@@ -43,20 +54,25 @@ def get_all_tool_declarations() -> list[types.Tool]:
     return tools
 
 
-def handle_function_call(name: str, args: dict) -> dict[str, Any]:
+async def handle_function_call(name: str, args: dict) -> dict[str, Any]:
     """
     Route a function call to the appropriate tool module.
 
-    Args:
-        name: The function name to call
-        args: The arguments to pass to the function
-
-    Returns:
-        The result dict from the function, or an error dict
+    Async because mesh-routed tools (notify) need to await mesh_invoke
+    on the orchestrator's running event loop. Sync tools (time, memory)
+    return their dict immediately; we don't await them, we just call
+    handle_call as before.
     """
     for module in _TOOL_MODULES:
-        if hasattr(module, "handle_call"):
-            result = module.handle_call(name, args)
+        async_handler = getattr(module, "handle_call_async", None)
+        if async_handler is not None and inspect.iscoroutinefunction(async_handler):
+            result = await async_handler(name, args)
+            if result is not None:
+                return result
+            continue
+        sync_handler = getattr(module, "handle_call", None)
+        if sync_handler is not None:
+            result = sync_handler(name, args)
             if result is not None:
                 return result
 

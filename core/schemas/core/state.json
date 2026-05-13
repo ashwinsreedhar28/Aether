@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "core.state",
+  "description": "Input payload for core.state. No fields; returns a manifest/nodes/edges/tail snapshot.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

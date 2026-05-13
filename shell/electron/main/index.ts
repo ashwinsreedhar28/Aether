@@ -1,5 +1,12 @@
-import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell, dialog } from 'electron'
 import { join } from 'node:path'
+import {
+  startMesh,
+  stopMesh,
+  meshInvoke,
+  isCoreHealthy,
+  getCoreUrl,
+} from './services/mesh'
 
 // Resolved relative to the compiled main entry at out/main/index.js.
 // Resources sit at the project root under shell/resources/.
@@ -13,6 +20,7 @@ const isDev = !app.isPackaged
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let quitInFlight = false
 
 // Renderer-ready signal. The splash holds until the main renderer signals
 // mount (or a 2.5s watchdog fires) — lifted from Pulse's main/index.ts
@@ -154,11 +162,50 @@ ipcMain.handle('shell:metadata', () => {
   }
 })
 
-app.whenReady().then(() => {
+ipcMain.handle('mesh:invoke', async (_e, target: string, payload: Record<string, unknown>) => {
+  return meshInvoke(target, payload)
+})
+
+ipcMain.handle('mesh:status', async () => {
+  return {
+    coreUrl: getCoreUrl(),
+    coreHealthy: await isCoreHealthy(),
+  }
+})
+
+app.whenReady().then(async () => {
+  // Per task spec: start the mesh BEFORE creating the splash. If Core fails
+  // to come up in 30s, there's nothing else for the shell to do, so we
+  // surface a clear error and quit instead of dropping into a broken UI.
+  try {
+    await startMesh()
+  } catch (err) {
+    const message = (err as Error).message ?? String(err)
+    dialog.showErrorBox('homeOS — mesh failed to start', message)
+    app.exit(1)
+    return
+  }
   splashWindow = createSplash()
   mainWindow = createMain()
   createTray()
   void revealMain()
+})
+
+// Clean mesh shutdown. before-quit fires on user-initiated quits AND on
+// window-all-closed quits (since 'window-all-closed' calls app.quit()).
+// We preventDefault the first round, run async cleanup, then exit.
+app.on('before-quit', (e) => {
+  if (quitInFlight) return
+  quitInFlight = true
+  e.preventDefault()
+  void (async () => {
+    try {
+      await stopMesh()
+    } catch {
+      /* best-effort on quit */
+    }
+    app.exit(0)
+  })()
 })
 
 // Week-1 behaviour per CLAUDE.md §11: closing the only window quits the app

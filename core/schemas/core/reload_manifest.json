@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "core.reload_manifest",
+  "description": "Input payload for core.reload_manifest. No fields; re-reads the manifest currently on disk.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

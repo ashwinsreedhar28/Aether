@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "core.audit_query",
+  "description": "Input payload for core.audit_query (SPEC §5.3). All fields optional, conjunctive AND.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "since": {
+      "type": "string",
+      "description": "ISO-8601 UTC. Lower bound (inclusive) on entry timestamp."
+    },
+    "until": {
+      "type": "string",
+      "description": "ISO-8601 UTC. Upper bound (inclusive) on entry timestamp."
+    },
+    "from_node": {
+      "type": "string",
+      "description": "Filter by sender node id."
+    },
+    "to_surface": {
+      "type": "string",
+      "description": "Filter by target surface id (node_id.surface_name)."
+    },
+    "decision": {
+      "type": "string",
+      "description": "Filter by audit decision code (see SPEC §7).",
+      "enum": [
+        "routed",
+        "denied_no_relationship",
+        "denied_signature_invalid",
+        "denied_schema_invalid",
+        "denied_unknown_node",
+        "denied_unknown_surface",
+        "denied_node_unreachable",
+        "denied_replay",
+        "timeout"
+      ]
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "Filter by correlation id."
+    },
+    "last_n": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 100,
+      "description": "Cap on entries returned. Default 100, max 1000. Most recent first."
+    }
+  }
+}

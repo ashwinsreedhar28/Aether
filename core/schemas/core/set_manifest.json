@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "core.set_manifest",
+  "description": "Input payload for core.set_manifest. Accepts a manifest YAML string; Core validates, persists, and reloads.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["yaml"],
+  "properties": {
+    "yaml": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Full manifest YAML document as a single string."
+    }
+  }
+}

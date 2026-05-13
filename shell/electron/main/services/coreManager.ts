@@ -1,0 +1,185 @@
+import { spawn, type ChildProcess } from 'node:child_process'
+import {
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  createWriteStream,
+  type WriteStream,
+} from 'node:fs'
+import { dirname } from 'node:path'
+import {
+  CORE_VENDOR_DIR,
+  MANIFEST_PATH,
+  CORE_PID_FILE,
+  CORE_LOG_FILE,
+  CORE_AUDIT_FILE,
+  meshRuntimeDir,
+} from './paths'
+import { resolvePython3 } from './python'
+import type { MeshSecrets } from './secrets'
+
+// Daemon manager for the Python RAVEN_MESH Core. Pattern adapted from
+// _ingest/VIEWER/apps/viewer/electron/main/services/daemonManager.ts, with
+// the simplifications called for by CLAUDE.md §11 heuristic 8:
+//   * single port (no auto-discovery)
+//   * no PID-file revival across runs — we always spawn fresh per launch
+//   * no production-path search (dev-only for v0.1.0)
+//   * synchronous stdout/stderr piped to a single rotating-free log file
+
+const HOST = '127.0.0.1'
+const PORT = 8000
+const HEALTH_TIMEOUT_MS = 30_000
+const HEALTH_POLL_INTERVAL_MS = 250
+const SHUTDOWN_GRACE_MS = 5_000
+
+export interface CoreManagerOptions {
+  secrets: MeshSecrets
+}
+
+export class CoreManager {
+  readonly host = HOST
+  readonly port = PORT
+  readonly url = `http://${HOST}:${PORT}`
+  private readonly secrets: MeshSecrets
+  private proc: ChildProcess | null = null
+  private logStream: WriteStream | null = null
+
+  constructor(opts: CoreManagerOptions) {
+    this.secrets = opts.secrets
+  }
+
+  async ensureRunning(): Promise<void> {
+    // If something else is already serving the port (e.g. a manually-started
+    // Core during dev), reuse it. The mesh works fine; only quit hygiene
+    // differs (we won't try to SIGTERM a Core we didn't spawn).
+    if (await this.healthOnce()) return
+
+    // Pre-flight: Node's spawn reports ENOENT against the executable when
+    // the cwd or any path arg is missing, which is misleading. Check first.
+    if (!existsSync(CORE_VENDOR_DIR)) {
+      throw new Error(
+        `Core vendor dir not found at ${CORE_VENDOR_DIR}. ` +
+          `Re-run the install / vendor step; see core/README.md.`,
+      )
+    }
+    if (!existsSync(MANIFEST_PATH)) {
+      throw new Error(`manifest.yaml not found at ${MANIFEST_PATH}.`)
+    }
+
+    mkdirSync(meshRuntimeDir(), { recursive: true })
+    mkdirSync(dirname(CORE_AUDIT_FILE()), { recursive: true })
+    this.logStream = createWriteStream(CORE_LOG_FILE(), { flags: 'a' })
+    this.logStream.write(`\n--- core spawn @ ${new Date().toISOString()} ---\n`)
+
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ADMIN_TOKEN: this.secrets.adminToken,
+      MESH_CORE_SECRET: this.secrets.coreSecret,
+      MESH_SHELL_SECRET: this.secrets.shellSecret,
+      MESH_HOST_NOTIFICATIONS_SECRET: this.secrets.hostNotificationsSecret,
+    }
+    const pythonBin = resolvePython3()
+    this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)
+    this.proc = spawn(
+      pythonBin,
+      [
+        '-m',
+        'core.core',
+        '--manifest',
+        MANIFEST_PATH,
+        '--host',
+        HOST,
+        '--port',
+        String(PORT),
+        '--audit-log',
+        CORE_AUDIT_FILE(),
+      ],
+      {
+        cwd: CORE_VENDOR_DIR,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    if (this.proc.pid !== undefined) {
+      writeFileSync(CORE_PID_FILE(), String(this.proc.pid))
+    }
+    this.proc.stdout?.pipe(this.logStream, { end: false })
+    this.proc.stderr?.pipe(this.logStream, { end: false })
+    this.proc.on('exit', (code, sig) => {
+      this.logStream?.write(`--- core exited code=${code} signal=${sig ?? ''} ---\n`)
+    })
+
+    const ok = await this.waitForHealth(HEALTH_TIMEOUT_MS)
+    if (!ok) {
+      // Pull whatever stderr we have buffered to surface in the error
+      // dialog. The log file always has the full output.
+      this.kill('SIGKILL')
+      throw new Error(
+        `Core failed to become healthy within ${HEALTH_TIMEOUT_MS / 1000}s. ` +
+          `Inspect ${CORE_LOG_FILE()} for the spawn output.`,
+      )
+    }
+  }
+
+  isOwnedSpawn(): boolean {
+    return this.proc !== null && this.proc.exitCode === null
+  }
+
+  async health(): Promise<boolean> {
+    return this.healthOnce()
+  }
+
+  private async healthOnce(): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.url}/v0/healthz`, {
+        signal: AbortSignal.timeout(1500),
+      })
+      return res.status === 200
+    } catch {
+      return false
+    }
+  }
+
+  private async waitForHealth(timeoutMs: number): Promise<boolean> {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      if (await this.healthOnce()) return true
+      if (this.proc?.exitCode !== null && this.proc?.exitCode !== undefined) {
+        // Core already exited; no point polling further.
+        return false
+      }
+      await new Promise((r) => setTimeout(r, HEALTH_POLL_INTERVAL_MS))
+    }
+    return false
+  }
+
+  async stop(): Promise<void> {
+    if (!this.proc) return
+    if (this.proc.exitCode !== null) {
+      this.proc = null
+      return
+    }
+    this.proc.kill('SIGTERM')
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        this.kill('SIGKILL')
+        resolve()
+      }, SHUTDOWN_GRACE_MS)
+      this.proc?.once('exit', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+    this.logStream?.end()
+    this.logStream = null
+    this.proc = null
+  }
+
+  private kill(sig: NodeJS.Signals): void {
+    try {
+      this.proc?.kill(sig)
+    } catch {
+      /* already gone */
+    }
+  }
+}

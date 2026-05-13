@@ -48,6 +48,16 @@ class Orchestrator:
         self._video_mode = video_mode
         self._pending_mode_change: str | None = None
 
+        # Echo-suppression: when we're playing audio out the speaker, the
+        # mac built-in mic picks it up and Gemini Live treats it as user
+        # speech — fires interrupted=true (cutting off the current turn)
+        # and then responds to the echo. _playback_until is a monotonic
+        # timestamp; the listen_audio loop drops mic chunks while
+        # time.monotonic() < _playback_until. Trade-off: no barge-in
+        # (user can't talk over Raven). Acceptable for week-1; a future
+        # PR can replace this with proper AEC or push-to-talk.
+        self._playback_until: float = 0.0
+
         # Queues
         self.audio_in_queue: asyncio.Queue | None = None
         self.out_queue: asyncio.Queue | None = None
@@ -158,12 +168,22 @@ class Orchestrator:
 
         kwargs = {"exception_on_overflow": False} if __debug__ else {}
         chunk_count = 0
+        muted_count = 0
 
         while True:
             data = await asyncio.to_thread(self._audio_stream.read, CHUNK_SIZE, **kwargs)
             chunk_count += 1
             if chunk_count % 100 == 0:
                 print(f"[AUDIO] Captured {chunk_count} audio chunks from microphone")
+            # Echo gate: drop mic chunks while we're playing audio. Without
+            # this, the speaker output feeds back into the mic, Gemini Live
+            # treats it as user input, generates a response, plays it,
+            # picks it up again — the cycling-response failure mode.
+            if time.monotonic() < self._playback_until:
+                muted_count += 1
+                if muted_count % 100 == 0 and not JsonLogger.is_enabled():
+                    print(f"[AUDIO] Muted {muted_count} mic chunks during playback")
+                continue
             await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
 
     async def handle_function_call_async(
@@ -309,11 +329,24 @@ class Orchestrator:
         print("[AUDIO] Audio output stream opened successfully")
 
         playback_count = 0
+        # 300ms grace covers speaker-to-mic acoustic propagation, PortAudio
+        # output-buffer latency, and a small margin so playback decay
+        # doesn't sneak past the gate.
+        ECHO_GRACE_S = 0.3
+        bytes_per_sample = 2  # 16-bit PCM
         while True:
             bytestream = await self.audio_in_queue.get()
             playback_count += 1
             if playback_count % 50 == 0:
                 print(f"[AUDIO] Played {playback_count} audio chunks to speakers")
+            # Extend the mic-mute window before writing — the chunk is
+            # about to hit the speaker, and the gate should already be
+            # closed by the time the sound reaches the mic.
+            chunk_seconds = len(bytestream) / bytes_per_sample / RECEIVE_SAMPLE_RATE
+            self._playback_until = max(
+                self._playback_until,
+                time.monotonic() + chunk_seconds + ECHO_GRACE_S,
+            )
             await asyncio.to_thread(stream.write, bytestream)
 
     def _get_frame(self, cap) -> dict[str, str] | None:

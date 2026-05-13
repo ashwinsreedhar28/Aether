@@ -153,6 +153,40 @@ export class RavenDaemonManager extends EventEmitter {
   }
 
   /**
+   * Run a bootstrap step with captured output. Mirrors stdio to the main
+   * process console (so the user can see progress in the `pnpm dev`
+   * terminal) and returns a `{ ok, summary }` tuple where summary carries
+   * enough detail to put in the availability reason on failure.
+   *
+   * Why capture instead of inherit: on failure we want the error in the
+   * voice-control pill, not just buried in console output. PATH-resolution
+   * failures (ENOENT) and non-zero exits both go through this path.
+   */
+  private runStep(
+    label: string,
+    cmd: string,
+    args: string[],
+    cwd: string
+  ): { ok: true } | { ok: false; summary: string } {
+    console.log(`[ravenDaemonManager] ${label}: ${cmd} ${args.join(' ')}`)
+    const r = spawnSync(cmd, args, { cwd, encoding: 'utf-8' })
+    if (r.stdout) process.stdout.write(r.stdout)
+    if (r.stderr) process.stderr.write(r.stderr)
+    if (r.error) {
+      const code = (r.error as NodeJS.ErrnoException).code
+      // ENOENT == executable not on PATH — most common failure mode when
+      // Electron is launched outside a login shell (nvm, asdf, etc.).
+      const detail = code === 'ENOENT' ? `${cmd} not found on PATH` : r.error.message
+      return { ok: false, summary: `${label}: ${detail}` }
+    }
+    if (r.status !== 0) {
+      const tail = (r.stderr || r.stdout || '').trim().split('\n').slice(-1)[0] || `exit ${r.status}`
+      return { ok: false, summary: `${label}: ${tail.slice(0, 140)}` }
+    }
+    return { ok: true }
+  }
+
+  /**
    * One-time bootstrap. Returns false if any step fails (and reason is set
    * on availability).
    *
@@ -160,55 +194,58 @@ export class RavenDaemonManager extends EventEmitter {
    * voice-control pill can show *what* the 30s first-boot is doing (per
    * PR #9 review). On success the caller flips availability to 'available'
    * once the daemon is healthy.
+   *
+   * Uses `pnpm` rather than `npm`: the repo's contract is pnpm (shell's
+   * package.json pins it via corepack), and Electron's spawned env may
+   * not include `npm` when Node is managed by nvm/asdf even though the
+   * parent process has it. `pnpm dev` working is the proof that `pnpm`
+   * is reachable.
    */
   private ensureBuilt(): boolean {
     const daemonDist = path.join(this.daemonDir, 'dist', 'index.js')
     const daemonModules = path.join(this.daemonDir, 'node_modules')
 
     if (!fs.existsSync(daemonModules)) {
-      console.log('[ravenDaemonManager] installing daemon node_modules — first launch')
       this.setAvailability({ kind: 'unavailable', reason: 'installing daemon deps…' })
-      const r = spawnSync('npm', ['install', '--no-audit', '--no-fund'], {
-        cwd: this.daemonDir,
-        stdio: 'inherit',
-      })
-      if (r.status !== 0) {
-        this.setAvailability({ kind: 'unavailable', reason: 'npm install failed in daemons/raven-daemon' })
+      const r = this.runStep(
+        'installing daemon deps',
+        'pnpm',
+        ['install', '--prefer-offline'],
+        this.daemonDir
+      )
+      if (!r.ok) {
+        this.setAvailability({ kind: 'unavailable', reason: r.summary })
         return false
       }
     }
 
     if (!fs.existsSync(daemonDist)) {
-      console.log('[ravenDaemonManager] building raven-daemon (tsc) — first launch')
       this.setAvailability({ kind: 'unavailable', reason: 'building daemon…' })
       const tsc = path.join(this.daemonDir, 'node_modules', '.bin', 'tsc')
-      const r = spawnSync(tsc, [], { cwd: this.daemonDir, stdio: 'inherit' })
-      if (r.status !== 0) {
-        this.setAvailability({ kind: 'unavailable', reason: 'tsc build failed in daemons/raven-daemon' })
+      const r = this.runStep('building daemon', tsc, [], this.daemonDir)
+      if (!r.ok) {
+        this.setAvailability({ kind: 'unavailable', reason: r.summary })
         return false
       }
     }
 
     const venvPython = path.join(this.coreDir, '.venv', 'bin', 'python')
     if (!fs.existsSync(venvPython)) {
-      console.log('[ravenDaemonManager] creating raven-core venv — first launch (~30s)')
       this.setAvailability({ kind: 'unavailable', reason: 'creating python venv…' })
-      const venv = spawnSync('python3', ['-m', 'venv', '.venv'], {
-        cwd: this.coreDir,
-        stdio: 'inherit',
-      })
-      if (venv.status !== 0) {
-        this.setAvailability({ kind: 'unavailable', reason: 'python3 -m venv failed (is python3 installed?)' })
+      const venv = this.runStep('creating venv', 'python3', ['-m', 'venv', '.venv'], this.coreDir)
+      if (!venv.ok) {
+        this.setAvailability({ kind: 'unavailable', reason: venv.summary })
         return false
       }
       this.setAvailability({ kind: 'unavailable', reason: 'installing python deps (~30s)…' })
-      const pip = spawnSync(
+      const pip = this.runStep(
+        'installing python deps',
         path.join(this.coreDir, '.venv', 'bin', 'pip'),
         ['install', '-q', '-r', 'requirements.txt'],
-        { cwd: this.coreDir, stdio: 'inherit' }
+        this.coreDir
       )
-      if (pip.status !== 0) {
-        this.setAvailability({ kind: 'unavailable', reason: 'pip install failed in daemons/raven-core' })
+      if (!pip.ok) {
+        this.setAvailability({ kind: 'unavailable', reason: pip.summary })
         return false
       }
     }

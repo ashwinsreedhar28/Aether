@@ -304,6 +304,7 @@ These are scars. Internalize them before they happen again.
 - **`visibilitychange` alone is wrong for tab-pause logic.** It misses window occlusion. Listen to `blur` and `focus` too, treat any-of-three as the canonical "active" signal.
 - **No `backdrop-blur` on viewport-filling overlays.** Composition cost is steep in packaged builds; works fine in dev but kills perceived performance in production. Use translucency via `rgba()` backgrounds instead.
 - **No `animation: ... infinite` CSS rules.** Permanent CSS animations cause visible jitter under macOS screen-sharing. Use `requestAnimationFrame`-driven `scrollLeft` for marquees and similar.
+- **`titleBarStyle: 'hiddenInset'` + custom top nav = traffic-light clash.** Hiding the title bar lets renderer content extend to the window's top edge, but macOS still draws the red/yellow/green window buttons in the top-left (~12–80px). Any UI element placed in that region (top nav, header bar) collides. Pad the left side of the top region by 80px on macOS, 0 elsewhere. Also make the empty padding region `-webkit-app-region: drag` so users can grab the top to move the window (hiddenInset disables the default dragging surface); per-button `-webkit-app-region: no-drag` keeps clicks working.
 
 ### Security / NEXUS lessons
 

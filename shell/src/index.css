@@ -19,3 +19,21 @@ body,
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
 }
+
+/* Holographic card hover glow. The class is reused across content apps
+ * (news today, more later). Tailwind 4 arbitrary-value syntax with CSS
+ * variables inside box-shadow is finicky; a plain CSS rule reads cleaner.
+ */
+.holo-card {
+  transition: box-shadow 0.2s ease;
+}
+.holo-card:hover {
+  box-shadow: 0 0 20px var(--holo-glow);
+}
+
+/* Nav button hover-text. Inactive buttons brighten on hover; active stays
+ * accent-coloured. Same reason as .holo-card — Tailwind hover utilities
+ * don't compose cleanly with CSS variables in colour values. */
+.holo-nav-btn[data-active='false']:hover {
+  color: var(--holo-text);
+}

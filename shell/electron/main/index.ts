@@ -158,18 +158,35 @@ ipcMain.handle('shell:metadata', () => {
 // Voice IPC — proxies to the raven daemon. The daemon-manager handles
 // bootstrap, spawn supervision, WS subscription, and graceful shutdown.
 // Renderer-facing surface is window.homeOS.voice (see preload/index.ts).
+//
+// Read-side handlers (status / recent-*) short-circuit to safe defaults
+// when the daemon isn't reachable. The renderer's useEffect fires these
+// on mount, well before the bootstrap finishes — without this guard we
+// flood the main process with ECONNREFUSED for every render until the
+// daemon is healthy.
 const raven = getRavenDaemonManager()
 
 ipcMain.handle('voice:availability', () => raven.getAvailability())
-ipcMain.handle('voice:status', () => raven.status())
+ipcMain.handle('voice:status', () => {
+  if (raven.getAvailability().kind !== 'available') {
+    return { status: 'stopped' as const }
+  }
+  return raven.status()
+})
 ipcMain.handle('voice:start', () => raven.listenStart())
 ipcMain.handle('voice:stop', () => raven.listenStop())
-ipcMain.handle('voice:recent-transcripts', (_e, limit?: number) =>
-  raven.transcripts(typeof limit === 'number' ? limit : 5)
-)
-ipcMain.handle('voice:recent-tool-calls', (_e, limit?: number) =>
-  raven.toolCalls(typeof limit === 'number' ? limit : 5)
-)
+ipcMain.handle('voice:recent-transcripts', (_e, limit?: number) => {
+  if (raven.getAvailability().kind !== 'available') {
+    return { transcripts: [] }
+  }
+  return raven.transcripts(typeof limit === 'number' ? limit : 5)
+})
+ipcMain.handle('voice:recent-tool-calls', (_e, limit?: number) => {
+  if (raven.getAvailability().kind !== 'available') {
+    return { toolCalls: [] }
+  }
+  return raven.toolCalls(typeof limit === 'number' ? limit : 5)
+})
 
 function broadcastToRenderers(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {

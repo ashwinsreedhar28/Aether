@@ -31,6 +31,23 @@ const HEALTH_POLL_INTERVAL_MS = 250
 const HEALTH_TIMEOUT_MS = 10_000
 const REQUEST_TIMEOUT_MS = 5_000
 
+/**
+ * Recursive newest mtime across a directory. Used to decide whether a
+ * built artefact (e.g. daemon's dist/index.js) is stale relative to its
+ * source tree. macOS dir-mtime only updates on entry add/remove, so we
+ * walk and stat each file.
+ */
+function newestMtime(dir: string): number {
+  let newest = 0
+  if (!fs.existsSync(dir)) return newest
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    const m = entry.isDirectory() ? newestMtime(full) : fs.statSync(full).mtimeMs
+    if (m > newest) newest = m
+  }
+  return newest
+}
+
 // Voice availability status reported to the renderer. Distinct from
 // RavenState — that's the Python child's lifecycle; this is whether the
 // daemon is reachable at all.
@@ -307,7 +324,14 @@ export class RavenDaemonManager extends EventEmitter {
       }
     }
 
-    if (!fs.existsSync(daemonDist)) {
+    // Rebuild the daemon when any source file in src/ is newer than the
+    // built dist/index.js. Without this, daemon code changes that ship
+    // in a pull-and-relaunch flow silently never take effect — dist is
+    // already on disk and ensureBuilt would skip tsc.
+    const daemonSrcDir = path.join(this.daemonDir, 'src')
+    const distMtime = fs.existsSync(daemonDist) ? fs.statSync(daemonDist).mtimeMs : 0
+    const srcMtime = newestMtime(daemonSrcDir)
+    if (!fs.existsSync(daemonDist) || srcMtime > distMtime) {
       this.setAvailability({ kind: 'unavailable', reason: 'building daemon…' })
       const tsc = path.join(this.daemonDir, 'node_modules', '.bin', 'tsc')
       const r = await this.runStep('building daemon', tsc, [], this.daemonDir)

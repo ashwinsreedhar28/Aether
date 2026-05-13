@@ -137,6 +137,7 @@ async function handleRequest(
     }
 
     if (pathname === '/listen/start' && method === 'POST') {
+      console.log('[daemon] POST /listen/start');
       await parseBody(req);
       const state = await ravenManager.start();
       sendJson(res, 200, state);
@@ -144,6 +145,9 @@ async function handleRequest(
     }
 
     if (pathname === '/listen/stop' && method === 'POST') {
+      console.log(
+        `[daemon] POST /listen/stop  (caller-ua=${req.headers['user-agent'] ?? 'n/a'})`
+      );
       const state = await ravenManager.stop();
       sendJson(res, 200, state);
       return;

@@ -139,6 +139,12 @@ export class RavenManager extends EventEmitter {
    * Stop the Python child. SIGTERM first, 5s grace, then SIGKILL.
    */
   async stop(): Promise<RavenState> {
+    // Diagnostic: log who's calling stop. Stack frames will show whether
+    // it's the HTTP handler, the daemon's shutdown signal handler, or
+    // something else. Remove once the spurious-SIGTERM mystery is solved.
+    const stack = new Error('stop()').stack?.split('\n').slice(1, 4).join(' | ');
+    console.log(`[RavenManager] stop() called — status=${this.state.status} pid=${this.process?.pid ?? 'none'} | ${stack}`);
+
     if (!this.process || this.state.status === 'stopped') {
       return this.state;
     }

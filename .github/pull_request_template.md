@@ -1,0 +1,42 @@
+<!--
+Fill out every section honestly. CLAUDE.md §7 — a PR without a filled
+template will be rejected at first review. Delete the HTML comments
+before submitting if you like; leaving them in is fine too.
+-->
+
+## What changed
+<!-- one paragraph — what's different about the codebase after this PR -->
+
+## Why
+<!-- one paragraph — the goal from the task spec, and how this PR meets it -->
+
+## How (high level)
+<!-- 2-4 bullets — the design decisions, not a file-by-file walkthrough -->
+
+## Risks / TODOs / Skipped
+<!--
+honest list. If you skipped tests, say so. If you used a workaround, say so.
+If something obviously-related-but-out-of-scope is now load-bearing, say so.
+The point is to make life easy for Architect's review.
+-->
+
+## Out-of-scope work explicitly avoided
+<!--
+list things you noticed could be improved but deliberately did not touch,
+with a one-line rationale each. Architect uses this to confirm scope
+discipline.
+-->
+
+## Pre-PR heuristics
+<!--
+Confirm you've considered each item in CLAUDE.md §11 Architect Review
+Heuristics. Note any that were skipped (with reason) or deliberately
+deviated from. "Considered" means thought about — most items will be N/A
+on most PRs, that's fine; the prompt is what matters.
+-->
+
+## Verification
+<!-- how you tested this — commands run, what you saw, screenshots if visual. -->
+
+## Open questions for Architect
+<!-- if any. Be specific. "Should X be Y or Z?" not "thoughts on X?". -->

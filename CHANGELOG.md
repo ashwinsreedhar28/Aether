@@ -8,6 +8,10 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- GitHub Actions CI runs typecheck/lint/build on every PR. PR template
+  auto-fills §7 self-review. Branch protection documented in
+  `docs/BRANCH_PROTECTION.md`.
+
 ### Changed
 
 - Workflow refactor: Architect↔Implementer reviews now ride on PR

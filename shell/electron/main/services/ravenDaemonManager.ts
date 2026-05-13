@@ -153,6 +153,50 @@ export class RavenDaemonManager extends EventEmitter {
   }
 
   /**
+   * Cache of resolved binary paths (e.g. pnpm, python3). Resolved via
+   * a login+interactive shell so user rc-file PATH additions
+   * (Homebrew shellenv in ~/.zprofile, corepack shims in ~/.zshrc,
+   * nvm in ~/.nvm/nvm.sh) are honoured. Without this, an Electron
+   * main process spawned via `pnpm dev` on macOS frequently sees an
+   * impoverished PATH that lacks the very `pnpm` that launched it.
+   */
+  private binCache = new Map<string, string>()
+
+  private resolveBin(name: string): string {
+    const cached = this.binCache.get(name)
+    if (cached) return cached
+
+    // Fast path: bare name works (PATH already contains it).
+    const direct = spawnSync(name, ['--version'], { encoding: 'utf-8' })
+    if (!direct.error && direct.status === 0) {
+      this.binCache.set(name, name)
+      return name
+    }
+
+    // Slow path: ask the user's default interactive login shell to
+    // resolve it. zsh is the macOS default; honour $SHELL if set so a
+    // bash user gets bash. -l sources zprofile, -i sources zshrc.
+    const userShell = process.env.SHELL || '/bin/zsh'
+    const probe = spawnSync(userShell, ['-lic', `command -v ${name}`], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    if (probe.status === 0 && probe.stdout) {
+      // rc files sometimes print banners — take the last non-empty line.
+      const resolved = probe.stdout.trim().split('\n').filter(Boolean).pop()
+      if (resolved && fs.existsSync(resolved)) {
+        console.log(`[ravenDaemonManager] resolved ${name} → ${resolved} via ${userShell} -lic`)
+        this.binCache.set(name, resolved)
+        return resolved
+      }
+    }
+
+    // Fall back to the bare name; the eventual spawn will ENOENT and
+    // runStep will produce a clear error in the pill.
+    return name
+  }
+
+  /**
    * Run a bootstrap step with captured output. Mirrors stdio to the main
    * process console (so the user can see progress in the `pnpm dev`
    * terminal) and returns a `{ ok, summary }` tuple where summary carries
@@ -209,7 +253,7 @@ export class RavenDaemonManager extends EventEmitter {
       this.setAvailability({ kind: 'unavailable', reason: 'installing daemon deps…' })
       const r = this.runStep(
         'installing daemon deps',
-        'pnpm',
+        this.resolveBin('pnpm'),
         ['install', '--prefer-offline'],
         this.daemonDir
       )
@@ -232,7 +276,12 @@ export class RavenDaemonManager extends EventEmitter {
     const venvPython = path.join(this.coreDir, '.venv', 'bin', 'python')
     if (!fs.existsSync(venvPython)) {
       this.setAvailability({ kind: 'unavailable', reason: 'creating python venv…' })
-      const venv = this.runStep('creating venv', 'python3', ['-m', 'venv', '.venv'], this.coreDir)
+      const venv = this.runStep(
+        'creating venv',
+        this.resolveBin('python3'),
+        ['-m', 'venv', '.venv'],
+        this.coreDir
+      )
       if (!venv.ok) {
         this.setAvailability({ kind: 'unavailable', reason: venv.summary })
         return false

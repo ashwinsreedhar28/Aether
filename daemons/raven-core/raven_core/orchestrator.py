@@ -99,9 +99,20 @@ class Orchestrator:
                 print(f"[ORCHESTRATOR] Visual mode change requested: {self._video_mode} -> {mode}")
 
     async def send_text(self) -> None:
-        """Handle text input from console (for testing)."""
+        """
+        Handle text input from console. The daemon sends 'q\\n' on stdin to
+        request a graceful shutdown; outside daemon mode this is a CLI
+        prompt for ad-hoc text turns. The prompt is suppressed when JSON
+        logging is enabled because writing "message > " (no newline) to
+        stdout pollutes every subsequent print on the same line — most
+        notably the JSON status events emitted by JsonLogger, which then
+        fail JSON.parse on the Node daemon side and silently drop status
+        transitions (e.g. starting -> running). Discovered in PR #9 live
+        test, where the voice-control pill never flipped to "listening".
+        """
+        prompt = "" if JsonLogger.is_enabled() else "message > "
         while True:
-            text = await asyncio.to_thread(input, "message > ")
+            text = await asyncio.to_thread(input, prompt)
             if text.lower() == "q":
                 break
             await self.session.send(input=text or ".", end_of_turn=True)

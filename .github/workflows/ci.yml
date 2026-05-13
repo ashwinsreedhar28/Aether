@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (saves minutes when pushes land
+# quickly during a review round).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout (no submodules — _ingest/ not needed for CI)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Setup Node 20.10
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.10'
+
+      - name: Enable corepack + activate pnpm@9.15.0
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.0 --activate
+
+      - name: shell — install
+        working-directory: shell
+        run: pnpm install --frozen-lockfile
+
+      - name: shell — typecheck
+        working-directory: shell
+        run: pnpm typecheck
+
+      - name: shell — lint
+        working-directory: shell
+        run: pnpm lint
+
+      - name: shell — build
+        working-directory: shell
+        run: pnpm build
+
+      # Forward-tolerant: core/node_sdk_ts may not exist yet. When Lane 1
+      # adds it, this step lights up automatically.
+      - name: core/node_sdk_ts — install
+        if: hashFiles('core/node_sdk_ts/package.json') != ''
+        working-directory: core/node_sdk_ts
+        run: pnpm install --frozen-lockfile
+
+      - name: core/node_sdk_ts — typecheck
+        if: hashFiles('core/node_sdk_ts/package.json') != ''
+        working-directory: core/node_sdk_ts
+        run: pnpm typecheck
+
+      - name: core/node_sdk_ts — test
+        if: hashFiles('core/node_sdk_ts/package.json') != ''
+        working-directory: core/node_sdk_ts
+        run: pnpm test

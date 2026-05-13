@@ -18,6 +18,9 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
   (no consumers wired yet).
 - Preload gains `window.homeOS.files` surface (`openDialog`, `readText`
   with 1 MiB cap and home/userData/downloads/temp allowlist guard).
+- GitHub Actions CI runs typecheck/lint/build on every PR. PR template
+  auto-fills §7 self-review. Branch protection documented in
+  `docs/BRANCH_PROTECTION.md`.
 
 ### Changed
 

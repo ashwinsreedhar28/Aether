@@ -302,3 +302,57 @@ retrofitting four apps later.
 - *Narrow allowlist (home + userData only)* — rejected per the task
   spec's open question: `/tmp` and `~/Downloads` are normal user-pick
   locations. Allowlist is now home + userData + downloads + temp.
+
+---
+
+## [2026-05-12] CI infrastructure: GitHub Actions for trivial checks, manual branch protection for policy enforcement
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Director described a "pipeline of constant reviewing" —
+PRs #1–#5 had Claude Code running `pnpm typecheck`, `pnpm lint`, and
+`pnpm build` manually for every PR, and Architect chasing the output
+during review. That's wasteful when a CI runner does it for free on
+every push. Separately, CLAUDE.md §5 says "you never push to `main`
+directly" — currently a convention, not enforced. GitHub branch
+protection rules are the standard mechanism for mechanical
+enforcement, but they are not repo-file configurable (no YAML in the
+repo can set them — the rules live in repo settings, set via UI or
+the GitHub API).
+**Decision:** Two pieces, shipping together:
+- GitHub Actions for the automated runs. Single workflow
+  (`.github/workflows/ci.yml`), single job `checks`, steps for
+  `shell/` install + typecheck + lint + build. A conditional
+  `core/node_sdk_ts/` block lights up automatically once Lane 1 adds
+  that package.
+- Branch protection rules configured **manually** through the GitHub
+  UI per `docs/BRANCH_PROTECTION.md`. The doc captures the exact
+  settings (require PR, require `checks` green, no force push, no
+  bypass even for admins) so reproduction is one pass.
+**Consequences:**
+- Every PR gets auto-checked from open onward; failing checks block
+  merge once branch protection is on. Architect review concentrates
+  on design, not "did typecheck pass."
+- Adding a future package under `core/` or elsewhere requires
+  extending the workflow (additive — name new steps clearly to keep
+  the file readable).
+- Branch protection setup is a one-time Director action, not in
+  Claude Code's scope. Documented in `docs/BRANCH_PROTECTION.md` so
+  it's reproducible across machines / future repos.
+- PR template (`.github/pull_request_template.md`) auto-fills CLAUDE.md
+  §7's self-review structure on every new PR — fewer "you forgot the
+  template" review rounds.
+**Alternatives considered:**
+- *Pre-commit hooks (husky / lefthook)* — rejected: easy to bypass
+  with `git commit --no-verify`, runs only on the contributor's
+  machine, and doesn't catch on the canonical branch. CI on the
+  remote is the right enforcement boundary.
+- *CircleCI / other runners* — rejected: GitHub Actions is free for
+  this repo's tier and we're already on GitHub. No reason to add a
+  second vendor.
+- *Setting branch protection from a workflow* — rejected as
+  impossible: GitHub branch protection rules cannot be configured by
+  a repo file (the protection settings live in repo metadata, not
+  source). The closest options (a workflow that calls the GitHub API
+  on every push) introduce a chicken-and-egg problem and are worse
+  than a five-minute UI setup.

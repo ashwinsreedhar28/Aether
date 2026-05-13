@@ -82,3 +82,21 @@ File: `shell/src/theme/holographic.css` carries the attribution comment.
 - *Derive a fresh palette from scratch* — rejected as week-1 over-investment;
   VIEWER's values are already polished.
 - *Use Tailwind defaults only* — rejected; reads as "dev tool", not "Jarvis."
+
+---
+
+## [2026-05-12] Tray click behaviour deferred until background mode
+
+**Status:** accepted
+**Decided by:** Architect
+**Context:** PR #1 ships a tray icon whose click handler currently re-opens
+the welcome window. Because window-all-closed quits the app in week 1, a
+tray click after window close is effectively startup.
+**Decision:** Leave current behaviour as-is for v0.0.x. When a future PR
+introduces "background mode" (app survives all windows closed), tray click
+must change to focus-or-reopen-without-restart semantics rather than full
+process restart.
+**Consequences:** A small tray-handler refactor when background mode lands.
+Flagged here so it's not forgotten.
+**Alternatives considered:** Implementing background mode in this PR —
+rejected as out of scope per CLAUDE.md §11 DON'T list.

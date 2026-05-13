@@ -317,7 +317,14 @@ export class RavenDaemonManager extends EventEmitter {
       }
     }
 
+    // venv + pip step. Gate the pip install on a marker file rather than
+    // venvPython existence — a prior failed install (e.g. pyaudio crashed
+    // pre-portaudio) leaves a half-populated venv where Python exists but
+    // the requirements are missing. Without the marker we'd skip pip and
+    // hand the daemon a Python child that crashes on `import pyaudio`.
     const venvPython = path.join(this.coreDir, '.venv', 'bin', 'python')
+    const reqsMarker = path.join(this.coreDir, '.venv', '.requirements-installed')
+
     if (!fs.existsSync(venvPython)) {
       this.setAvailability({ kind: 'unavailable', reason: 'creating python venv…' })
       const venv = await this.runStep(
@@ -330,6 +337,9 @@ export class RavenDaemonManager extends EventEmitter {
         this.setAvailability({ kind: 'unavailable', reason: venv.summary })
         return false
       }
+    }
+
+    if (!fs.existsSync(reqsMarker)) {
       this.setAvailability({ kind: 'unavailable', reason: 'installing python deps (~30s)…' })
       const pip = await this.runStep(
         'installing python deps',
@@ -352,6 +362,10 @@ export class RavenDaemonManager extends EventEmitter {
         this.setAvailability({ kind: 'unavailable', reason })
         return false
       }
+      // Pip succeeded — drop the marker so subsequent launches skip this
+      // step. If requirements.txt changes meaningfully, delete this file
+      // or the whole .venv to force a re-install.
+      fs.writeFileSync(reqsMarker, new Date().toISOString())
     }
 
     return true

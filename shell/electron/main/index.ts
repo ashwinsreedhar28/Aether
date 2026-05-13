@@ -7,6 +7,7 @@ import {
   isCoreHealthy,
   getCoreUrl,
 } from './services/mesh'
+import { registerFileHandlers } from './handlers/files'
 
 // Resolved relative to the compiled main entry at out/main/index.js.
 // Resources sit at the project root under shell/resources/.
@@ -185,6 +186,7 @@ app.whenReady().then(async () => {
     app.exit(1)
     return
   }
+  registerFileHandlers()
   splashWindow = createSplash()
   mainWindow = createMain()
   createTray()

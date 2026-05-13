@@ -36,6 +36,33 @@ export interface MeshStatus {
   coreHealthy: boolean
 }
 
+interface FileFilter {
+  name: string
+  extensions: string[]
+}
+
+interface OpenDialogOptions {
+  filters?: FileFilter[]
+}
+
+const files = {
+  /**
+   * Native open-file dialog. Returns the absolute path of the chosen file,
+   * or null if the user cancelled. `filters` is the standard Electron
+   * dialog filter shape (extensions without leading dot).
+   */
+  openDialog: (opts: OpenDialogOptions = {}): Promise<string | null> =>
+    ipcRenderer.invoke('files:openDialog', opts),
+  /**
+   * UTF-8 read of an absolute path. Rejects if the path is outside the
+   * allowed roots (home / userData / downloads / temp), is not a regular
+   * file, or exceeds the 1 MiB cap. Errors carry descriptive messages —
+   * callers should surface them.
+   */
+  readText: (path: string): Promise<string> =>
+    ipcRenderer.invoke('files:readText', path)
+}
+
 const api = {
   signalReady: (): void => {
     ipcRenderer.send('shell:renderer-ready')
@@ -55,6 +82,7 @@ const api = {
     ): Promise<MeshInvokeResult> => ipcRenderer.invoke('mesh:invoke', target, payload),
     status: (): Promise<MeshStatus> => ipcRenderer.invoke('mesh:status'),
   },
+  files
 }
 
 contextBridge.exposeInMainWorld('homeOS', api)

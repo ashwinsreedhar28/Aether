@@ -50,6 +50,23 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
   `core/node_sdk_ts/`, and `nodes/*` siblings of a single pnpm
   workspace. `pnpm dev` and `pnpm build` from `shell/` now pre-build
   the SDK + host_notifications via a `predev`/`prebuild` hook.
+- `.env.local.example` at repo root documents the env vars the
+  substrate recognises (`MESH_PYTHON`, `MESH_CORE_URL`) — copy to
+  `.env.local` (gitignored) and export from your shell rc to
+  short-circuit the 50-200ms login-shell python3 lookup.
+- Markdown app (`shell/src/apps/markdown/`, order: 70, icon: `FileText`):
+  opens `.md` / `.markdown` files via native dialog, renders with
+  `react-markdown` + `remark-gfm` + holographic-tinted styles. Bundled
+  About page on first launch.
+- `AppDefinition` gains optional `fileTypes: string[]` and
+  `iconForFile?: (path) => string` for file-based apps. App registry
+  gains `getAppsForFileType(ext)` helper for future file-route routing
+  (no consumers wired yet).
+- Preload gains `window.homeOS.files` surface (`openDialog`, `readText`
+  with 1 MiB cap and home/userData/downloads/temp allowlist guard).
+- GitHub Actions CI runs typecheck/lint/build on every PR. PR template
+  auto-fills §7 self-review. Branch protection documented in
+  `docs/BRANCH_PROTECTION.md`.
 
 ### Changed
 

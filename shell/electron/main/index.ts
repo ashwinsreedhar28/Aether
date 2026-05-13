@@ -1,5 +1,14 @@
-import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell, dialog } from 'electron'
 import { join } from 'node:path'
+import {
+  startMesh,
+  stopMesh,
+  meshInvoke,
+  isCoreHealthy,
+  getCoreUrl,
+  getMeshState,
+} from './services/mesh'
+import { registerFileHandlers } from './handlers/files'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 
 // Resolved relative to the compiled main entry at out/main/index.js.
@@ -14,6 +23,8 @@ const isDev = !app.isPackaged
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let quitInFlight = false
+let cleanedUp = false
 
 // Renderer-ready signal. The splash holds until the main renderer signals
 // mount (or a 2.5s watchdog fires) — lifted from Pulse's main/index.ts
@@ -155,15 +166,30 @@ ipcMain.handle('shell:metadata', () => {
   }
 })
 
+// Mesh IPC. Renderer-facing surface is window.homeOS.mesh in preload.
+// The renderer never holds a signing secret; main owns the shell's MeshNode.
+ipcMain.handle('mesh:invoke', async (_e, target: string, payload: Record<string, unknown>) => {
+  return meshInvoke(target, payload)
+})
+
+ipcMain.handle('mesh:status', async () => {
+  const ms = getMeshState()
+  return {
+    coreUrl: getCoreUrl(),
+    coreHealthy: await isCoreHealthy(),
+    state: ms.state,
+    error: ms.error,
+  }
+})
+
 // Voice IPC — proxies to the raven daemon. The daemon-manager handles
 // bootstrap, spawn supervision, WS subscription, and graceful shutdown.
-// Renderer-facing surface is window.homeOS.voice (see preload/index.ts).
+// Renderer-facing surface is window.homeOS.voice in preload.
 //
 // Read-side handlers (status / recent-*) short-circuit to safe defaults
 // when the daemon isn't reachable. The renderer's useEffect fires these
 // on mount, well before the bootstrap finishes — without this guard we
-// flood the main process with ECONNREFUSED for every render until the
-// daemon is healthy.
+// flood main with ECONNREFUSED for every render until the daemon is up.
 const raven = getRavenDaemonManager()
 
 ipcMain.handle('voice:availability', () => raven.getAvailability())
@@ -200,17 +226,36 @@ raven.on('status', (state) => broadcastToRenderers('voice:status-changed', state
 raven.on('transcript', (entry) => broadcastToRenderers('voice:transcript', entry))
 raven.on('toolCall', (entry) => broadcastToRenderers('voice:tool-call', entry))
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
+  // Splash + main + tray created immediately so the reveal sequence stays
+  // on PR #1's tested timing (splash → renderer-ready signal → destroy
+  // splash → 180ms settle → show main). Both subsystem boots (mesh +
+  // voice) are OFF this critical path; their respective status surfaces
+  // (Mesh Dev Tools pill, Voice pill) flip when each becomes healthy.
+  registerFileHandlers()
   splashWindow = createSplash()
   mainWindow = createMain()
   createTray()
 
-  // Boot voice in parallel with the splash → reveal sequence. ensureRunning
-  // resolves once the daemon is healthy OR the 10s timeout fires. We
-  // deliberately don't await this in the reveal critical path: voice is
-  // opt-in, and on first launch the venv install is ~30s which would freeze
-  // the splash. The renderer paints with voice:offline and flips to
-  // voice:ready when the availability event fires.
+  void revealMain()
+
+  // Subsystem boot order: mesh first (load-bearing for mesh-dependent
+  // apps — Mesh, eventually anything routed through manifest), then
+  // voice (degrades gracefully — Voice pill goes red with a reason if
+  // the daemon can't start; rest of the shell is unaffected).
+  startMesh().catch((err) => {
+    const message = (err as Error).message ?? String(err)
+    dialog.showErrorBox(
+      'homeOS — mesh failed to start',
+      `The mesh substrate could not start. Mesh-dependent features will be unavailable until you restart.\n\n${message}`,
+    )
+  })
+
+  // Voice is opt-in. ensureRunning resolves once the daemon is healthy
+  // OR the bootstrap times out. First launch is ~30s on a clean checkout
+  // for the Python venv + pip install; bootstrap is async so the main
+  // thread stays responsive (every other app remains usable while voice
+  // initialises in the background).
   void raven
     .ensureRunning()
     .then((avail) => {
@@ -221,25 +266,59 @@ app.whenReady().then(async () => {
       }
     })
     .catch((err) => {
-      console.error('[homeOS] ensureRunning threw:', err)
+      console.error('[homeOS] raven ensureRunning threw:', err)
     })
-
-  void revealMain()
 })
 
-// Clean shutdown — SIGTERM the daemon before quit so audio devices are
-// released and no orphan Python child is left behind.
-app.on('before-quit', async (event) => {
-  if (raven.getAvailability().kind === 'available') {
-    event.preventDefault()
-    try {
-      await raven.stop()
-    } catch (err) {
-      console.error('[homeOS] raven.stop() failed:', err)
+// Clean shutdown. before-quit fires on user-initiated quits AND on
+// window-all-closed quits (since 'window-all-closed' calls app.quit()).
+// Pattern matches the Architect's spec: preventDefault → await cleanup →
+// flip cleanedUp → call app.quit() again. The second before-quit returns
+// early without preventDefault, and Electron's quit sequence proceeds
+// (will-quit → quit → exit) with the children already reaped.
+//
+// Both mesh and voice children get SIGTERM'd in parallel via
+// Promise.allSettled. Sequential stop took up to 12s worst-case (long
+// enough to risk Electron's quit timeout firing) — parallel keeps worst-
+// case bounded by the slower of the two cleanups.
+async function stopAllChildren(): Promise<void> {
+  const results = await Promise.allSettled([
+    stopMesh(),
+    raven.stop(),
+  ])
+  for (const r of results) {
+    if (r.status === 'rejected') {
+      console.warn('[homeOS] child cleanup rejected:', r.reason)
     }
-    app.exit(0)
   }
+}
+
+app.on('before-quit', (event) => {
+  if (cleanedUp) return
+  event.preventDefault()
+  if (quitInFlight) return
+  quitInFlight = true
+  void (async () => {
+    await stopAllChildren()
+    cleanedUp = true
+    app.quit()
+  })()
 })
+
+// Belt-and-braces for direct kill signals (Ctrl-C from a terminal that
+// launched the shell, or a wrapper sending SIGTERM). before-quit doesn't
+// fire on these; without an explicit handler, the children would orphan.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.on(sig, () => {
+    if (cleanedUp) return
+    void (async () => {
+      await stopAllChildren()
+      cleanedUp = true
+      app.exit(0)
+    })()
+  })
+}
+
 
 // Week-1 behaviour per CLAUDE.md §11: closing the only window quits the app
 // on every platform. Once homeOS earns a "background mode" (substrate

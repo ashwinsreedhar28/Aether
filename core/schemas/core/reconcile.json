@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "core.reconcile",
+  "description": "Input payload for core.reconcile. No fields; spawn missing manifest nodes, stop extras.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

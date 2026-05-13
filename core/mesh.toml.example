@@ -1,0 +1,54 @@
+# RAVEN Mesh — sample Core configuration.
+#
+# Copy to mesh.toml in the same directory you run Core from (or pass via
+# --config / $MESH_CONFIG) and uncomment the values you want to override.
+# Every value below is the built-in default — an empty mesh.toml is identical
+# to no mesh.toml at all.
+#
+# Precedence (highest wins):
+#   1. CLI flag        (e.g. --port 9000)
+#   2. Environment var (e.g. MESH_PORT=9000)
+#   3. This file
+#   4. Built-in default
+#
+# Secrets are NEVER read from this file:
+#   - ADMIN_TOKEN              — env var only, required at boot
+#   - per-node identity_secret — env:VAR_NAME pattern in the manifest yaml
+#
+# Run `python3 -m core.core --dump-config` to see exactly what Core resolved
+# and where each value came from.
+
+[server]
+# Bind address for Core's HTTP listener.
+host = "127.0.0.1"
+# TCP port.
+port = 8000
+# Manifest yaml describing nodes, surfaces, and relationships.
+manifest_path = "manifests/demo.yaml"
+# Synchronous-invocation timeout (seconds) before /v0/invoke gives up.
+invoke_timeout_s = 30
+
+[admin]
+# /v0/admin/* token-bucket fill rate (tokens per minute).
+rate_limit = 60
+# /v0/admin/* token-bucket capacity (burst allowance).
+rate_burst = 20
+# admin_token is NEVER set here — export ADMIN_TOKEN in the environment.
+
+[security]
+# HMAC envelope freshness window (seconds). Bounded [5, 300] in code; values
+# outside that range are clamped at load time with a warning.
+replay_window_s = 60
+
+[supervisor]
+# When true, Core owns node process lifecycle (spawn/stop/restart/reconcile).
+# When false, an external runner (e.g. scripts/run_mesh.sh) owns processes.
+enabled = false
+# Directory for per-node stdout/stderr logs when supervisor is enabled.
+log_dir = ".logs"
+# When true (and supervisor is enabled), spawn every manifest node at startup.
+auto_reconcile = false
+
+[logging]
+# JSON-per-line audit log path. Created on first write.
+audit_log_path = "audit.log"

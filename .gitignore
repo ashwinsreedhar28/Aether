@@ -22,6 +22,11 @@ data/
 *.db
 *.db-journal
 
+# Python bytecode (Core is Python; running it locally creates __pycache__)
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Editor / OS
 .vscode/
 .idea/

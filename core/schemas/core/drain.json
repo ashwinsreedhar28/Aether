@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "core.drain",
+  "description": "Input payload for core.drain. Stop accepting new work for a child, wait for in-flight to finish, then SIGTERM.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["node_id"],
+  "properties": {
+    "node_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Manifest-declared node id to drain."
+    },
+    "timeout": {
+      "type": "number",
+      "minimum": 0,
+      "default": 30.0,
+      "description": "Seconds to wait for in-flight work to drain before SIGTERM."
+    }
+  }
+}

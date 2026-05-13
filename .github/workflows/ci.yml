@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (saves minutes when pushes land
+# quickly during a review round).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout (no submodules — _ingest/ not needed for CI)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Setup Node 20.10
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.10'
+
+      - name: Enable corepack + activate pnpm@9.15.0
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.0 --activate
+
+      # Workspace install from repo root. pnpm-workspace.yaml lists
+      # shell/, core/node_sdk_ts/, and nodes/*; one install wires
+      # symlinks for all three packages.
+      - name: workspace — install
+        run: pnpm install --frozen-lockfile
+
+      # @homeos/mesh-node-sdk publishes types via dist/. shell + nodes
+      # consumers can't typecheck against the workspace alias until
+      # dist exists. Same for host_notifications (the shell spawns its
+      # compiled JS at runtime; building it now is the cheapest way to
+      # verify it still compiles).
+      - name: workspace — pre-build workspace packages
+        run: |
+          pnpm --filter @homeos/mesh-node-sdk build
+          pnpm --filter @homeos/host-notifications build
+
+      - name: workspace — typecheck
+        run: pnpm -r typecheck
+
+      - name: workspace — lint
+        run: pnpm -r lint
+
+      # The SDK's round-trip vitest spawns Python Core. CI installs the
+      # three Core deps; the test self-skips if any are missing, but on
+      # the runner we want it to actually run.
+      - name: core — install Python deps for round-trip test
+        run: python3 -m pip install --quiet aiohttp pyyaml jsonschema
+
+      - name: core/node_sdk_ts — round-trip test
+        run: pnpm --filter @homeos/mesh-node-sdk test
+
+      # Full shell build proves electron-vite renders main / preload /
+      # renderer with the workspace deps wired correctly.
+      - name: shell — build
+        run: pnpm --filter homeos-shell build

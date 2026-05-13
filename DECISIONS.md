@@ -241,20 +241,218 @@ pre-PR — every one a saveable round-trip.
 
 ---
 
+## [2026-05-12] File-based apps pattern: `fileTypes` on `AppDefinition`, `fileApi` on preload
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** `MASTER_SYNTHESIS.md §1.4` establishes file-as-source-of-truth
+as a doctrine homeOS inherits from VIEWER — content apps shouldn't own their
+data, they should render files on disk. The previous app-discovery ADR
+explicitly deferred this ("no `fileTypes` — week 1 has no file-based apps")
+because the markdown viewer hadn't landed. It now has, and future content
+apps (JSON viewer, ticker `.csv` view, PDF reader, the morning-brief
+output) all want the same shape. Doing this once, now, is cheaper than
+retrofitting four apps later.
+**Decision:**
+- Extend `AppDefinition` with `fileTypes?: string[]` (lowercase extensions
+  without leading dot, e.g. `['md', 'markdown']`) and a forward-looking
+  `iconForFile?: (path) => string` (per-file icon override; no consumer
+  reads it yet but file-based apps can declare it now).
+- Add `getAppsForFileType(ext): AppDefinition[]` to `app-registry.ts`,
+  sorted by `order` so the first entry is the eventual default
+  renderer. Case-insensitive, leading-dot tolerated.
+- Expose a `window.homeOS.files` namespace on the preload:
+  - `openDialog({ filters? }): Promise<string | null>` — native open-file
+    dialog, returns absolute path or null on cancel.
+  - `readText(path): Promise<string>` — UTF-8 read with a 1 MiB cap
+    (stat-then-read so oversized files reject precisely instead of
+    OOMing), enforcing an allowlist of `os.homedir()`, `app.getPath('userData')`,
+    `app.getPath('downloads')`, `app.getPath('temp')`. Path resolved with
+    `path.resolve` and prefix-checked with `sep` boundary to defeat
+    `..` segments and sibling-prefix tricks.
+- No file-router consumer wired yet. The helper exists so the future file
+  explorer / drag-drop surface needs no app-side change to route opens.
+**Consequences:**
+- Any future file-based app declares its `fileTypes` and uses the same
+  `homeOS.files` surface — no per-app IPC.
+- The 1 MiB cap is the renderer's load-bearing contract. Larger files
+  need a lazy/virtualised rendering layer (future PR) before the cap
+  raises.
+- The dialog acts as the trust boundary for user-chosen files; the
+  allowlist is the defence-in-depth against direct `readText` calls
+  (DevTools console, future buggy callers). The Open Question in the
+  task spec is resolved in favour of the broader allowlist
+  (home + userData + downloads + temp) rather than the narrower
+  home-only variant — `/tmp` and `~/Downloads` are normal places to
+  drop a markdown file.
+- Renderer bundle grew from ~250 KB to ~953 KB (react-markdown +
+  unified + remark-gfm). Code-split deferred deliberately: parse/exec
+  is <100 ms on M-series from local disk, and a `React.lazy` boundary
+  needs holographic loading-state design that isn't worth picking up
+  now. Revisit as a single dep-audit / code-split PR at ~3 MB total
+  or if first-paint feels slow (whichever comes first); voice (Lane 3)
+  is the next likely weight bump.
+**Alternatives considered:**
+- *File-explorer-as-router* (the router resolves extensions at open
+  time and ignores `fileTypes` on apps) — rejected: premature without
+  an explorer, and apps still need to advertise what they can render.
+- *Hardcoded routing per-app* (no `fileTypes`, file explorer maintains
+  its own map) — rejected: doesn't scale past three apps, and forks
+  ownership of the mapping out of the app folder.
+- *Narrow allowlist (home + userData only)* — rejected per the task
+  spec's open question: `/tmp` and `~/Downloads` are normal user-pick
+  locations. Allowlist is now home + userData + downloads + temp.
+
+---
+
+## [2026-05-12] CI infrastructure: GitHub Actions for trivial checks, manual branch protection for policy enforcement
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Director described a "pipeline of constant reviewing" —
+PRs #1–#5 had Claude Code running `pnpm typecheck`, `pnpm lint`, and
+`pnpm build` manually for every PR, and Architect chasing the output
+during review. That's wasteful when a CI runner does it for free on
+every push. Separately, CLAUDE.md §5 says "you never push to `main`
+directly" — currently a convention, not enforced. GitHub branch
+protection rules are the standard mechanism for mechanical
+enforcement, but they are not repo-file configurable (no YAML in the
+repo can set them — the rules live in repo settings, set via UI or
+the GitHub API).
+**Decision:** Two pieces, shipping together:
+- GitHub Actions for the automated runs. Single workflow
+  (`.github/workflows/ci.yml`), single job `checks`, steps for
+  `shell/` install + typecheck + lint + build. A conditional
+  `core/node_sdk_ts/` block lights up automatically once Lane 1 adds
+  that package.
+- Branch protection rules configured **manually** through the GitHub
+  UI per `docs/BRANCH_PROTECTION.md`. The doc captures the exact
+  settings (require PR, require `checks` green, no force push, no
+  bypass even for admins) so reproduction is one pass.
+**Consequences:**
+- Every PR gets auto-checked from open onward; failing checks block
+  merge once branch protection is on. Architect review concentrates
+  on design, not "did typecheck pass."
+- Adding a future package under `core/` or elsewhere requires
+  extending the workflow (additive — name new steps clearly to keep
+  the file readable).
+- Branch protection setup is a one-time Director action, not in
+  Claude Code's scope. Documented in `docs/BRANCH_PROTECTION.md` so
+  it's reproducible across machines / future repos.
+- PR template (`.github/pull_request_template.md`) auto-fills CLAUDE.md
+  §7's self-review structure on every new PR — fewer "you forgot the
+  template" review rounds.
+**Alternatives considered:**
+- *Pre-commit hooks (husky / lefthook)* — rejected: easy to bypass
+  with `git commit --no-verify`, runs only on the contributor's
+  machine, and doesn't catch on the canonical branch. CI on the
+  remote is the right enforcement boundary.
+- *CircleCI / other runners* — rejected: GitHub Actions is free for
+  this repo's tier and we're already on GitHub. No reason to add a
+  second vendor.
+- *Setting branch protection from a workflow* — rejected as
+  impossible: GitHub branch protection rules cannot be configured by
+  a repo file (the protection settings live in repo metadata, not
+  source). The closest options (a workflow that calls the GitHub API
+  on every push) introduce a chicken-and-egg problem and are worse
+  than a five-minute UI setup.
+
+---
+
+## [2026-05-12] Mesh awakened: minimum end-to-end skeleton
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** The shell now has multiple surfaces (Welcome / News / Mesh)
+and the next wave of capabilities — real data feeds, voice, agents —
+each need permissioned IPC. The top-down strategy from PR #1's ADR
+deferred the mesh until "Day 5+ once there are actually multiple things
+to connect." That bar is met. RAVEN_MESH's edge-graph authorization
+(manifest line ⇒ permitted; no line ⇒ denied — `MASTER_SYNTHESIS.md §1.2`,
+`_ingest/RAVEN_MESH/docs/PHILOSOPHY.md §1`) is the load-bearing primitive
+every future capability will sit on; waking it now with one trivial node
+end-to-end proves the spine and gates v0.1.0.
+
+**Decision:** Adopt RAVEN_MESH protocol unchanged (`_ingest/RAVEN_MESH`
+SHA `464ee809…`) and vendor its protocol layer to `core/`. Port the
+Python SDK to TypeScript at `core/node_sdk_ts/` so the Electron main
+process and Node.js mesh nodes can speak the wire format. Use a
+daemon-manager pattern (lifted from
+`_ingest/VIEWER/apps/viewer/electron/main/services/daemonManager.ts`)
+to spawn the Python Core + each Node.js node from the shell's
+`app.whenReady`. Declare the topology in a single `manifest.yaml` at
+repo root with three nodes — `shell`, `host_notifications`, and the
+implicit reserved `core` — and one edge: `shell → host_notifications.notify`.
+Ship the first real node (`nodes/host_notifications/`) firing native
+macOS notifications via `osascript`, plus a `mesh-devtools` app on the
+canvas to drive a round-trip from the renderer.
+
+**Consequences:**
+- Mesh boot runs in parallel with the splash → reveal sequence; it
+  is NOT on the critical path. The shell remains usable for non-mesh
+  apps (Welcome / News / Markdown) even if Core fails to start —
+  the Mesh Dev Tools status pill shows `starting` / `online` /
+  `failed` / `offline`, and an error dialog surfaces on failure
+  without quitting the app. The earlier "hard-depend, quit on
+  failure" sequencing was reversed during smoke-test (Architect
+  feedback on PR #10) when it regressed PR #1's splash → reveal
+  timing.
+- Identity secrets live in process env vars per RAVEN_MESH defaults; the
+  shell generates fresh hex-32 values per cold start (`coreSecret`,
+  `shellSecret`, `hostNotificationsSecret`, plus `ADMIN_TOKEN`) and
+  injects them into spawned children. Not persisted across runs. Keychain
+  integration is a follow-up (`MASTER_SYNTHESIS.md §7 Q6`).
+- Renderer ↔ main IPC stays on `contextBridge` (`shell:metadata`,
+  `mesh:invoke`, `mesh:status`). Mesh is for main-process-and-out, not
+  for renderer-to-main hot paths — matches `MASTER_SYNTHESIS.md §4.1`.
+- Vendored Core requires `aiohttp`, `pyyaml`, `jsonschema` from system
+  Python; coreManager surfaces a clear failure message if missing.
+  Documented in `core/README.md`.
+- Cross-platform debt: `host_notifications` is macOS-only this PR
+  (returns `MeshDeny` on other platforms). The collaborator's Windows
+  tree handles the Windows path in their own PR (CLAUDE.md §11 #7).
+- The TypeScript SDK port lives at `core/node_sdk_ts/`. ~370 LOC across
+  canonical / types / MeshNode / index files; longer than the Python's
+  310 LOC mostly because of explicit type declarations and the hand-
+  rolled SSE consumer that replaces aiohttp's `r.content.readline()`.
+  The round-trip vitest boots Core in a subprocess and proves the wire
+  is HMAC-signature-identical to the Python SDK.
+
+**Alternatives considered:**
+- *Keep IPC-only (no mesh)* — rejected: no auth, no edge model, won't
+  scale to agents or third-party nodes. `MASTER_SYNTHESIS.md §3.2`.
+- *Mesh-everywhere including renderer↔main* — rejected per
+  `MASTER_SYNTHESIS.md §4.1` recommendation. The renderer/main hot path
+  doesn't need HMAC overhead or graph mediation; everything else does.
+- *Spawn Core on-demand via supervisor* — `core/core/supervisor.py` is
+  vendored but not wired up. Always-spawned-by-shell is simpler for
+  v0.1.0; revisit when multi-mesh or detached substrate machines arrive
+  (`MASTER_SYNTHESIS.md §6`).
+- *Adopt RAVEN_MESH as a runtime dep instead of vendoring* — rejected:
+  the protocol is the contract, and we want the freedom to bump the
+  vendored SHA in dedicated chore PRs without merging upstream's commit
+  cadence into our history.
+- *Embed Python Core via PyO3 / Pyodide-in-Electron* — rejected as
+  premature optimization. Subprocess spawn is fast enough (Core warm
+  in ~200ms in dev) and matches RAVEN_MESH's deployment model.
+- *Persist secrets to disk in `data/`* — rejected for this PR; ephemeral
+  per-launch secrets are strictly safer until Keychain integration lands.
+
+---
+
 ## [2026-05-12] Voice via daemon pattern; mesh rebase deferred
 
 **Status:** accepted
 **Decided by:** Architect (approved by Director); flagged by Implementer
 **Context:** Voice has a tight latency budget (sub-second feel), needs
 to own audio devices and an LLM session, and benefits from surviving
-shell restarts where possible. The mesh ("the spine") is not yet
-implemented — Lane 1's `core/` work is parallel and not load-bearing
-for this PR. Two ways to add voice now:
-1. Wait for Lane 1's mesh to land, then build voice as a mesh node.
+shell restarts where possible. This PR was scoped before Lane 1's
+`core/` mesh substrate landed (it has since merged in PR #10).
+Two ways to add voice:
+1. Wait for the mesh, then build voice as a mesh node.
 2. Ship voice immediately using VIEWER's existing detached-daemon
    pattern (Node.js HTTP+WS supervisor → Python child running the
-   live-audio loop). Rebase to mesh as a small follow-up PR once Lane
-   1's `core/` is in place.
+   live-audio loop). Rebase to mesh as a small follow-up PR.
 
 The brief specified path 2 to keep both lanes moving in parallel.
 
@@ -269,55 +467,66 @@ matches what VIEWER's `orchestrator.py` consumes — swapping the
 provider would be a substantial rewrite, not a configuration change.
 Per CLAUDE.md §13, this is the "Architect intent vs. code reality"
 case: the implementer goes with the code reality and flags loudly.
-This ADR is that flag.
+This ADR is that flag; Architect confirmed Gemini at PR review.
 
 **Decision:** Ship voice using VIEWER's daemon pattern intact.
 - Vendor `_ingest/VIEWER/apps/raven-daemon` → `daemons/raven-daemon/`
-  (Node.js HTTP+WS on `127.0.0.1:7433`).
+  (Node.js HTTP+WS on `127.0.0.1:7433`, loopback-only).
 - Vendor `_ingest/VIEWER/apps/raven` → `daemons/raven-core/` (Python
   Flask-free runtime — Flask sidecar was dead code and removed).
 - Shell's `ravenDaemonManager` spawns the Node daemon detached;
   the daemon supervises the Python child via `child_process.spawn`.
+  Boot ordering vs. the mesh's `coreManager`: Core first
+  (load-bearing for mesh-dependent apps), then raven (degrades
+  gracefully — Voice app surfaces an "unavailable" pill if the
+  daemon fails to start). Both are off the splash → reveal critical
+  path; both are torn down in parallel via `Promise.allSettled` on
+  `before-quit`.
 - Two tools enabled this PR: `time_tool`, `memory_tool`. Other
   vendored tools (`cerebras_tool`, `silence_tool`, `system_tool`)
   remain on disk but are not registered.
-- LLM: **Gemini Live API** (env var: `GEMINI_API_KEY`). The brief's
-  Cerebras-shaped framing is preserved in the open-questions section
-  of the PR so Architect can confirm or redirect.
+- LLM: **Gemini Live API** (env var: `GEMINI_API_KEY`).
 
 **Consequences:**
 - Voice runs without mesh. Tool calls dispatch directly via Python
   function calls — no envelope signing, no edge graph, no audit log
   yet. Acceptable because the surface is local-loopback only and the
   enabled tools are read-only (time) or scoped-disk (memory).
-- Rebase-to-mesh follow-up PR will swap `raven_core/tools/__init__.py`'s
-  direct-Python `handle_function_call` for `mesh.invoke()` against the
-  appropriate node surface. This is well-scoped because the rest of
-  the daemon is mesh-agnostic.
+- Rebase-to-mesh follow-up (`feat/voice-mesh-rebase`) will swap
+  `raven_core/tools/__init__.py`'s direct-Python `handle_function_call`
+  for `mesh.invoke()` against the appropriate node surfaces, and add
+  the voice daemon to `manifest.yaml` with its own edge declarations.
+  Well-scoped because the rest of the daemon is mesh-agnostic.
 - Audio-permission prompt on first launch (one-time macOS system
   dialog). Unavoidable; persistent thereafter.
 - First-launch latency: ~30s for the Python `venv` install + `pip
   install -r requirements.txt`. Subsequent launches are ~1–2s.
-  Splash is non-blocking on this (voice boots in parallel with reveal)
-  so the shell still paints quickly; the Voice app pill shows
-  `voice: offline → voice: ready` when the daemon comes up.
+  Bootstrap is async (Promise-based spawn — `spawnSync` would freeze
+  Electron's main thread for the full 30s, tripping the network
+  service watchdog and producing a black screen).
 - `GEMINI_API_KEY` is required. Without it the shell still loads,
   Voice app shows red `voice: missing GEMINI_API_KEY`, every other
-  app works normally. If Director prefers `CEREBRAS_API_KEY` semantics
-  for compatibility with the brief, we add a thin alias before
-  reading; flagged for review.
+  app works normally.
 - macOS-only this PR. Daemon spawn is gated on
   `process.platform === 'darwin'`; other platforms surface
   `voice: macOS only in this build`.
+- Echo trade-off documented separately: while playing audio out, the
+  mic is gated (`_playback_until` monotonic timestamp) to prevent
+  the MacBook speaker from feeding back into the mic and triggering
+  false interruptions. Consequence: no barge-in. `fix/voice-barge-in`
+  follow-up will swap this for Apple `voiceProcessingIO` AEC.
+- `pyaudio` requires `brew install portaudio` once per developer
+  machine; the bootstrap detects the missing-header signature in the
+  pip output and rewrites the pill reason to surface the brew
+  command.
 
 **Alternatives considered:**
-- *Wait for Lane 1's mesh to land first* — rejected; defeats
+- *Wait for the mesh to land first* — rejected; defeats
   parallelisation and delays the highest-value Jarvis-feeling demo.
 - *Skip voice entirely until mesh lands* — rejected; voice is the
   surface most likely to drive direction from the Director.
 - *Use Cerebras as the conversational LLM* — rejected as out-of-scope
-  rewrite; flagged in PR open-questions for Architect to confirm or
-  redirect.
+  rewrite. Cerebras has no live-audio API today.
 - *Use the Cerebras sub-tool path (`call_cerebra` for HTML)* —
   deferred along with the rest of the disabled tool set; not load-
   bearing for the two-tool demo.

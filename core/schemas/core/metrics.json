@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "core.metrics",
+  "description": "Input payload for core.metrics. No fields; returns counters and gauges as JSON.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

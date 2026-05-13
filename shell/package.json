@@ -8,7 +8,9 @@
   "main": "out/main/index.js",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
+    "predev": "pnpm --filter @homeos/mesh-node-sdk build && pnpm --filter @homeos/host-notifications build",
     "dev": "electron-vite dev",
+    "prebuild": "pnpm --filter @homeos/mesh-node-sdk build && pnpm --filter @homeos/host-notifications build",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
@@ -17,9 +19,12 @@
     "package": "echo '[homeOS] package: electron-builder config is a later PR — see TODO in PR self-review' && exit 1"
   },
   "dependencies": {
+    "@homeos/mesh-node-sdk": "workspace:*",
     "lucide-react": "^0.554.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-markdown": "^9.1.0",
+    "remark-gfm": "^4.0.1",
     "ws": "^8.18.0",
     "zustand": "^5.0.8"
   },

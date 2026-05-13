@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "core.processes",
+  "description": "Input payload for core.processes. No fields; returns a supervisor process listing.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

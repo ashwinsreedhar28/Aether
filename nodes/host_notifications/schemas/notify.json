@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "host_notifications.notify",
+  "description": "Fire a native host-OS notification.",
+  "type": "object",
+  "required": ["title", "body"],
+  "additionalProperties": true,
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "body": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "urgent": {
+      "type": "boolean",
+      "description": "Optional. Surfaces with a louder presentation when supported."
+    }
+  }
+}

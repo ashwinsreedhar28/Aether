@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
+import { registerFileHandlers } from './handlers/files'
 
 // Resolved relative to the compiled main entry at out/main/index.js.
 // Resources sit at the project root under shell/resources/.
@@ -155,6 +156,7 @@ ipcMain.handle('shell:metadata', () => {
 })
 
 app.whenReady().then(() => {
+  registerFileHandlers()
   splashWindow = createSplash()
   mainWindow = createMain()
   createTray()

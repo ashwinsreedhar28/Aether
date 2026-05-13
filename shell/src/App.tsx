@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Newspaper, Sparkles, type LucideIcon } from 'lucide-react'
+import { FileText, Newspaper, Sparkles, type LucideIcon } from 'lucide-react'
 import { getApps, getApp } from './lib/app-registry'
 import { useActiveApp } from './stores/active-app'
 
@@ -15,6 +15,7 @@ const NAV_HORIZONTAL_PAD = 12
 // would pull the whole package. When we hit ~10 apps we revisit and
 // likely switch to dynamic resolution.
 const ICON_MAP: Record<string, LucideIcon> = {
+  FileText,
   Newspaper,
   Sparkles
 }

@@ -192,3 +192,11 @@ pattern, simplified ruthlessly:
 - *Full VIEWER port (windows / tabs / file routing / AppContext)* —
   rejected as week-1 over-investment. VIEWER's multi-window stack is
   what we converge to, not what we start with.
+
+**Future directions:** Icon resolution currently routes through an
+`ICON_MAP` keyed by lucide-react icon name string. At ~10 apps, migrate
+to per-app `ComponentType` imports — every app's `index.ts` imports its
+own icon directly, `AppDefinition.icon` becomes
+`ComponentType<{ size?: number }>` rather than `string`, and the central
+map disappears. Eliminates the registry-update friction of adding each
+new icon.

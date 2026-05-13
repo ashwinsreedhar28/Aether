@@ -5,5 +5,6 @@ export const app: AppDefinition = {
   id: 'welcome',
   name: 'Welcome',
   icon: 'Sparkles',
-  component: Welcome
+  component: Welcome,
+  order: 0
 }

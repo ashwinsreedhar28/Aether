@@ -11,7 +11,8 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 - App-discovery system (`import.meta.glob` of `src/apps/*`,
   `AppDefinition` shape adopted from VIEWER). Drop a folder into
   `src/apps/<name>/` with an `index.ts` exporting an `AppDefinition`
-  and it auto-registers.
+  and it auto-registers. (Apps declare an optional `order: number`
+  for nav placement; default 100.)
 - First content app: `news` with three hardcoded faked articles
   (Jarvis-feeling categories spanning finance/tech/sports, urgency
   and category styling via holographic theme). Faked data — no

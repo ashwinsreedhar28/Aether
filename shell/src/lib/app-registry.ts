@@ -26,11 +26,17 @@ for (const path in modules) {
   registry[mod.app.id] = mod.app
 }
 
-// Sorted by id for deterministic nav ordering. If an app ever needs to
-// pin itself to a specific slot, an `order?: number` field on AppDefinition
-// is the cheapest extension.
+// Nav order: by AppDefinition.order ascending (default 100 if missing),
+// then by id.localeCompare as a deterministic tiebreaker. Both keys ensure
+// the result is stable across rebuilds regardless of glob-resolution order.
+const DEFAULT_ORDER = 100
 export function getApps(): AppDefinition[] {
-  return Object.values(registry).sort((a, b) => a.id.localeCompare(b.id))
+  return Object.values(registry).sort((a, b) => {
+    const oa = a.order ?? DEFAULT_ORDER
+    const ob = b.order ?? DEFAULT_ORDER
+    if (oa !== ob) return oa - ob
+    return a.id.localeCompare(b.id)
+  })
 }
 
 export function getApp(id: string): AppDefinition | undefined {

@@ -5,5 +5,6 @@ export const app: AppDefinition = {
   id: 'news',
   name: 'News',
   icon: 'Newspaper',
-  component: News
+  component: News,
+  order: 50
 }

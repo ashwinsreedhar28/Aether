@@ -13,5 +13,7 @@ export interface AppDefinition {
   name: string
   icon: string
   component: ComponentType
+  /** Sort key for nav. Lower = earlier. Default = 100. */
+  order?: number
   defaultSize?: { width: number; height: number }
 }

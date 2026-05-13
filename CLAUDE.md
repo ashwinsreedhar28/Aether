@@ -29,7 +29,9 @@ This is a four-party project. Internalize this — most of your behavior is shap
 5. Architect reviews via web_fetch and responds in chat. **If clean:** Director runs any visual checks Architect flagged, then merges. **If request-changes:** Director copy-pastes Architect's chat reply as a single comment on the PR.
 6. You read the PR comment via `gh pr view <n> --comments`, address the requests, push the fixup, and post a follow-up PR comment summarising what changed (e.g. "addressed: nav order set explicitly; traffic-light inset added; CLAUDE.md gotcha appended").
 7. Architect re-reviews via web_fetch. Loop on the PR (not in chat) until clean.
-8. Director merges. Architect cuts the tag.
+8. Director merges. This means either (a) clicking the merge button in GitHub UI, (b) running `gh pr merge` personally in a plain terminal, or (c) explicitly authorizing Implementer to run `gh pr merge` via paste in chat. Option (c) is the merge act — Implementer is executing Director's intent, not unilaterally merging. Architect cuts the tag.
+
+**On tag-cutting.** Architect "cuts the tag" by writing the annotation message — that's the architectural work. Architect cannot push to GitHub from a chat session, so Director executes the `git tag -a <name> -m "<annotation>"` and `git push origin <name>` commands, either personally in a plain terminal or by authorizing Implementer to run them via paste. Same delegation principle as the merge button.
 
 You still never push to main. The review *conversation* lives on the PR; chat between Director and Architect is reserved for direction-level decisions and visual-test feedback.
 
@@ -375,7 +377,7 @@ Helpful patterns:
 
 ### Don't ever
 - Push to `main`.
-- Merge your own PR.
+- Merge a PR or push a release tag without Director's explicit authorization in chat. Director's "paste this to Claude Code: gh pr merge X" IS the authorization; without it, never run `gh pr merge`, `git tag`, or `git push origin <tag>` on your own initiative.
 - Silently expand scope.
 - Skip the self-review template.
 - Edit a past `DECISIONS.md` entry.

@@ -530,3 +530,49 @@ This ADR is that flag; Architect confirmed Gemini at PR review.
 - *Use the Cerebras sub-tool path (`call_cerebra` for HTML)* —
   deferred along with the rest of the disabled tool set; not load-
   bearing for the two-tool demo.
+
+---
+
+## [2026-05-13] Director-authorized execution: codify the delegation pattern
+
+**Status:** accepted
+**Decided by:** Architect (drift surfaced by voice PR Implementer)
+**Context:** CLAUDE.md §1 ("Director merges") and §12 ("Don't ever: Merge
+your own PR") read literally as a prohibition on Implementer running
+`gh pr merge` or `git push origin <tag>`. Actual practice across PRs #2,
+#4, #5, #6, #7, #8, #10 has been Implementer executing both commands
+under Director's explicit chat-authorization ("paste this to Claude Code:
+gh pr merge X"). The drift wasn't malicious or accidental — it was the
+pragmatic path because Architect (a chat session) physically cannot push
+to GitHub, and Director was comfortable delegating the mechanical
+command execution while keeping the *decision* in chat. The voice PR
+Implementer applied §13 carefully and surfaced the rule-vs-practice
+gap rather than silently continuing it.
+**Decision:** Update CLAUDE.md §1 step 8 to define merge execution as
+Director-or-authorized-Implementer (UI button, personal terminal, or
+chat-authorized Implementer paste). Add a tag-cutting clarifier
+explaining that Architect "cuts the tag" by writing the annotation
+text, and Director (or authorized Implementer) executes the
+`git tag` + `git push origin <tag>` mechanics. Update §12's "Don't
+ever" merge bullet so the violation is *unauthorized* execution rather
+than execution itself; the absolute "Push to `main`" bullet stays
+unchanged.
+**Consequences:**
+- Future Implementers reading CLAUDE.md cold no longer have to choose
+  between rule-violation and workflow-friction.
+- The "no unilateral Implementer merge" guarantee is preserved —
+  Director chat-authorization remains mandatory, and Implementer never
+  initiates a merge or tag push on its own initiative.
+- The §13 "Director contradicts CLAUDE.md" protocol still applies for
+  cases the text doesn't anticipate; this ADR closes the specific
+  merge/tag case rather than rewriting §13.
+**Alternatives considered:**
+- *Stricter — Director must always execute merge + tag personally* —
+  rejected as pure friction for no real safety gain. Director-
+  authorization is already the gate; whether Director's hand or
+  Implementer's hand types `gh pr merge` after authorization changes
+  nothing about who decided.
+- *Looser — Implementer auto-merges when CI green* — rejected as
+  removing Director from the loop entirely, which is the whole point
+  of the "Merge gate" role in §1. CI greenness is necessary, not
+  sufficient.

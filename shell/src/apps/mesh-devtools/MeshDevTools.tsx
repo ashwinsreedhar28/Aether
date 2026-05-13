@@ -10,6 +10,12 @@ type RoundTripState =
 const CORE_POLL_MS = 2_000
 
 function StatusPill({ status }: { status: MeshStatus | null }) {
+  // "core: online" means Core is responding to /v0/healthz. It deliberately
+  // does NOT mean the shell holds an open mesh session — the shell has no
+  // inbound surfaces in v0.1.0, so it uses the SDK's outbound-only path
+  // (no register, no stream). When the first shell-side surface lands
+  // (shell.toast, shell.focus_app, …) this pill grows a second state for
+  // "shell registered".
   const online = status?.coreHealthy === true
   const label = status === null ? 'core: …' : online ? 'core: online' : 'core: offline'
   const color = online ? 'rgb(60, 210, 140)' : 'rgb(255, 105, 105)'

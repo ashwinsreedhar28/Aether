@@ -82,6 +82,12 @@ MESH_PYTHON=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 \
   pnpm --filter homeos-shell dev
 ```
 
+Or persist the override per-machine by copying `.env.local.example` at
+repo root to `.env.local` and uncommenting the `MESH_PYTHON` line. The
+`.env.local` file is gitignored; `.env.local.example` is the template
+that ships with the repo and documents every env var the substrate
+recognises.
+
 ## Required environment variables
 
 Core refuses to boot without these (see SPEC §5.1, §9):

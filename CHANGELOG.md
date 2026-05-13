@@ -100,6 +100,11 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
   §11 First Task removed and replaced with an Architect Review
   Heuristics checklist self-applied before each PR. §7 self-review
   template gains a heuristics-check section.
+- CLAUDE.md §10 expanded with four scars from PR #9 voice debugging:
+  `spawnSync` UI-freeze in Electron main, macOS stripped-PATH in
+  Electron, stdout-pollution breaking JSON-RPC daemons, mic-during-
+  playback acoustic echo loop. Each scar names its source commit so
+  future readers can audit the original failure.
 
 ### Fixed
 

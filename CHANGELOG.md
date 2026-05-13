@@ -8,6 +8,19 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+### Changed
+
+- Converted `_ingest/{Pulse, RAVEN_MESH, NEXUS, VIEWER}` from gitignored
+  clones to git submodules pinned to specific SHAs (see DECISIONS.md).
+
+### Fixed
+
+### Removed
+
+## [0.0.1] - 2026-05-12
+
+### Added
+
 - Electron shell skeleton (`shell/`) with `electron-vite`, React 19,
   Tailwind 4, TypeScript strict. `pnpm dev` boots a single holographic
   welcome window via splash → renderer-ready → reveal sequence (pattern

@@ -285,6 +285,13 @@ retrofitting four apps later.
   (home + userData + downloads + temp) rather than the narrower
   home-only variant — `/tmp` and `~/Downloads` are normal places to
   drop a markdown file.
+- Renderer bundle grew from ~250 KB to ~953 KB (react-markdown +
+  unified + remark-gfm). Code-split deferred deliberately: parse/exec
+  is <100 ms on M-series from local disk, and a `React.lazy` boundary
+  needs holographic loading-state design that isn't worth picking up
+  now. Revisit as a single dep-audit / code-split PR at ~3 MB total
+  or if first-paint feels slow (whichever comes first); voice (Lane 3)
+  is the next likely weight bump.
 **Alternatives considered:**
 - *File-explorer-as-router* (the router resolves extensions at open
   time and ignores `fileTypes` on apps) — rejected: premature without

@@ -214,6 +214,7 @@ export function VoiceControl(): ReactElement {
   }, [])
 
   const onStart = useCallback(async () => {
+    console.log('[voice-control] onStart fired', new Error('start trace').stack)
     if (pending) return
     setPending(true)
     try {
@@ -226,6 +227,7 @@ export function VoiceControl(): ReactElement {
   }, [pending])
 
   const onStop = useCallback(async () => {
+    console.log('[voice-control] onStop fired', new Error('stop trace').stack)
     if (pending) return
     setPending(true)
     try {

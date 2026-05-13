@@ -173,8 +173,14 @@ ipcMain.handle('voice:status', () => {
   }
   return raven.status()
 })
-ipcMain.handle('voice:start', () => raven.listenStart())
-ipcMain.handle('voice:stop', () => raven.listenStop())
+ipcMain.handle('voice:start', (e) => {
+  console.log(`[homeOS] voice:start IPC from webContents.id=${e.sender.id} url=${e.sender.getURL()}`)
+  return raven.listenStart()
+})
+ipcMain.handle('voice:stop', (e) => {
+  console.log(`[homeOS] voice:stop IPC from webContents.id=${e.sender.id} url=${e.sender.getURL()}`)
+  return raven.listenStop()
+})
 ipcMain.handle('voice:recent-transcripts', (_e, limit?: number) => {
   if (raven.getAvailability().kind !== 'available') {
     return { transcripts: [] }

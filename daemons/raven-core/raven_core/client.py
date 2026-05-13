@@ -46,12 +46,12 @@ def create_live_config(config: Config) -> types.LiveConnectConfig:
     # Get tool declarations from registry
     tools = get_all_tool_declarations()
 
-    # Add Google Search grounding
-    try:
-        tools.append({"google_search": {}})
-        print("[CLIENT] Google Search grounding enabled")
-    except Exception as e:
-        print(f"[CLIENT] Warning: Could not enable Google Search: {e}")
+    # Google Search grounding is intentionally disabled this build:
+    # it competes with local tools for queries like "what time is it"
+    # (Search is biased toward "current information" intents and pulls
+    # the answer away from get_current_time). Re-enable once we have a
+    # surface that benefits from web grounding (news / research).
+    # tools.append({"google_search": {}})
 
     live_config = types.LiveConnectConfig(
         system_instruction=config.system_instruction,

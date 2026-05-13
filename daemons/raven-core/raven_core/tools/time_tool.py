@@ -12,27 +12,35 @@ FUNCTIONS = ["get_current_time"]
 
 def get_current_time() -> dict[str, str]:
     """
-    Get the current date and time.
+    Get the current local date and time.
 
-    Returns:
-        Dict with time in multiple formats
+    Returns the time as a human-friendly string the model can speak directly,
+    plus structured fields for any further reasoning.
     """
     now = datetime.now()
     return {
-        "time": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "spoken_time": now.strftime("%-I:%M %p"),  # e.g. "3:07 PM"
+        "spoken_date": now.strftime("%A, %B %-d, %Y"),  # e.g. "Tuesday, May 12, 2026"
         "iso_format": now.isoformat(),
-        "day_of_week": now.strftime("%A"),
     }
 
 
 def get_tools() -> list[types.Tool]:
-    """Return Gemini function declarations for time tool."""
+    """Return Gemini function declarations for time tool.
+
+    Note: parameter-less tools should omit `parameters` entirely rather than
+    pass an empty-properties Schema — empty schemas can confuse Gemini's
+    tool-selector and cause the model to answer time questions from prior
+    knowledge instead of calling this tool.
+    """
     func = types.FunctionDeclaration(
         name="get_current_time",
-        description="Get the current date and time. Useful when the user asks about the time or date.",
-        parameters=types.Schema(
-            type=types.Type.OBJECT,
-            properties={},
+        description=(
+            "Returns the current local time and date on the user's machine. "
+            "ALWAYS call this when the user asks the time, the date, what day "
+            "it is, or any 'what time / what day' question. Do not answer "
+            "such questions from your own knowledge — you do not know the "
+            "current time. Use the spoken_time field directly in your reply."
         ),
     )
     return [types.Tool(function_declarations=[func])]

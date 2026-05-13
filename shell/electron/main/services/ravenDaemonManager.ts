@@ -27,11 +27,14 @@ import { EventEmitter } from 'node:events'
 import { WebSocket } from 'ws'
 import { getRavenMeshConfig, waitForMeshReady } from './mesh'
 
-// Repo-root-relative path to the vendored Python SDK. Prepended to the
-// raven-core child's PYTHONPATH at spawn time so `import mesh_node_sdk`
-// (the package alias we use inside raven_core/mesh_client.py) resolves
-// to core/node_sdk/. We use PYTHONPATH rather than `pip install -e` so
-// the vendored tree stays untouched — core/README.md is explicit that
+// Prepend `<repo>/core` to the raven-core child's PYTHONPATH at spawn
+// time so `from node_sdk import MeshNode` resolves to
+// `<repo>/core/node_sdk/__init__.py`. The package directory is named
+// `node_sdk`, so the parent directory must be on sys.path — putting
+// `core/node_sdk` itself on PYTHONPATH would only expose the modules
+// inside that directory as top-level imports, not the package as
+// `node_sdk`. We use PYTHONPATH rather than `pip install -e` so the
+// vendored tree stays untouched — core/README.md is explicit that
 // core/{core,node_sdk,schemas} are managed by re-copying from the
 // _ingest submodule, and a stray pyproject.toml would diverge.
 //
@@ -423,23 +426,25 @@ export class RavenDaemonManager extends EventEmitter {
    *
    * `meshConfig` carries the per-launch identity raven needs to register
    * with Core (MESH_RAVEN_SECRET) plus Core's URL (MESH_CORE_URL).
-   * PYTHONPATH gets the vendored mesh SDK prepended so raven-core can
-   * `import mesh_node_sdk` without a pip install step against the
-   * vendored tree.
+   * PYTHONPATH gets `<repo>/core` (the parent of the SDK package
+   * directory `node_sdk/`) prepended so raven-core can
+   * `from node_sdk import MeshNode` without a pip install step
+   * against the vendored tree.
    */
   private spawnDaemon(meshConfig: { ravenSecret: string; coreUrl: string }): void {
     const daemonDist = path.join(this.daemonDir, 'dist', 'index.js')
     const venvPython = path.join(this.coreDir, '.venv', 'bin', 'python')
 
-    // Prepend the vendored Python SDK to PYTHONPATH so `import
-    // mesh_node_sdk` resolves to core/node_sdk/. We import the package
-    // by its on-disk directory name; core/node_sdk/__init__.py becomes
-    // `mesh_node_sdk` once that path is on sys.path.
-    const sdkPath = path.join(this.repoRoot, 'core', 'node_sdk')
+    // Prepend `<repo>/core` (the *parent* of the SDK package dir) so
+    // `from node_sdk import MeshNode` resolves to
+    // <repo>/core/node_sdk/__init__.py. The package name is the
+    // directory name `node_sdk`, so PYTHONPATH must include its
+    // parent — not the package directory itself.
+    const sdkParent = path.join(this.repoRoot, 'core')
     const existingPythonPath = process.env.PYTHONPATH ?? ''
     const pythonPath = existingPythonPath
-      ? `${sdkPath}${path.delimiter}${existingPythonPath}`
-      : sdkPath
+      ? `${sdkParent}${path.delimiter}${existingPythonPath}`
+      : sdkParent
 
     this.daemonProcess = spawn('node', [daemonDist], {
       detached: true,

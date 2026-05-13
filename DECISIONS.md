@@ -647,7 +647,7 @@ Implementation:
   wants to import the vendored SDK should follow the same approach:
   resolve the SDK path in its spawn-side manager (shell-owned
   Electron service or equivalent), prepend to `env.PYTHONPATH` at
-  spawn, and lazy-import `mesh_node_sdk` inside a `setup()` that runs
+  spawn, and lazy-import `node_sdk` inside a `setup()` that runs
   before the consumer needs to invoke. The CLAUDE.md §14 third-
   instance rule still applies — if a third Python mesh consumer
   appears and we find ourselves duplicating the PYTHONPATH-prepend

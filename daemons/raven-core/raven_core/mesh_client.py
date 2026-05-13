@@ -18,9 +18,11 @@ Lifecycle:
 - ``shutdown()`` closes the aiohttp session. Called from the
   orchestrator's finally block.
 
-The vendored SDK ships at ``core/node_sdk/`` and is prepended to the
-PYTHONPATH by the shell's ravenDaemonManager — so ``import mesh_node_sdk``
-resolves there. See shell/electron/main/services/ravenDaemonManager.ts.
+The vendored SDK ships at ``core/node_sdk/``. The shell's
+ravenDaemonManager prepends ``<repo>/core`` (the SDK package's parent
+directory) to PYTHONPATH at spawn time, so ``from node_sdk import
+MeshNode`` resolves to ``core/node_sdk/__init__.py``. See
+shell/electron/main/services/ravenDaemonManager.ts.
 """
 from __future__ import annotations
 
@@ -71,10 +73,12 @@ async def setup() -> bool:
     try:
         # Imported lazily so a missing SDK on PYTHONPATH surfaces here
         # with a clear log line rather than crashing module import at
-        # process start.
-        from mesh_node_sdk import MeshNode  # type: ignore[import-not-found]
+        # process start. The package directory is `core/node_sdk`; the
+        # shell's ravenDaemonManager puts `core/` (its parent) on
+        # PYTHONPATH so the package imports as `node_sdk`.
+        from node_sdk import MeshNode  # type: ignore[import-not-found]
     except ImportError as e:
-        _setup_reason = f"mesh_node_sdk import failed: {e}"
+        _setup_reason = f"node_sdk import failed: {e}"
         log.warning("[mesh_client] %s", _setup_reason)
         return False
 

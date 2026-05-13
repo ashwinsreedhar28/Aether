@@ -367,7 +367,13 @@ export class RavenDaemonManager extends EventEmitter {
 
     this.daemonProcess = spawn('node', [daemonDist], {
       detached: true,
-      stdio: 'ignore',
+      // stdio: 'ignore' was hiding Python's crash output entirely — the
+      // daemon's console.error('[Raven stderr]', line) handler routes to
+      // its own stderr, which was /dev/null. Pipe both so the dev
+      // terminal can see Python startup + tool calls + crashes prefixed
+      // with [raven-daemon]. unref() still lets shell quit; piped fds
+      // close cleanly on parent exit.
+      stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
         RAVEN_DAEMON_PORT: String(this.port),
@@ -376,6 +382,12 @@ export class RavenDaemonManager extends EventEmitter {
         RAVEN_PYTHON: venvPython,
         RAVEN_USER_DIR: this.dataDir,
       },
+    })
+    this.daemonProcess.stdout?.on('data', (b: Buffer) => {
+      process.stdout.write(`[raven-daemon] ${b}`)
+    })
+    this.daemonProcess.stderr?.on('data', (b: Buffer) => {
+      process.stderr.write(`[raven-daemon] ${b}`)
     })
     this.daemonProcess.unref()
     console.log(`[ravenDaemonManager] spawned daemon pid=${this.daemonProcess.pid}`)

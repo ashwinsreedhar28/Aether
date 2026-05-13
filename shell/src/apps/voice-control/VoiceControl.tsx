@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import { Mic, MicOff, Play, Square } from 'lucide-react'
 import type {
   RavenState,
-  RavenStatus,
   ToolCallEntry,
   TranscriptEntry,
   VoiceAvailability
@@ -13,16 +12,20 @@ import type {
 // daemon being down makes the status field irrelevant.
 function pillFor(
   availability: VoiceAvailability,
-  status: RavenStatus
+  state: RavenState
 ): { label: string; color: string; bg: string } {
+  const red = { color: 'rgb(255, 105, 105)', bg: 'rgba(255,105,105,0.10)' }
   if (availability.kind === 'unavailable') {
-    return {
-      label: `voice: ${availability.reason}`,
-      color: 'rgb(255, 105, 105)',
-      bg: 'rgba(255,105,105,0.10)'
-    }
+    return { label: `voice: ${availability.reason}`, ...red }
   }
-  switch (status) {
+  // If the Python child exited non-zero or hit an error, state.error is
+  // set and state.status reverts to 'stopped'. Without this guard the
+  // pill would silently flip back to green "voice: ready" and the user
+  // would have no idea the start attempt failed.
+  if (state.error) {
+    return { label: `voice: ${state.error}`, ...red }
+  }
+  switch (state.status) {
     case 'running':
       return {
         label: 'voice: listening',
@@ -37,11 +40,7 @@ function pillFor(
         bg: 'rgba(100,180,255,0.10)'
       }
     case 'error':
-      return {
-        label: 'voice: error',
-        color: 'rgb(255, 105, 105)',
-        bg: 'rgba(255,105,105,0.10)'
-      }
+      return { label: 'voice: error', ...red }
     case 'stopped':
     default:
       return {
@@ -238,7 +237,7 @@ export function VoiceControl(): ReactElement {
     }
   }, [pending])
 
-  const pill = pillFor(availability, ravenState.status)
+  const pill = pillFor(availability, ravenState)
   const canStart = availability.kind === 'available' && ravenState.status === 'stopped'
   const canStop =
     availability.kind === 'available' &&

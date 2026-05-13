@@ -682,3 +682,102 @@ Implementation:
   managed by re-copy from `_ingest/RAVEN_MESH`, and a stray
   `pyproject.toml` would either be lost on the next vendor bump or
   force us to upstream it. PYTHONPATH stays inside the homeOS layer.
+
+---
+
+## [2026-05-13] First real data node: news_feeds
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Post-v0.1.0 (spine alive), v0.2.0 (voice on the mesh), and
+v0.2.1 (raven becomes a mesh node with the notify edge), every PR until
+now has been infrastructure or substrate. The News app has been showing
+the same three hardcoded faked articles for several PRs running.
+`host_notifications` proved the mesh as an *action* substrate; the
+obvious next step is proving it as a *data* substrate. News is the
+natural first instance — well-understood data shape (RSS/Atom),
+many stable public sources, valuable for the user, and one of the few
+demos that justifies multi-consumer testing without contrivance (the
+News app on the canvas + a `news_recent` voice tool both invoking the
+same surface). Storage is required (polling 15-minute feeds means an
+in-memory cache loses everything on shell quit), and SQLite via
+`better-sqlite3` is the obvious choice — Pulse uses sqlite throughout,
+the schema is one table, and the dependency is well-trodden in Electron
+land.
+**Decision:** Introduce `nodes/news_feeds/`, a Node.js mesh node that
+polls a hardcoded list of feeds every 15 minutes, dedupes by stable id
+(sha1 of `feed::guid` truncated to 16 hex), and exposes a single
+`recent` surface (input: `{ limit?, since? }`; output: `{ articles }`).
+Storage at `$HOMEOS_DATA_DIR/news_feeds/news.db` via better-sqlite3 in
+WAL mode. Two edges in the manifest: `shell → news_feeds.recent` (News
+app) and `raven → news_feeds.recent` (voice tool). The News app drops
+its hardcoded `articles.ts` entirely and consumes the mesh surface.
+**Consequences:**
+- **Pattern established for every future data node.** Finance, calendar,
+  sensors, agents — same shape: a single Node.js process per domain,
+  one or more typed surfaces, SQLite under `$HOMEOS_DATA_DIR/<node>/`,
+  manifest declares JSON Schema for input. CLAUDE.md §14 third-instance
+  rule applies — when the third data node lands we'll know whether to
+  extract a shared "data-node template" or keep them per-domain.
+- **First multi-consumer mesh surface.** `news_feeds.recent` is invoked
+  by both the shell (renderer-side React app) and raven (voice tool).
+  Same surface, two callers — the manifest's edge graph is now doing
+  load-bearing authorization work, not just point-to-point glue.
+- **`better-sqlite3` is the first heavy native dep in `nodes/`.** Adds
+  a build step (node-gyp / prebuilt binary fetch on first install) and
+  ties the node to an ABI-matched Node.js. Acceptable: sqlite is a
+  homeOS-wide need (Pulse uses it for everything), getting the
+  dependency in early is better than discovering its quirks under
+  pressure later. Flagged in the PR per CLAUDE.md §10 "Build & dependency
+  hygiene."
+- **`HOMEOS_DATA_DIR` env var is the canonical way nodes get a writable
+  root.** Standalone Node child processes can't reach Electron's
+  `app.getPath('userData')` themselves. The shell hands them
+  `<userData>/data` via env at spawn time; nodes namespace under it
+  (`news_feeds/news.db`, future `finance/quotes.db`, etc.). Same shape
+  as `MESH_CORE_URL` and the per-node secrets — config flows out via
+  env, never via a config file the node has to find.
+- **OPML / user-editable subscriptions deferred.** v1 hardcodes 4 feeds
+  in `src/feeds.ts`. Editing the list means edit-rebuild-restart. The
+  goal of this PR is to prove the data substrate end-to-end, not solve
+  subscription management. A follow-up PR will add either an OPML
+  import path or a Settings app that writes a JSON config the node
+  watches for changes.
+- **No deduplication across feeds.** Two feeds reporting the same story
+  (HN linking a Verge article, BBC + Reuters covering the same event)
+  will appear as two articles. Stable-id dedupe is per-feed, not global.
+  Acceptable for v1; global dedup is a future "near-duplicate detection"
+  pass, not a blocker.
+- **The news app now hard-depends on the mesh.** If `mesh.invoke` fails,
+  the app shows an error state with a Retry button. This is the first
+  app in homeOS where mesh failure is user-visible — Welcome and
+  Markdown work without the mesh entirely. Acceptable: news without
+  data is a useless screen anyway, and the error state explains why.
+
+**Alternatives considered:**
+- *Keep the hardcoded articles for one more cycle and ship the news_feeds
+  node without changing the News app.* Rejected — the news_feeds node
+  with no in-shell consumer is half the value, and the multi-consumer
+  test (renderer + voice on the same surface) is the architecturally
+  interesting thing this PR proves.
+- *Use a flat-file JSON store instead of SQLite.* Rejected. Easy at 100
+  articles, breaks down at 10k+, and the pattern wouldn't transfer to
+  finance / sensors / agents where time-series queries are central.
+  Better to take the native-dep hit now once than re-do storage in three
+  follow-up PRs.
+- *Put the polling loop inside the shell main process (no separate
+  node).* Rejected. (a) Decoupling lets the mesh do its job — any
+  consumer can invoke `news_feeds.recent` whether or not the shell is
+  open. (b) Establishes the standalone-node pattern that finance /
+  calendar / sensors will follow. (c) Polling failures in-process
+  contaminate the shell's responsiveness; a separate node fails in
+  isolation.
+- *OPML / Settings-app for subscriptions in v1.* Rejected as scope creep.
+  Pattern-first, configuration-second.
+- *Use `axios`/`undici` and a custom RSS parser.* Rejected — `rss-parser`
+  is well-maintained, handles both RSS and Atom, and the code we'd
+  write to parse XML is the exact code we'd most like to avoid debugging.
+- *Run the recent surface as `fire_and_forget` with a separate
+  notification when articles update.* Rejected. The renderer wants
+  fresh data on app open, not a push subscription; request/response
+  is the simpler shape and matches how the user thinks about news.

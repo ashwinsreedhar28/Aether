@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "news_feeds.recent",
+  "description": "Get recent articles aggregated from the node's configured RSS/Atom feeds, ordered by published_at desc.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Maximum number of articles to return. Default 20 if omitted."
+    },
+    "since": {
+      "type": "string",
+      "description": "Optional ISO 8601 datetime. Only articles with published_at >= since are returned."
+    }
+  }
+}

@@ -3,9 +3,11 @@ import { mkdirSync, writeFileSync, createWriteStream, type WriteStream } from 'n
 import { existsSync } from 'node:fs'
 import {
   HOST_NOTIFICATIONS_ENTRY,
+  NEWS_FEEDS_ENTRY,
   NODE_LOG_FILE,
   NODE_PID_FILE,
   meshRuntimeDir,
+  nodeDataDir,
 } from './paths'
 import type { MeshSecrets } from './secrets'
 
@@ -17,9 +19,23 @@ interface NodeProc {
   log: WriteStream
 }
 
-// Spawns Node.js mesh nodes (host_notifications today, more later). Each
-// node registers itself with Core on start — we don't health-check from here.
-// If a node fails to register, that's surfaced in its log file.
+interface NodeSpawnSpec {
+  id: string
+  entry: string
+  buildHint: string
+  /** Additional per-node env on top of MESH_CORE_URL + MESH_<ID>_SECRET. */
+  extraEnv?: NodeJS.ProcessEnv
+  /** Per-node secret env-var name and value. */
+  secretEnvName: string
+  secretValue: string
+}
+
+// Spawns Node.js mesh nodes (host_notifications, news_feeds, …). Each
+// node registers itself with Core on start — we don't health-check from
+// here. If a node fails to register, that's surfaced in its log file.
+// Nodes that publish their own liveness marker (news_feeds writes
+// $HOMEOS_DATA_DIR/news_feeds/running) are the canonical signal for
+// "this node is signed in"; the shell does not poll those today.
 export class NodeManager {
   private readonly secrets: MeshSecrets
   private readonly coreUrl: string
@@ -31,39 +47,65 @@ export class NodeManager {
   }
 
   async startAll(): Promise<void> {
-    await this.spawnHostNotifications()
+    mkdirSync(meshRuntimeDir(), { recursive: true })
+    // Parallel: each node only depends on Core (already up), not on each
+    // other. Doing them sequentially would add ~register-latency × N to
+    // every cold start for no benefit.
+    await Promise.all([this.spawnHostNotifications(), this.spawnNewsFeeds()])
   }
 
   private async spawnHostNotifications(): Promise<void> {
-    if (!existsSync(HOST_NOTIFICATIONS_ENTRY)) {
+    await this.spawnNode({
+      id: 'host_notifications',
+      entry: HOST_NOTIFICATIONS_ENTRY,
+      buildHint: '`pnpm --filter @homeos/host-notifications build`',
+      secretEnvName: 'MESH_HOST_NOTIFICATIONS_SECRET',
+      secretValue: this.secrets.hostNotificationsSecret,
+    })
+  }
+
+  private async spawnNewsFeeds(): Promise<void> {
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'news_feeds',
+      entry: NEWS_FEEDS_ENTRY,
+      buildHint: '`pnpm --filter @homeos/news-feeds build`',
+      secretEnvName: 'MESH_NEWS_FEEDS_SECRET',
+      secretValue: this.secrets.newsFeedsSecret,
+      // The node persists SQLite + the running marker under this root.
+      // app.getPath is unreachable from the child, so we pass it in.
+      extraEnv: { HOMEOS_DATA_DIR: dataDir },
+    })
+  }
+
+  private async spawnNode(spec: NodeSpawnSpec): Promise<void> {
+    if (!existsSync(spec.entry)) {
       throw new Error(
-        `host_notifications dist not found at ${HOST_NOTIFICATIONS_ENTRY}. ` +
-          `Run \`pnpm --filter @homeos/host-notifications build\` and retry.`,
+        `${spec.id} dist not found at ${spec.entry}. Run ${spec.buildHint} and retry.`,
       )
     }
-    mkdirSync(meshRuntimeDir(), { recursive: true })
-    const id = 'host_notifications'
-    const log = createWriteStream(NODE_LOG_FILE(id), { flags: 'a' })
-    log.write(`\n--- ${id} spawn @ ${new Date().toISOString()} ---\n`)
-
+    const log = createWriteStream(NODE_LOG_FILE(spec.id), { flags: 'a' })
+    log.write(`\n--- ${spec.id} spawn @ ${new Date().toISOString()} ---\n`)
     const env: NodeJS.ProcessEnv = {
       ...process.env,
+      ...spec.extraEnv,
       MESH_CORE_URL: this.coreUrl,
-      MESH_HOST_NOTIFICATIONS_SECRET: this.secrets.hostNotificationsSecret,
+      [spec.secretEnvName]: spec.secretValue,
     }
-    const proc = spawn('node', [HOST_NOTIFICATIONS_ENTRY], {
+    const proc = spawn('node', [spec.entry], {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     if (proc.pid !== undefined) {
-      writeFileSync(NODE_PID_FILE(id), String(proc.pid))
+      writeFileSync(NODE_PID_FILE(spec.id), String(proc.pid))
     }
     proc.stdout?.pipe(log, { end: false })
     proc.stderr?.pipe(log, { end: false })
     proc.on('exit', (code, sig) => {
-      log.write(`--- ${id} exited code=${code} signal=${sig ?? ''} ---\n`)
+      log.write(`--- ${spec.id} exited code=${code} signal=${sig ?? ''} ---\n`)
     })
-    this.nodes.set(id, { id, proc, log })
+    this.nodes.set(spec.id, { id: spec.id, proc, log })
   }
 
   async stopAll(): Promise<void> {

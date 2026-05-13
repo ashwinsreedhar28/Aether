@@ -82,6 +82,10 @@ export class CoreManager {
       // against the same value when it loads the manifest at startup,
       // so both children receive it from the shared MeshSecrets bag.
       MESH_RAVEN_SECRET: this.secrets.ravenSecret,
+      // Same shape for news_feeds: spawned by nodeManager, but Core
+      // resolves env:MESH_NEWS_FEEDS_SECRET against the same value at
+      // manifest load.
+      MESH_NEWS_FEEDS_SECRET: this.secrets.newsFeedsSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

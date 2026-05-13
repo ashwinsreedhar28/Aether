@@ -1,0 +1,12 @@
+[submodule "_ingest/Pulse"]
+	path = _ingest/Pulse
+	url = https://github.com/ashwinsreedhar28/Pulse.git
+[submodule "_ingest/RAVEN_MESH"]
+	path = _ingest/RAVEN_MESH
+	url = https://github.com/coltonkirsten/RAVEN_MESH.git
+[submodule "_ingest/NEXUS"]
+	path = _ingest/NEXUS
+	url = https://github.com/R-A-V-E-N-delegate/nexus.git
+[submodule "_ingest/VIEWER"]
+	path = _ingest/VIEWER
+	url = https://github.com/R-A-V-E-N-delegate/viewer.git

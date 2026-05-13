@@ -100,3 +100,50 @@ process restart.
 Flagged here so it's not forgotten.
 **Alternatives considered:** Implementing background mode in this PR —
 rejected as out of scope per CLAUDE.md §11 DON'T list.
+
+---
+
+## [2026-05-12] `_ingest/` adopted as git submodules
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Previous ADRs deferred this question (PR #1 gitignored
+`_ingest/`, planned to revisit "if drift bites"). Drift bites now — every
+new task spec cites file paths and line numbers under `_ingest/`, and
+those citations rot the moment any of the four upstreams move. Two
+viable alternatives, both worse: *vendor* the repos (strip inner `.git`,
+commit everything — bloats homeOS history with ~thousands of files and
+re-creates the drift problem manually) or *keep ignored* (current state
+— Director and collaborator end up at different upstream SHAs, MASTER_SYNTHESIS.md
+citations diverge silently). Submodules pin specific SHAs in homeOS history;
+clone + `git submodule update --init --recursive` reproduces the exact
+reference state on any machine.
+**Decision:** Convert `_ingest/{Pulse, RAVEN_MESH, NEXUS, VIEWER}` to
+git submodules pinned to these SHAs:
+
+| Submodule | URL | Pinned SHA |
+|---|---|---|
+| `_ingest/Pulse` | `https://github.com/ashwinsreedhar28/Pulse.git` | `842a8bde7a9c3aee8b7b154d3e631f56a0588791` |
+| `_ingest/RAVEN_MESH` | `https://github.com/coltonkirsten/RAVEN_MESH.git` | `464ee80911739019663589d75bd2d6f58a45afee` |
+| `_ingest/NEXUS` | `https://github.com/R-A-V-E-N-delegate/nexus.git` | `4d2a6f6d271ccd6b977e6ecfba39dbc4cc60b473` |
+| `_ingest/VIEWER` | `https://github.com/R-A-V-E-N-delegate/viewer.git` | `9c58664ec652c836595ac48e9f75d2439272657e` |
+
+All four URLs are HTTPS (no SSH-key requirement on collaborator's
+machine), all four upstreams are public at the time of this decision
+(Pulse was made public by Director during the PR — previously private).
+**Consequences:** Clone workflow gains a step:
+`git clone <homeOS> && cd <homeOS> && git submodule update --init --recursive`.
+Documented in this PR's Verification block. `.gitignore` no longer hides
+`_ingest/`; `.gitmodules` at repo root holds the four submodule entries.
+**Accepted risk:** If an upstream force-pushes or rewrites history past
+our pinned SHA, our pointer orphans and `submodule update` fails for
+anyone who hasn't already fetched. *Mitigation:* if any source proves
+fragile, fork it into our own org as a follow-up PR and re-point the
+submodule URL there. None of the four show any sign of doing this today.
+**Alternatives considered:**
+- *Vendor (strip inner .git, commit everything)* — rejected: ~thousands
+  of files of bloat in homeOS history, and re-introduces drift manually
+  every time we want to refresh.
+- *Keep gitignored* (the previous state) — rejected: every citation in
+  `MASTER_SYNTHESIS.md` and future task specs is effectively meaningless
+  across machines.

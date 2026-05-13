@@ -33,8 +33,3 @@ Thumbs.db
 logs/
 *.log
 
-# Vendored reference repos. Each subdir is its own git clone; we don't track
-# them in version control to avoid bloat and double-git-dir confusion. Director
-# / collaborators clone them locally per docs. See PR #1 self-review for the
-# reasoning — submodules are an option if drift becomes a real problem.
-_ingest/

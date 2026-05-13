@@ -10,10 +10,24 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Changed
 
+### Fixed
+
+### Removed
+
+## [0.0.2] - 2026-05-12
+
+### Added
+
+### Changed
+
 - Converted `_ingest/{Pulse, RAVEN_MESH, NEXUS, VIEWER}` from gitignored
   clones to git submodules pinned to specific SHAs (see DECISIONS.md).
 
 ### Fixed
+
+- Removed leftover `_ingest/` entry from `.gitignore` that PR #2 intended
+  to delete but never staged (PR #3, no functional change — gitlinks
+  override ignore rules).
 
 ### Removed
 

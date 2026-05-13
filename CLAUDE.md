@@ -314,6 +314,16 @@ These are scars. Internalize them before they happen again.
 - **No `backdrop-blur` on viewport-filling overlays.** Composition cost is steep in packaged builds; works fine in dev but kills perceived performance in production. Use translucency via `rgba()` backgrounds instead.
 - **No `animation: ... infinite` CSS rules.** Permanent CSS animations cause visible jitter under macOS screen-sharing. Use `requestAnimationFrame`-driven `scrollLeft` for marquees and similar.
 - **`titleBarStyle: 'hiddenInset'` + custom top nav = traffic-light clash.** Hiding the title bar lets renderer content extend to the window's top edge, but macOS still draws the red/yellow/green window buttons in the top-left (~12–80px). Any UI element placed in that region (top nav, header bar) collides. Pad the left side of the top region by 80px on macOS, 0 elsewhere. Also make the empty padding region `-webkit-app-region: drag` so users can grab the top to move the window (hiddenInset disables the default dragging surface); per-button `-webkit-app-region: no-drag` keeps clicks working.
+- **`spawnSync` in Electron main freezes the UI.** Any synchronous `child_process` API in Electron main blocks the renderer for the full duration of the child. A 30s pip install via `spawnSync` produces a black screen + network-service crash. Use async `spawn` returning a Promise. Anything that could exceed ~100ms must be async. Source: PR #9, commit `3ff7186`.
+- **Electron main on macOS has stripped PATH.** GUI-launched Electron doesn't source `.zshrc` / `.bashrc`, so `pnpm`, `python3`, `node`, and any user-installed bin may not be findable via `command -v` or unqualified path lookup. Resolve via `$SHELL -lic 'command -v <bin>'` to inherit the login-shell's PATH. Pattern used in `shell/electron/main/services/python.ts` (mesh) and `ravenDaemonManager` (voice). Source: PR #9 commits `1d29df6` → `37bf450`; same root-cause as mesh PR #10's `python.ts`.
+
+### Subprocess protocols / structured channels
+
+- **Stdout pollution breaks JSON-RPC daemons.** Any subprocess speaking a structured-text protocol over stdout (JSON-RPC, JSON-lines, NDJSON, etc.) must NEVER share that stream with human-facing output (prompts, debug logs, progress messages). Human output goes to stderr or a separate log file. The "message > " bug in PR #9 was an interactive CLI prompt — written without a newline — gluing itself to subsequent JSON status events on stdout and breaking JSON.parse on the daemon side. State transitions were silently dropped. Source: PR #9 commit `9b6bd6a`.
+
+### Voice / audio
+
+- **Mic-during-playback creates acoustic echo loops.** Voice AI listening continuously while the speaker plays will hear its own output, treat it as user speech, fire false interruptions (cutting itself off mid-sentence), and generate responses to its own echo — producing a cycling loop. Until proper AEC is wired up (Apple's `voiceProcessingIO` on macOS is the canonical answer), gate the mic during playback via a monotonic "playback-until" timestamp. Trade-off: no barge-in. Source: PR #9 commit `06963f5`; barge-in fix queued as `fix/voice-barge-in` follow-up.
 
 ### Security / NEXUS lessons
 

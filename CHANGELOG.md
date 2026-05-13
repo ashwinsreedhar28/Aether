@@ -8,6 +8,17 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- Markdown app (`shell/src/apps/markdown/`, order: 70, icon: `FileText`):
+  opens `.md` / `.markdown` files via native dialog, renders with
+  `react-markdown` + `remark-gfm` + holographic-tinted styles. Bundled
+  About page on first launch.
+- `AppDefinition` gains optional `fileTypes: string[]` and
+  `iconForFile?: (path) => string` for file-based apps. App registry
+  gains `getAppsForFileType(ext)` helper for future file-route routing
+  (no consumers wired yet).
+- Preload gains `window.homeOS.files` surface (`openDialog`, `readText`
+  with 1 MiB cap and home/userData/downloads/temp allowlist guard).
+
 ### Changed
 
 - Workflow refactor: Architect↔Implementer reviews now ride on PR

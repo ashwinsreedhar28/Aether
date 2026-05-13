@@ -238,3 +238,60 @@ pre-PR — every one a saveable round-trip.
 - *GitHub Action wiring Architect chat → PR comment directly* —
   rejected as week-1 over-investment. Revisit when paste load becomes
   a measurable bottleneck again.
+
+---
+
+## [2026-05-12] File-based apps pattern: `fileTypes` on `AppDefinition`, `fileApi` on preload
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** `MASTER_SYNTHESIS.md §1.4` establishes file-as-source-of-truth
+as a doctrine homeOS inherits from VIEWER — content apps shouldn't own their
+data, they should render files on disk. The previous app-discovery ADR
+explicitly deferred this ("no `fileTypes` — week 1 has no file-based apps")
+because the markdown viewer hadn't landed. It now has, and future content
+apps (JSON viewer, ticker `.csv` view, PDF reader, the morning-brief
+output) all want the same shape. Doing this once, now, is cheaper than
+retrofitting four apps later.
+**Decision:**
+- Extend `AppDefinition` with `fileTypes?: string[]` (lowercase extensions
+  without leading dot, e.g. `['md', 'markdown']`) and a forward-looking
+  `iconForFile?: (path) => string` (per-file icon override; no consumer
+  reads it yet but file-based apps can declare it now).
+- Add `getAppsForFileType(ext): AppDefinition[]` to `app-registry.ts`,
+  sorted by `order` so the first entry is the eventual default
+  renderer. Case-insensitive, leading-dot tolerated.
+- Expose a `window.homeOS.files` namespace on the preload:
+  - `openDialog({ filters? }): Promise<string | null>` — native open-file
+    dialog, returns absolute path or null on cancel.
+  - `readText(path): Promise<string>` — UTF-8 read with a 1 MiB cap
+    (stat-then-read so oversized files reject precisely instead of
+    OOMing), enforcing an allowlist of `os.homedir()`, `app.getPath('userData')`,
+    `app.getPath('downloads')`, `app.getPath('temp')`. Path resolved with
+    `path.resolve` and prefix-checked with `sep` boundary to defeat
+    `..` segments and sibling-prefix tricks.
+- No file-router consumer wired yet. The helper exists so the future file
+  explorer / drag-drop surface needs no app-side change to route opens.
+**Consequences:**
+- Any future file-based app declares its `fileTypes` and uses the same
+  `homeOS.files` surface — no per-app IPC.
+- The 1 MiB cap is the renderer's load-bearing contract. Larger files
+  need a lazy/virtualised rendering layer (future PR) before the cap
+  raises.
+- The dialog acts as the trust boundary for user-chosen files; the
+  allowlist is the defence-in-depth against direct `readText` calls
+  (DevTools console, future buggy callers). The Open Question in the
+  task spec is resolved in favour of the broader allowlist
+  (home + userData + downloads + temp) rather than the narrower
+  home-only variant — `/tmp` and `~/Downloads` are normal places to
+  drop a markdown file.
+**Alternatives considered:**
+- *File-explorer-as-router* (the router resolves extensions at open
+  time and ignores `fileTypes` on apps) — rejected: premature without
+  an explorer, and apps still need to advertise what they can render.
+- *Hardcoded routing per-app* (no `fileTypes`, file explorer maintains
+  its own map) — rejected: doesn't scale past three apps, and forks
+  ownership of the mapping out of the app folder.
+- *Narrow allowlist (home + userData only)* — rejected per the task
+  spec's open question: `/tmp` and `~/Downloads` are normal user-pick
+  locations. Allowlist is now home + userData + downloads + temp.

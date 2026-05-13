@@ -8,6 +8,54 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- **The spine is alive.** RAVEN_MESH Core vendored to `core/` from
+  `_ingest/RAVEN_MESH` at SHA `464ee809…`; TypeScript SDK ported to
+  `core/node_sdk_ts/` (~370 LOC across canonical.ts, types.ts,
+  MeshNode.ts, index.ts — vs. 310 LOC in `node_sdk/__init__.py` plus
+  the explicit TS type declarations that Python doesn't need). Implements
+  canonical JSON (Python `ensure_ascii=True`-compatible), HMAC-SHA256
+  signing, envelope build, and a hand-rolled SSE consumer for
+  /v0/{register,invoke,respond,stream}. Wire format proven HMAC-byte-
+  identical to the Python SDK by an in-process round-trip vitest that
+  spawns Core and exercises a real invoke / respond loop.
+- Daemon-manager pattern (adapted from
+  `_ingest/VIEWER/apps/viewer/electron/main/services/daemonManager.ts`)
+  spawns the Python Core in parallel with the splash → reveal
+  sequence. PID file, /v0/healthz polling to 30s timeout, error
+  dialog (without quitting) on health failure, clean SIGTERM on
+  `before-quit` with SIGKILL fallback after 5s plus a second wait
+  so the parent doesn't exit mid-reap. Sibling `nodeManager` spawns
+  Node.js mesh nodes the same way. python3 is resolved to an
+  absolute path at boot (login-shell `command -v python3` → known
+  macOS install paths → `$MESH_PYTHON` override) so GUI-launched
+  Electron with its stripped PATH still finds a Python with our
+  deps installed.
+- `manifest.yaml` at repo root declares three nodes — `shell`,
+  `host_notifications`, plus the implicit reserved `core` — and one
+  edge: `shell → host_notifications.notify`. Identity secrets are env-
+  var references; the shell generates fresh hex-32 values per cold
+  start and injects them into spawned children (no on-disk
+  persistence).
+- First real mesh node: `nodes/host_notifications/`. Fires native
+  macOS notifications via `osascript` (`execFile`, not `exec` — the
+  shell is kept out of the loop). Returns `MeshDeny` on non-darwin
+  platforms; the Windows path is a follow-up PR.
+- New `Mesh` app (`shell/src/apps/mesh-devtools/`, lucide `Cable`
+  icon, nav order 90): "core: online / offline" status pill (polls
+  the new `mesh:status` IPC every 2s) and a "Send notification via
+  mesh" button that drives `host_notifications.notify` end-to-end
+  and reports round-trip ms.
+- `mesh:invoke` and `mesh:status` channels on `window.homeOS.mesh.*`
+  in the preload bridge. The renderer never holds a signing secret;
+  the main process owns the shell's `MeshNode` instance.
+- `pnpm-workspace.yaml` at repo root makes `shell/`,
+  `core/node_sdk_ts/`, and `nodes/*` siblings of a single pnpm
+  workspace. `pnpm dev` and `pnpm build` from `shell/` now pre-build
+  the SDK + host_notifications via a `predev`/`prebuild` hook.
+- `.env.local.example` at repo root documents the env vars the
+  substrate recognises (`MESH_PYTHON`, `MESH_CORE_URL`) — copy to
+  `.env.local` (gitignored) and export from your shell rc to
+  short-circuit the 50-200ms login-shell python3 lookup.
 - Markdown app (`shell/src/apps/markdown/`, order: 70, icon: `FileText`):
   opens `.md` / `.markdown` files via native dialog, renders with
   `react-markdown` + `remark-gfm` + holographic-tinted styles. Bundled

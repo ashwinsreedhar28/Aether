@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "core.stop",
+  "description": "Input payload for core.stop. Stop a supervised process by node id.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["node_id"],
+  "properties": {
+    "node_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Manifest-declared node id to stop."
+    },
+    "graceful": {
+      "type": "boolean",
+      "default": true,
+      "description": "If true (default), SIGTERM and wait; otherwise SIGKILL immediately."
+    }
+  }
+}

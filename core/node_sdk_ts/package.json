@@ -1,0 +1,36 @@
+{
+  "name": "@homeos/mesh-node-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript SDK for RAVEN_MESH nodes (homeOS). Ports node_sdk/__init__.py.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.18.0",
+    "typescript": "~5.7.0",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}

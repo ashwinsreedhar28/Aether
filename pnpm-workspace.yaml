@@ -1,0 +1,4 @@
+packages:
+  - 'shell'
+  - 'core/node_sdk_ts'
+  - 'nodes/*'

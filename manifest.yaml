@@ -1,0 +1,46 @@
+# homeOS mesh manifest.
+#
+# Loaded by `python3 -m core.core --manifest manifest.yaml` (run from the
+# vendored `core/` directory by the shell's coreManager). Format and
+# semantics are defined in `_ingest/RAVEN_MESH/docs/SPEC.md` §8.
+#
+# Authorization is graph-membership: an edge present below means the
+# relationship is permitted; absent means denied. There is no policy field.
+# To grant a new capability, add a relationship line.
+#
+# Identity secrets are NEVER literal in this file — they reference env vars
+# that the shell populates at boot. See core/README.md for the env-var
+# contract. Manifest validator warns (not errors) on unset env vars; Core
+# autogenerates a fallback secret in that case, which is fine for tests but
+# not what we want in dev.
+
+nodes:
+  - id: shell
+    runtime: local-process
+    identity_secret: env:MESH_SHELL_SECRET
+    metadata:
+      description: |
+        homeOS Electron main process. Acts as a mesh client only — the shell
+        does not yet expose any inbound surfaces. Surfaces will be added as
+        renderer-facing capabilities (e.g. shell.toast, shell.focus_app)
+        become useful for other nodes to invoke.
+    surfaces: []
+
+  - id: host_notifications
+    runtime: local-process
+    identity_secret: env:MESH_HOST_NOTIFICATIONS_SECRET
+    metadata:
+      description: |
+        macOS native notification node. Fires `osascript -e 'display
+        notification ...'` per invocation. macOS only in v0.1.0 — calls
+        from any platform other than darwin return a MeshDeny.
+    surfaces:
+      - name: notify
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/host_notifications/schemas/notify.json
+
+relationships:
+  # The shell's renderer can fire native notifications via mesh.invoke().
+  - from: shell
+    to: host_notifications.notify

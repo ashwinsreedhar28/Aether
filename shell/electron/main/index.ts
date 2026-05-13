@@ -1,5 +1,13 @@
-import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell, dialog } from 'electron'
 import { join } from 'node:path'
+import {
+  startMesh,
+  stopMesh,
+  meshInvoke,
+  isCoreHealthy,
+  getCoreUrl,
+  getMeshState,
+} from './services/mesh'
 import { registerFileHandlers } from './handlers/files'
 
 // Resolved relative to the compiled main entry at out/main/index.js.
@@ -14,6 +22,8 @@ const isDev = !app.isPackaged
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let quitInFlight = false
+let cleanedUp = false
 
 // Renderer-ready signal. The splash holds until the main renderer signals
 // mount (or a 2.5s watchdog fires) — lifted from Pulse's main/index.ts
@@ -155,13 +165,83 @@ ipcMain.handle('shell:metadata', () => {
   }
 })
 
+ipcMain.handle('mesh:invoke', async (_e, target: string, payload: Record<string, unknown>) => {
+  return meshInvoke(target, payload)
+})
+
+ipcMain.handle('mesh:status', async () => {
+  const ms = getMeshState()
+  return {
+    coreUrl: getCoreUrl(),
+    coreHealthy: await isCoreHealthy(),
+    state: ms.state,
+    error: ms.error,
+  }
+})
+
 app.whenReady().then(() => {
+  // Splash + main + tray created immediately so the reveal sequence stays
+  // on PR #1's tested timing (splash → renderer-ready signal → destroy
+  // splash → 180ms settle → show main). Mesh boot is OFF this critical
+  // path; it spawns in parallel and the Mesh app's status pill flips
+  // when Core is healthy. If mesh fails to start, the shell stays
+  // useful for non-mesh apps (Welcome / News / Markdown) — mesh-
+  // dependent features surface the failure via the pill + invoke
+  // rejections + the dialog below.
   registerFileHandlers()
   splashWindow = createSplash()
   mainWindow = createMain()
   createTray()
   void revealMain()
+
+  startMesh().catch((err) => {
+    const message = (err as Error).message ?? String(err)
+    dialog.showErrorBox(
+      'homeOS — mesh failed to start',
+      `The mesh substrate could not start. Mesh-dependent features will be unavailable until you restart.\n\n${message}`,
+    )
+  })
 })
+
+// Clean mesh shutdown. before-quit fires on user-initiated quits AND on
+// window-all-closed quits (since 'window-all-closed' calls app.quit()).
+// Pattern matches the Architect's spec: preventDefault → await cleanup →
+// flip cleanedUp → call app.quit() again. The second before-quit returns
+// early without preventDefault, and Electron's quit sequence proceeds
+// (will-quit → quit → exit) with the children already reaped.
+app.on('before-quit', (event) => {
+  if (cleanedUp) return
+  event.preventDefault()
+  if (quitInFlight) return
+  quitInFlight = true
+  void (async () => {
+    try {
+      await stopMesh()
+    } catch (e) {
+      console.warn('[homeOS] stopMesh failed:', e)
+    }
+    cleanedUp = true
+    app.quit()
+  })()
+})
+
+// Belt-and-braces for direct kill signals (Ctrl-C from a terminal that
+// launched the shell, or a wrapper sending SIGTERM). before-quit doesn't
+// fire on these; without an explicit handler, the children would orphan.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.on(sig, () => {
+    if (cleanedUp) return
+    void (async () => {
+      try {
+        await stopMesh()
+      } catch {
+        /* best-effort */
+      }
+      cleanedUp = true
+      app.exit(0)
+    })()
+  })
+}
 
 // Week-1 behaviour per CLAUDE.md §11: closing the only window quits the app
 // on every platform. Once homeOS earns a "background mode" (substrate

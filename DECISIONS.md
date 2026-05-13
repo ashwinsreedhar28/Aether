@@ -356,3 +356,84 @@ the GitHub API).
   source). The closest options (a workflow that calls the GitHub API
   on every push) introduce a chicken-and-egg problem and are worse
   than a five-minute UI setup.
+
+---
+
+## [2026-05-12] Mesh awakened: minimum end-to-end skeleton
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** The shell now has multiple surfaces (Welcome / News / Mesh)
+and the next wave of capabilities — real data feeds, voice, agents —
+each need permissioned IPC. The top-down strategy from PR #1's ADR
+deferred the mesh until "Day 5+ once there are actually multiple things
+to connect." That bar is met. RAVEN_MESH's edge-graph authorization
+(manifest line ⇒ permitted; no line ⇒ denied — `MASTER_SYNTHESIS.md §1.2`,
+`_ingest/RAVEN_MESH/docs/PHILOSOPHY.md §1`) is the load-bearing primitive
+every future capability will sit on; waking it now with one trivial node
+end-to-end proves the spine and gates v0.1.0.
+
+**Decision:** Adopt RAVEN_MESH protocol unchanged (`_ingest/RAVEN_MESH`
+SHA `464ee809…`) and vendor its protocol layer to `core/`. Port the
+Python SDK to TypeScript at `core/node_sdk_ts/` so the Electron main
+process and Node.js mesh nodes can speak the wire format. Use a
+daemon-manager pattern (lifted from
+`_ingest/VIEWER/apps/viewer/electron/main/services/daemonManager.ts`)
+to spawn the Python Core + each Node.js node from the shell's
+`app.whenReady`. Declare the topology in a single `manifest.yaml` at
+repo root with three nodes — `shell`, `host_notifications`, and the
+implicit reserved `core` — and one edge: `shell → host_notifications.notify`.
+Ship the first real node (`nodes/host_notifications/`) firing native
+macOS notifications via `osascript`, plus a `mesh-devtools` app on the
+canvas to drive a round-trip from the renderer.
+
+**Consequences:**
+- Mesh boot runs in parallel with the splash → reveal sequence; it
+  is NOT on the critical path. The shell remains usable for non-mesh
+  apps (Welcome / News / Markdown) even if Core fails to start —
+  the Mesh Dev Tools status pill shows `starting` / `online` /
+  `failed` / `offline`, and an error dialog surfaces on failure
+  without quitting the app. The earlier "hard-depend, quit on
+  failure" sequencing was reversed during smoke-test (Architect
+  feedback on PR #10) when it regressed PR #1's splash → reveal
+  timing.
+- Identity secrets live in process env vars per RAVEN_MESH defaults; the
+  shell generates fresh hex-32 values per cold start (`coreSecret`,
+  `shellSecret`, `hostNotificationsSecret`, plus `ADMIN_TOKEN`) and
+  injects them into spawned children. Not persisted across runs. Keychain
+  integration is a follow-up (`MASTER_SYNTHESIS.md §7 Q6`).
+- Renderer ↔ main IPC stays on `contextBridge` (`shell:metadata`,
+  `mesh:invoke`, `mesh:status`). Mesh is for main-process-and-out, not
+  for renderer-to-main hot paths — matches `MASTER_SYNTHESIS.md §4.1`.
+- Vendored Core requires `aiohttp`, `pyyaml`, `jsonschema` from system
+  Python; coreManager surfaces a clear failure message if missing.
+  Documented in `core/README.md`.
+- Cross-platform debt: `host_notifications` is macOS-only this PR
+  (returns `MeshDeny` on other platforms). The collaborator's Windows
+  tree handles the Windows path in their own PR (CLAUDE.md §11 #7).
+- The TypeScript SDK port lives at `core/node_sdk_ts/`. ~370 LOC across
+  canonical / types / MeshNode / index files; longer than the Python's
+  310 LOC mostly because of explicit type declarations and the hand-
+  rolled SSE consumer that replaces aiohttp's `r.content.readline()`.
+  The round-trip vitest boots Core in a subprocess and proves the wire
+  is HMAC-signature-identical to the Python SDK.
+
+**Alternatives considered:**
+- *Keep IPC-only (no mesh)* — rejected: no auth, no edge model, won't
+  scale to agents or third-party nodes. `MASTER_SYNTHESIS.md §3.2`.
+- *Mesh-everywhere including renderer↔main* — rejected per
+  `MASTER_SYNTHESIS.md §4.1` recommendation. The renderer/main hot path
+  doesn't need HMAC overhead or graph mediation; everything else does.
+- *Spawn Core on-demand via supervisor* — `core/core/supervisor.py` is
+  vendored but not wired up. Always-spawned-by-shell is simpler for
+  v0.1.0; revisit when multi-mesh or detached substrate machines arrive
+  (`MASTER_SYNTHESIS.md §6`).
+- *Adopt RAVEN_MESH as a runtime dep instead of vendoring* — rejected:
+  the protocol is the contract, and we want the freedom to bump the
+  vendored SHA in dedicated chore PRs without merging upstream's commit
+  cadence into our history.
+- *Embed Python Core via PyO3 / Pyodide-in-Electron* — rejected as
+  premature optimization. Subprocess spawn is fast enough (Core warm
+  in ~200ms in dev) and matches RAVEN_MESH's deployment model.
+- *Persist secrets to disk in `data/`* — rejected for this PR; ephemeral
+  per-launch secrets are strictly safer until Keychain integration lands.

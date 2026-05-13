@@ -34,35 +34,38 @@ jobs:
           corepack enable
           corepack prepare pnpm@9.15.0 --activate
 
-      - name: shell — install
-        working-directory: shell
+      # Workspace install from repo root. pnpm-workspace.yaml lists
+      # shell/, core/node_sdk_ts/, and nodes/*; one install wires
+      # symlinks for all three packages.
+      - name: workspace — install
         run: pnpm install --frozen-lockfile
 
-      - name: shell — typecheck
-        working-directory: shell
-        run: pnpm typecheck
+      # @homeos/mesh-node-sdk publishes types via dist/. shell + nodes
+      # consumers can't typecheck against the workspace alias until
+      # dist exists. Same for host_notifications (the shell spawns its
+      # compiled JS at runtime; building it now is the cheapest way to
+      # verify it still compiles).
+      - name: workspace — pre-build workspace packages
+        run: |
+          pnpm --filter @homeos/mesh-node-sdk build
+          pnpm --filter @homeos/host-notifications build
 
-      - name: shell — lint
-        working-directory: shell
-        run: pnpm lint
+      - name: workspace — typecheck
+        run: pnpm -r typecheck
 
+      - name: workspace — lint
+        run: pnpm -r lint
+
+      # The SDK's round-trip vitest spawns Python Core. CI installs the
+      # three Core deps; the test self-skips if any are missing, but on
+      # the runner we want it to actually run.
+      - name: core — install Python deps for round-trip test
+        run: python3 -m pip install --quiet aiohttp pyyaml jsonschema
+
+      - name: core/node_sdk_ts — round-trip test
+        run: pnpm --filter @homeos/mesh-node-sdk test
+
+      # Full shell build proves electron-vite renders main / preload /
+      # renderer with the workspace deps wired correctly.
       - name: shell — build
-        working-directory: shell
-        run: pnpm build
-
-      # Forward-tolerant: core/node_sdk_ts may not exist yet. When Lane 1
-      # adds it, this step lights up automatically.
-      - name: core/node_sdk_ts — install
-        if: hashFiles('core/node_sdk_ts/package.json') != ''
-        working-directory: core/node_sdk_ts
-        run: pnpm install --frozen-lockfile
-
-      - name: core/node_sdk_ts — typecheck
-        if: hashFiles('core/node_sdk_ts/package.json') != ''
-        working-directory: core/node_sdk_ts
-        run: pnpm typecheck
-
-      - name: core/node_sdk_ts — test
-        if: hashFiles('core/node_sdk_ts/package.json') != ''
-        working-directory: core/node_sdk_ts
-        run: pnpm test
+        run: pnpm --filter homeos-shell build

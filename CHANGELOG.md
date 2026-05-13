@@ -8,6 +8,31 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- **Voice → mesh integration.** raven registers as the `raven` mesh
+  node on orchestrator startup and routes its new `notify(title, body)`
+  tool through `mesh.invoke('host_notifications.notify', ...)`. First
+  time voice and mesh interact end-to-end. Pattern established for all
+  future voice tools that need homeOS data or capabilities: declare in
+  `raven_core/tools/`, implement as a thin `await mesh_invoke(...)`,
+  add the edge in `manifest.yaml`. Internal tools (time, memory) stay
+  direct Python.
+- `manifest.yaml` grows the `raven` node (identity-only, no inbound
+  surfaces) and the `raven → host_notifications.notify` edge.
+- `raven-core/raven_core/mesh_client.py`: outbound-only mesh client
+  for raven. Wraps the vendored Python SDK (from `core/node_sdk/`,
+  reached via PYTHONPATH injection at spawn time — no pip install
+  against the vendored tree). Setup at orchestrator startup; shutdown
+  in the finally block.
+- Tool registry (`raven_core/tools/__init__.py`) is now async-aware:
+  modules expose either sync `handle_call` or async `handle_call_async`;
+  the registry awaits the latter so mesh-routed tools can `await
+  mesh_invoke` on the orchestrator's running event loop without a
+  `run_until_complete`-on-a-running-loop deadlock.
+- `MESH_RAVEN_SECRET` joined the per-launch secrets bag; injected into
+  both Core (for manifest env-var resolution) and raven daemon spawn
+  env. raven daemon now waits for mesh-ready (max 30s) before starting
+  Python so the secret + `MESH_CORE_URL` are guaranteed available.
+
 - **The spine is alive.** RAVEN_MESH Core vendored to `core/` from
   `_ingest/RAVEN_MESH` at SHA `464ee809…`; TypeScript SDK ported to
   `core/node_sdk_ts/` (~370 LOC across canonical.ts, types.ts,
@@ -95,6 +120,20 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Changed
 
+- raven daemon's pip-deps marker bumped from `.requirements-installed`
+  to `.requirements-installed-v2`. Existing dev venvs from PR #9 will
+  re-run `pip install -r requirements.txt` once on first launch after
+  pulling this branch (picks up the new `aiohttp` dependency for the
+  mesh SDK). Adds ~30s to first launch only.
+- raven's system prompt + few-shot examples updated to teach Gemini
+  Live about the `notify` tool (per PR #9's lesson that the
+  audio-preview model needs explicit prompting to call tools
+  reliably).
+- raven tool registry (`raven_core/tools/__init__.py`) is now
+  async-aware: existing sync tools (time, memory) are unchanged;
+  async tools (notify) expose `handle_call_async` and are awaited by
+  the registry. Orchestrator's `handle_function_call_async` now
+  awaits the registry call.
 - Workflow refactor: Architect↔Implementer reviews now ride on PR
   comments (Director relays one paste per round-trip, down from ~four).
   §11 First Task removed and replaced with an Architect Review

@@ -111,6 +111,30 @@ export function getMeshState(): { state: MeshState; error: string | null } {
   return { state: meshState, error: meshError }
 }
 
+// Identity bundle handed to the raven daemon at spawn time. Returns null
+// until the mesh is fully ready — the raven manager waits for `ready`
+// before spawning Python (its first-run bootstrap takes ~30s anyway,
+// which is more than enough headroom for Core + nodes to come up in
+// parallel). After v0.1.0 this generalises to a per-node identity
+// lookup; we hard-code raven here to avoid premature abstraction.
+export function getRavenMeshConfig(): { ravenSecret: string; coreUrl: string } | null {
+  if (meshState !== 'ready' || !secrets || !coreManager) return null
+  return { ravenSecret: secrets.ravenSecret, coreUrl: coreManager.url }
+}
+
+// Wait up to `timeoutMs` for mesh to reach `ready`. Returns false on
+// timeout OR if mesh entered `failed` (no point waiting longer).
+export async function waitForMeshReady(timeoutMs: number): Promise<boolean> {
+  const POLL_MS = 100
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (meshState === 'ready') return true
+    if (meshState === 'failed') return false
+    await new Promise((r) => setTimeout(r, POLL_MS))
+  }
+  return meshState === 'ready'
+}
+
 export async function meshInvoke(
   target: string,
   payload: Record<string, unknown>,

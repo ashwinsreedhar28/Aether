@@ -25,6 +25,25 @@ import * as fs from 'node:fs'
 import * as http from 'node:http'
 import { EventEmitter } from 'node:events'
 import { WebSocket } from 'ws'
+import { getRavenMeshConfig, waitForMeshReady } from './mesh'
+
+// Prepend `<repo>/core` to the raven-core child's PYTHONPATH at spawn
+// time so `from node_sdk import MeshNode` resolves to
+// `<repo>/core/node_sdk/__init__.py`. The package directory is named
+// `node_sdk`, so the parent directory must be on sys.path — putting
+// `core/node_sdk` itself on PYTHONPATH would only expose the modules
+// inside that directory as top-level imports, not the package as
+// `node_sdk`. We use PYTHONPATH rather than `pip install -e` so the
+// vendored tree stays untouched — core/README.md is explicit that
+// core/{core,node_sdk,schemas} are managed by re-copying from the
+// _ingest submodule, and a stray pyproject.toml would diverge.
+//
+// Wait for mesh before spawning Python: raven needs MESH_RAVEN_SECRET +
+// MESH_CORE_URL to register with Core. Cap the wait at 30s; if mesh
+// hasn't come up by then something is seriously wrong and we surface
+// 'mesh not ready' on the voice pill rather than spawn into a crash
+// loop.
+const MESH_READY_TIMEOUT_MS = 30_000
 
 const DEFAULT_PORT = 7433
 const HEALTH_POLL_INTERVAL_MS = 250
@@ -346,8 +365,14 @@ export class RavenDaemonManager extends EventEmitter {
     // pre-portaudio) leaves a half-populated venv where Python exists but
     // the requirements are missing. Without the marker we'd skip pip and
     // hand the daemon a Python child that crashes on `import pyaudio`.
+    //
+    // Marker filename bumped to `-v2` when aiohttp was added to
+    // requirements.txt (mesh client). Existing dev venvs from the prior
+    // PR have an `.requirements-installed` marker but no aiohttp — by
+    // changing the filename we force one more 30s pip run on first
+    // launch after pulling this branch.
     const venvPython = path.join(this.coreDir, '.venv', 'bin', 'python')
-    const reqsMarker = path.join(this.coreDir, '.venv', '.requirements-installed')
+    const reqsMarker = path.join(this.coreDir, '.venv', '.requirements-installed-v2')
 
     if (!fs.existsSync(venvPython)) {
       this.setAvailability({ kind: 'unavailable', reason: 'creating python venv…' })
@@ -398,10 +423,28 @@ export class RavenDaemonManager extends EventEmitter {
   /**
    * Spawn the daemon process detached. The daemon writes its PID file and
    * supervises the Python child internally — we do not spawn Python here.
+   *
+   * `meshConfig` carries the per-launch identity raven needs to register
+   * with Core (MESH_RAVEN_SECRET) plus Core's URL (MESH_CORE_URL).
+   * PYTHONPATH gets `<repo>/core` (the parent of the SDK package
+   * directory `node_sdk/`) prepended so raven-core can
+   * `from node_sdk import MeshNode` without a pip install step
+   * against the vendored tree.
    */
-  private spawnDaemon(): void {
+  private spawnDaemon(meshConfig: { ravenSecret: string; coreUrl: string }): void {
     const daemonDist = path.join(this.daemonDir, 'dist', 'index.js')
     const venvPython = path.join(this.coreDir, '.venv', 'bin', 'python')
+
+    // Prepend `<repo>/core` (the *parent* of the SDK package dir) so
+    // `from node_sdk import MeshNode` resolves to
+    // <repo>/core/node_sdk/__init__.py. The package name is the
+    // directory name `node_sdk`, so PYTHONPATH must include its
+    // parent — not the package directory itself.
+    const sdkParent = path.join(this.repoRoot, 'core')
+    const existingPythonPath = process.env.PYTHONPATH ?? ''
+    const pythonPath = existingPythonPath
+      ? `${sdkParent}${path.delimiter}${existingPythonPath}`
+      : sdkParent
 
     this.daemonProcess = spawn('node', [daemonDist], {
       detached: true,
@@ -419,6 +462,15 @@ export class RavenDaemonManager extends EventEmitter {
         RAVEN_DIR: this.coreDir,
         RAVEN_PYTHON: venvPython,
         RAVEN_USER_DIR: this.dataDir,
+        // Mesh identity for raven-core. raven_core/mesh_client.py reads
+        // these at orchestrator startup and registers with Core. Missing
+        // either is a hard error in mesh_client (we always pass both
+        // here; the daemon would still bring up time + memory tools
+        // even without mesh, but that path is intended for manual
+        // standalone runs of raven-core, not this Electron flow).
+        MESH_CORE_URL: meshConfig.coreUrl,
+        MESH_RAVEN_SECRET: meshConfig.ravenSecret,
+        PYTHONPATH: pythonPath,
       },
     })
     this.daemonProcess.stdout?.on('data', (b: Buffer) => {
@@ -469,8 +521,23 @@ export class RavenDaemonManager extends EventEmitter {
       this.reapStalePid()
       if (!(await this.ensureBuilt())) return this.availability
 
+      // Wait for mesh before spawn — raven needs MESH_RAVEN_SECRET and
+      // MESH_CORE_URL to register with Core. The ensureBuilt() step
+      // above can take ~30s on first run, so mesh has typically
+      // finished booting in parallel by the time we reach this point.
+      this.setAvailability({ kind: 'unavailable', reason: 'waiting for mesh…' })
+      const meshReady = await waitForMeshReady(MESH_READY_TIMEOUT_MS)
+      const meshConfig = meshReady ? getRavenMeshConfig() : null
+      if (!meshConfig) {
+        this.setAvailability({
+          kind: 'unavailable',
+          reason: meshReady ? 'mesh ready but identity unavailable' : 'mesh not ready',
+        })
+        return this.availability
+      }
+
       this.setAvailability({ kind: 'unavailable', reason: 'starting daemon…' })
-      this.spawnDaemon()
+      this.spawnDaemon(meshConfig)
       const healthy = await this.waitForHealth(HEALTH_TIMEOUT_MS)
       if (!healthy) {
         this.setAvailability({

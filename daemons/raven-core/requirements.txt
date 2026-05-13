@@ -7,9 +7,15 @@
 #     mss and raven_core/orchestrator.py top-level-imports vision. A
 #     follow-up PR can prune vision when system_tool / camera modes are
 #     decided.
+#
+# aiohttp added when raven became a mesh participant: the vendored Python
+# SDK at core/node_sdk imports aiohttp for its HTTP + SSE client. It is
+# a transitive dep of Core itself, so most dev machines already have it
+# in their global Python — this pins it into raven-core's venv too.
 google-genai
 opencv-python
 pyaudio
 pillow
 mss
 requests
+aiohttp

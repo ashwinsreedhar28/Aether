@@ -20,14 +20,16 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
   spawns Core and exercises a real invoke / respond loop.
 - Daemon-manager pattern (adapted from
   `_ingest/VIEWER/apps/viewer/electron/main/services/daemonManager.ts`)
-  spawns the Python Core on shell boot. PID file, /v0/healthz polling
-  to 30s timeout, error dialog + quit on health failure, clean SIGTERM
-  on `before-quit` with SIGKILL fallback after 5s. Sibling
-  `nodeManager` spawns Node.js mesh nodes the same way. python3 is
-  resolved to an absolute path at boot (login-shell `command -v
-  python3` → known macOS install paths → `$MESH_PYTHON` override) so
-  GUI-launched Electron with its stripped PATH still finds a Python
-  with our deps installed.
+  spawns the Python Core in parallel with the splash → reveal
+  sequence. PID file, /v0/healthz polling to 30s timeout, error
+  dialog (without quitting) on health failure, clean SIGTERM on
+  `before-quit` with SIGKILL fallback after 5s plus a second wait
+  so the parent doesn't exit mid-reap. Sibling `nodeManager` spawns
+  Node.js mesh nodes the same way. python3 is resolved to an
+  absolute path at boot (login-shell `command -v python3` → known
+  macOS install paths → `$MESH_PYTHON` override) so GUI-launched
+  Electron with its stripped PATH still finds a Python with our
+  deps installed.
 - `manifest.yaml` at repo root declares three nodes — `shell`,
   `host_notifications`, plus the implicit reserved `core` — and one
   edge: `shell → host_notifications.notify`. Identity secrets are env-

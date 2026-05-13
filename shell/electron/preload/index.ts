@@ -31,9 +31,13 @@ export interface MeshInvokeResult {
   durationMs: number
 }
 
+export type MeshState = 'idle' | 'starting' | 'ready' | 'failed'
+
 export interface MeshStatus {
   coreUrl: string | null
   coreHealthy: boolean
+  state: MeshState
+  error: string | null
 }
 
 interface FileFilter {

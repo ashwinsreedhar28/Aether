@@ -16,9 +16,29 @@ function StatusPill({ status }: { status: MeshStatus | null }) {
   // (no register, no stream). When the first shell-side surface lands
   // (shell.toast, shell.focus_app, …) this pill grows a second state for
   // "shell registered".
-  const online = status?.coreHealthy === true
-  const label = status === null ? 'core: …' : online ? 'core: online' : 'core: offline'
-  const color = online ? 'rgb(60, 210, 140)' : 'rgb(255, 105, 105)'
+  //
+  // Three colours map to four states: starting (amber, mesh boot in
+  // flight), online (green, /healthz returns 200), failed (red, with a
+  // mesh.error message in the dialog the user already saw), offline
+  // (red, Core stopped responding mid-session).
+  let label: string
+  let color: string
+  if (status === null) {
+    label = 'core: …'
+    color = 'var(--holo-muted)'
+  } else if (status.state === 'starting') {
+    label = 'core: starting'
+    color = 'rgb(255, 178, 60)'
+  } else if (status.coreHealthy) {
+    label = 'core: online'
+    color = 'rgb(60, 210, 140)'
+  } else if (status.state === 'failed') {
+    label = 'core: failed'
+    color = 'rgb(255, 105, 105)'
+  } else {
+    label = 'core: offline'
+    color = 'rgb(255, 105, 105)'
+  }
   return (
     <span
       className="text-[10px] uppercase tracking-[0.18em] font-medium px-2 py-1 rounded border"
@@ -50,7 +70,11 @@ export function MeshDevTools() {
         const next = await window.homeOS.mesh.status()
         if (!cancelled) setStatus(next)
       } catch {
-        if (!cancelled) setStatus({ coreUrl: null, coreHealthy: false })
+        // IPC failed — main process is gone or hung. Treat as failed
+        // rather than starting so the pill goes red, not amber.
+        if (!cancelled) {
+          setStatus({ coreUrl: null, coreHealthy: false, state: 'failed', error: 'ipc unreachable' })
+        }
       }
       if (!cancelled) timer = setTimeout(tick, CORE_POLL_MS)
     }

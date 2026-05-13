@@ -113,7 +113,11 @@ export class CoreManager {
     if (!ok) {
       // Pull whatever stderr we have buffered to surface in the error
       // dialog. The log file always has the full output.
-      this.kill('SIGKILL')
+      try {
+        this.proc?.kill('SIGKILL')
+      } catch {
+        /* already gone */
+      }
       throw new Error(
         `Core failed to become healthy within ${HEALTH_TIMEOUT_MS / 1000}s. ` +
           `Inspect ${CORE_LOG_FILE()} for the spawn output.`,
@@ -155,31 +159,42 @@ export class CoreManager {
 
   async stop(): Promise<void> {
     if (!this.proc) return
-    if (this.proc.exitCode !== null) {
-      this.proc = null
+    const proc = this.proc
+    this.proc = null
+    if (proc.exitCode !== null) {
+      this.logStream?.end()
+      this.logStream = null
       return
     }
-    this.proc.kill('SIGTERM')
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        this.kill('SIGKILL')
-        resolve()
-      }, SHUTDOWN_GRACE_MS)
-      this.proc?.once('exit', () => {
-        clearTimeout(timer)
-        resolve()
-      })
-    })
-    this.logStream?.end()
-    this.logStream = null
-    this.proc = null
-  }
-
-  private kill(sig: NodeJS.Signals): void {
+    // SIGTERM → wait for graceful exit. If the grace expires, escalate to
+    // SIGKILL and wait again. Resolving the outer promise after the second
+    // wait ensures the parent doesn't quit while the OS is mid-reap.
     try {
-      this.proc?.kill(sig)
+      proc.kill('SIGTERM')
     } catch {
       /* already gone */
     }
+    const gentleExit = await waitForExit(proc, SHUTDOWN_GRACE_MS)
+    if (!gentleExit) {
+      try {
+        proc.kill('SIGKILL')
+      } catch {
+        /* already gone */
+      }
+      await waitForExit(proc, 2_000)
+    }
+    this.logStream?.end()
+    this.logStream = null
   }
+}
+
+function waitForExit(proc: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve(true)
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs)
+    proc.once('exit', () => {
+      clearTimeout(timer)
+      resolve(true)
+    })
+  })
 }

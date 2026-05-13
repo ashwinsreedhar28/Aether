@@ -12,10 +12,14 @@ import { generateMeshSecrets, type MeshSecrets } from './secrets'
 // v0.1.0 — so `MeshNode.start()` is intentionally not called. The SDK's
 // .invoke() does not require a session.
 
+export type MeshState = 'idle' | 'starting' | 'ready' | 'failed'
+
 let secrets: MeshSecrets | null = null
 let coreManager: CoreManager | null = null
 let nodeManager: NodeManager | null = null
 let shellNode: MeshNode | null = null
+let meshState: MeshState = 'idle'
+let meshError: string | null = null
 
 export interface MeshInvokeError {
   status: number | null
@@ -31,24 +35,60 @@ export interface MeshInvokeResult {
   durationMs: number
 }
 
+// Boots in the background; throws on failure so the caller can surface a
+// dialog without quitting the shell. After v0.1.0, the shell stays usable
+// for non-mesh apps (Welcome / News / Markdown) even if mesh fails.
 export async function startMesh(): Promise<void> {
-  if (coreManager) return
-  secrets = generateMeshSecrets()
-  coreManager = new CoreManager({ secrets })
-  await coreManager.ensureRunning()
-  shellNode = new MeshNode('shell', secrets.shellSecret, coreManager.url)
-  nodeManager = new NodeManager({ secrets, coreUrl: coreManager.url })
-  await nodeManager.startAll()
+  if (meshState === 'starting' || meshState === 'ready') return
+  meshState = 'starting'
+  meshError = null
+  try {
+    secrets = generateMeshSecrets()
+    coreManager = new CoreManager({ secrets })
+    await coreManager.ensureRunning()
+    shellNode = new MeshNode('shell', secrets.shellSecret, coreManager.url)
+    nodeManager = new NodeManager({ secrets, coreUrl: coreManager.url })
+    await nodeManager.startAll()
+    meshState = 'ready'
+  } catch (err) {
+    meshState = 'failed'
+    meshError = (err as Error).message ?? String(err)
+    // Tear down anything that did come up — leaving partial state would
+    // mean a half-spawned Core hanging around if e.g. node spawn failed.
+    try {
+      await nodeManager?.stopAll()
+    } catch {
+      /* best-effort */
+    }
+    try {
+      await coreManager?.stop()
+    } catch {
+      /* best-effort */
+    }
+    nodeManager = null
+    coreManager = null
+    shellNode = null
+    secrets = null
+    throw err
+  }
 }
 
 export async function stopMesh(): Promise<void> {
   // Stop nodes first so they unregister cleanly before Core goes away.
-  await nodeManager?.stopAll()
-  nodeManager = null
-  shellNode = null
-  await coreManager?.stop()
-  coreManager = null
-  secrets = null
+  try {
+    await nodeManager?.stopAll()
+  } finally {
+    nodeManager = null
+    shellNode = null
+  }
+  try {
+    await coreManager?.stop()
+  } finally {
+    coreManager = null
+    secrets = null
+    meshState = 'idle'
+    meshError = null
+  }
 }
 
 export function getCoreUrl(): string | null {
@@ -59,6 +99,10 @@ export async function isCoreHealthy(): Promise<boolean> {
   return (await coreManager?.health()) ?? false
 }
 
+export function getMeshState(): { state: MeshState; error: string | null } {
+  return { state: meshState, error: meshError }
+}
+
 export async function meshInvoke(
   target: string,
   payload: Record<string, unknown>,
@@ -67,7 +111,10 @@ export async function meshInvoke(
   if (!node) {
     return {
       ok: false,
-      error: { status: null, message: 'mesh not started' },
+      error: {
+        status: null,
+        message: meshState === 'starting' ? 'mesh is still starting' : 'mesh not available',
+      },
       durationMs: 0,
     }
   }
@@ -83,9 +130,10 @@ export async function meshInvoke(
           envelope: env,
           error: {
             status: 200,
-            message: typeof env.payload?.reason === 'string'
-              ? (env.payload.reason as string)
-              : 'mesh_error',
+            message:
+              typeof env.payload?.reason === 'string'
+                ? (env.payload.reason as string)
+                : 'mesh_error',
             data: env.payload,
           },
           durationMs,

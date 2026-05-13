@@ -388,10 +388,15 @@ macOS notifications via `osascript`, plus a `mesh-devtools` app on the
 canvas to drive a round-trip from the renderer.
 
 **Consequences:**
-- Shell now hard-depends on Core to boot. If Core fails its 30s
-  health-check, the shell shows an error dialog and quits. Graceful-
-  degradation (run renderer-only when mesh is down) is deferred — once
-  multiple substrates exist we'll have something to degrade *to*.
+- Mesh boot runs in parallel with the splash → reveal sequence; it
+  is NOT on the critical path. The shell remains usable for non-mesh
+  apps (Welcome / News / Markdown) even if Core fails to start —
+  the Mesh Dev Tools status pill shows `starting` / `online` /
+  `failed` / `offline`, and an error dialog surfaces on failure
+  without quitting the app. The earlier "hard-depend, quit on
+  failure" sequencing was reversed during smoke-test (Architect
+  feedback on PR #10) when it regressed PR #1's splash → reveal
+  timing.
 - Identity secrets live in process env vars per RAVEN_MESH defaults; the
   shell generates fresh hex-32 values per cold start (`coreSecret`,
   `shellSecret`, `hostNotificationsSecret`, plus `ADMIN_TOKEN`) and

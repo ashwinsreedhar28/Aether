@@ -73,26 +73,36 @@ export class NodeManager {
   async stop(id: string): Promise<void> {
     const entry = this.nodes.get(id)
     if (!entry) return
+    this.nodes.delete(id)
     if (entry.proc.exitCode !== null) {
-      this.nodes.delete(id)
+      entry.log.end()
       return
     }
-    entry.proc.kill('SIGTERM')
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        try {
-          entry.proc.kill('SIGKILL')
-        } catch {
-          /* gone */
-        }
-        resolve()
-      }, SHUTDOWN_GRACE_MS)
-      entry.proc.once('exit', () => {
-        clearTimeout(timer)
-        resolve()
-      })
-    })
+    try {
+      entry.proc.kill('SIGTERM')
+    } catch {
+      /* already gone */
+    }
+    const gentleExit = await waitForExit(entry.proc, SHUTDOWN_GRACE_MS)
+    if (!gentleExit) {
+      try {
+        entry.proc.kill('SIGKILL')
+      } catch {
+        /* gone */
+      }
+      await waitForExit(entry.proc, 2_000)
+    }
     entry.log.end()
-    this.nodes.delete(id)
   }
+}
+
+function waitForExit(proc: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve(true)
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs)
+    proc.once('exit', () => {
+      clearTimeout(timer)
+      resolve(true)
+    })
+  })
 }

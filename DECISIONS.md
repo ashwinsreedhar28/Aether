@@ -642,6 +642,18 @@ Implementation:
   pyproject.toml, no setup.py. Python finds the module via PYTHONPATH
   injection at spawn time. This preserves the upstream re-copy story
   documented in `core/README.md`.
+- **PYTHONPATH injection is now the canonical pattern for Python
+  mesh consumers in homeOS.** Any future Python node or daemon that
+  wants to import the vendored SDK should follow the same approach:
+  resolve the SDK path in its spawn-side manager (shell-owned
+  Electron service or equivalent), prepend to `env.PYTHONPATH` at
+  spawn, and lazy-import `mesh_node_sdk` inside a `setup()` that runs
+  before the consumer needs to invoke. The CLAUDE.md §14 third-
+  instance rule still applies — if a third Python mesh consumer
+  appears and we find ourselves duplicating the PYTHONPATH-prepend
+  block, extract it then (and only then) into a shared spawn helper.
+  Until that point, two implementations is not enough signal to
+  abstract.
 - raven daemon spawn now hard-fails (`voice: mesh not ready`) when
   mesh isn't ready within 30s. Acceptable: mesh-routed voice tools
   are useless without mesh, and raven's pip-install bootstrap usually

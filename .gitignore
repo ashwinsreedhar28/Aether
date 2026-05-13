@@ -12,6 +12,11 @@ dist/
 release/
 *.tsbuildinfo
 
+# Voice runtime artefacts (created on first shell launch)
+daemons/raven-daemon/node_modules/
+daemons/raven-core/.venv/
+daemons/raven-core/**/__pycache__/
+
 # Runtime / data — per CLAUDE.md §4, `data/` is gitignored
 data/
 *.db

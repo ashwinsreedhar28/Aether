@@ -8,6 +8,23 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- Voice assistant running via `daemons/raven-daemon` (Node.js HTTP+WS
+  on `127.0.0.1:7433`) supervising `daemons/raven-core` (Python,
+  Gemini Live API, two tools: `time` and `memory`). Spawned on shell
+  boot via `shell/electron/main/services/ravenDaemonManager.ts`
+  (lifted from VIEWER's `apps/viewer/electron/main/services/`); PID
+  file under Electron `userData/raven/`, /health probe, clean SIGTERM
+  on `app.before-quit`.
+- Voice control app (`shell/src/apps/voice-control/`, order: 80, icon
+  `Mic`): status pill (green ready / amber listening / blue
+  processing / red offline), Start/Stop toggle, recent transcripts
+  and tool calls. Subscribes to the daemon WS for live updates.
+- Preload gains `window.homeOS.voice` surface (`availability`,
+  `status`, `start`, `stop`, `recentTranscripts`, `recentToolCalls`,
+  and four `on*` subscribe helpers). `GEMINI_API_KEY` env var
+  required; absence degrades voice gracefully (voice offline, shell
+  still works).
+
 ### Changed
 
 - Workflow refactor: Architect↔Implementer reviews now ride on PR

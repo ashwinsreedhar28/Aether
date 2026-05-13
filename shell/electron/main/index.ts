@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
+import { getRavenDaemonManager } from './services/ravenDaemonManager'
 
 // Resolved relative to the compiled main entry at out/main/index.js.
 // Resources sit at the project root under shell/resources/.
@@ -154,11 +155,73 @@ ipcMain.handle('shell:metadata', () => {
   }
 })
 
-app.whenReady().then(() => {
+// Voice IPC — proxies to the raven daemon. The daemon-manager handles
+// bootstrap, spawn supervision, WS subscription, and graceful shutdown.
+// Renderer-facing surface is window.homeOS.voice (see preload/index.ts).
+const raven = getRavenDaemonManager()
+
+ipcMain.handle('voice:availability', () => raven.getAvailability())
+ipcMain.handle('voice:status', () => raven.status())
+ipcMain.handle('voice:start', () => raven.listenStart())
+ipcMain.handle('voice:stop', () => raven.listenStop())
+ipcMain.handle('voice:recent-transcripts', (_e, limit?: number) =>
+  raven.transcripts(typeof limit === 'number' ? limit : 5)
+)
+ipcMain.handle('voice:recent-tool-calls', (_e, limit?: number) =>
+  raven.toolCalls(typeof limit === 'number' ? limit : 5)
+)
+
+function broadcastToRenderers(channel: string, payload: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue
+    win.webContents.send(channel, payload)
+  }
+}
+
+raven.on('availability', (a) => broadcastToRenderers('voice:availability-changed', a))
+raven.on('status', (state) => broadcastToRenderers('voice:status-changed', state))
+raven.on('transcript', (entry) => broadcastToRenderers('voice:transcript', entry))
+raven.on('toolCall', (entry) => broadcastToRenderers('voice:tool-call', entry))
+
+app.whenReady().then(async () => {
   splashWindow = createSplash()
   mainWindow = createMain()
   createTray()
+
+  // Boot voice in parallel with the splash → reveal sequence. ensureRunning
+  // resolves once the daemon is healthy OR the 10s timeout fires. We
+  // deliberately don't await this in the reveal critical path: voice is
+  // opt-in, and on first launch the venv install is ~30s which would freeze
+  // the splash. The renderer paints with voice:offline and flips to
+  // voice:ready when the availability event fires.
+  void raven
+    .ensureRunning()
+    .then((avail) => {
+      if (avail.kind !== 'available') {
+        console.warn('[homeOS] voice unavailable:', avail.reason)
+      } else {
+        console.log('[homeOS] voice daemon healthy')
+      }
+    })
+    .catch((err) => {
+      console.error('[homeOS] ensureRunning threw:', err)
+    })
+
   void revealMain()
+})
+
+// Clean shutdown — SIGTERM the daemon before quit so audio devices are
+// released and no orphan Python child is left behind.
+app.on('before-quit', async (event) => {
+  if (raven.getAvailability().kind === 'available') {
+    event.preventDefault()
+    try {
+      await raven.stop()
+    } catch (err) {
+      console.error('[homeOS] raven.stop() failed:', err)
+    }
+    app.exit(0)
+  }
 })
 
 // Week-1 behaviour per CLAUDE.md §11: closing the only window quits the app

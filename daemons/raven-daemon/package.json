@@ -1,0 +1,21 @@
+{
+  "name": "@homeos/raven-daemon",
+  "version": "0.0.1",
+  "private": true,
+  "description": "HTTP+WS supervisor for the homeOS voice (raven-core Python child)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.0.0"
+  }
+}

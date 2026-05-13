@@ -238,3 +238,86 @@ pre-PR — every one a saveable round-trip.
 - *GitHub Action wiring Architect chat → PR comment directly* —
   rejected as week-1 over-investment. Revisit when paste load becomes
   a measurable bottleneck again.
+
+---
+
+## [2026-05-12] Voice via daemon pattern; mesh rebase deferred
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director); flagged by Implementer
+**Context:** Voice has a tight latency budget (sub-second feel), needs
+to own audio devices and an LLM session, and benefits from surviving
+shell restarts where possible. The mesh ("the spine") is not yet
+implemented — Lane 1's `core/` work is parallel and not load-bearing
+for this PR. Two ways to add voice now:
+1. Wait for Lane 1's mesh to land, then build voice as a mesh node.
+2. Ship voice immediately using VIEWER's existing detached-daemon
+   pattern (Node.js HTTP+WS supervisor → Python child running the
+   live-audio loop). Rebase to mesh as a small follow-up PR once Lane
+   1's `core/` is in place.
+
+The brief specified path 2 to keep both lanes moving in parallel.
+
+**Sub-context (LLM provider — implementer-flagged discrepancy):**
+The task brief described the LLM as **Cerebras**. The code in
+`_ingest/VIEWER/apps/raven/` actually uses **Google Gemini Live API**
+(`gemini-2.5-flash-native-audio-preview-09-2025`) for the voice loop;
+Cerebras appears only inside `cerebras_tool.py` as a side tool for
+generating HTML/visual content (it is not the conversational LLM and
+does not handle audio). Cerebras has no live-audio API today that
+matches what VIEWER's `orchestrator.py` consumes — swapping the
+provider would be a substantial rewrite, not a configuration change.
+Per CLAUDE.md §13, this is the "Architect intent vs. code reality"
+case: the implementer goes with the code reality and flags loudly.
+This ADR is that flag.
+
+**Decision:** Ship voice using VIEWER's daemon pattern intact.
+- Vendor `_ingest/VIEWER/apps/raven-daemon` → `daemons/raven-daemon/`
+  (Node.js HTTP+WS on `127.0.0.1:7433`).
+- Vendor `_ingest/VIEWER/apps/raven` → `daemons/raven-core/` (Python
+  Flask-free runtime — Flask sidecar was dead code and removed).
+- Shell's `ravenDaemonManager` spawns the Node daemon detached;
+  the daemon supervises the Python child via `child_process.spawn`.
+- Two tools enabled this PR: `time_tool`, `memory_tool`. Other
+  vendored tools (`cerebras_tool`, `silence_tool`, `system_tool`)
+  remain on disk but are not registered.
+- LLM: **Gemini Live API** (env var: `GEMINI_API_KEY`). The brief's
+  Cerebras-shaped framing is preserved in the open-questions section
+  of the PR so Architect can confirm or redirect.
+
+**Consequences:**
+- Voice runs without mesh. Tool calls dispatch directly via Python
+  function calls — no envelope signing, no edge graph, no audit log
+  yet. Acceptable because the surface is local-loopback only and the
+  enabled tools are read-only (time) or scoped-disk (memory).
+- Rebase-to-mesh follow-up PR will swap `raven_core/tools/__init__.py`'s
+  direct-Python `handle_function_call` for `mesh.invoke()` against the
+  appropriate node surface. This is well-scoped because the rest of
+  the daemon is mesh-agnostic.
+- Audio-permission prompt on first launch (one-time macOS system
+  dialog). Unavoidable; persistent thereafter.
+- First-launch latency: ~30s for the Python `venv` install + `pip
+  install -r requirements.txt`. Subsequent launches are ~1–2s.
+  Splash is non-blocking on this (voice boots in parallel with reveal)
+  so the shell still paints quickly; the Voice app pill shows
+  `voice: offline → voice: ready` when the daemon comes up.
+- `GEMINI_API_KEY` is required. Without it the shell still loads,
+  Voice app shows red `voice: missing GEMINI_API_KEY`, every other
+  app works normally. If Director prefers `CEREBRAS_API_KEY` semantics
+  for compatibility with the brief, we add a thin alias before
+  reading; flagged for review.
+- macOS-only this PR. Daemon spawn is gated on
+  `process.platform === 'darwin'`; other platforms surface
+  `voice: macOS only in this build`.
+
+**Alternatives considered:**
+- *Wait for Lane 1's mesh to land first* — rejected; defeats
+  parallelisation and delays the highest-value Jarvis-feeling demo.
+- *Skip voice entirely until mesh lands* — rejected; voice is the
+  surface most likely to drive direction from the Director.
+- *Use Cerebras as the conversational LLM* — rejected as out-of-scope
+  rewrite; flagged in PR open-questions for Architect to confirm or
+  redirect.
+- *Use the Cerebras sub-tool path (`call_cerebra` for HTML)* —
+  deferred along with the rest of the disabled tool set; not load-
+  bearing for the two-tool demo.

@@ -69,6 +69,29 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 - GitHub Actions CI runs typecheck/lint/build on every PR. PR template
   auto-fills §7 self-review. Branch protection documented in
   `docs/BRANCH_PROTECTION.md`.
+- **First Jarvis-feeling interaction.** Voice assistant running via
+  `daemons/raven-daemon` (Node.js HTTP+WS on `127.0.0.1:7433`,
+  loopback-only) supervising `daemons/raven-core` (Python, Gemini
+  Live API, two tools enabled: `time` and `memory`; vendored
+  `cerebras_tool` / `silence_tool` / `system_tool` stay on disk but
+  unregistered). Spawned on shell boot via
+  `shell/electron/main/services/ravenDaemonManager.ts`; first-launch
+  bootstrap (pnpm install + tsc for the daemon, python3 -m venv +
+  pip install for the core) runs once on demand, off the splash
+  critical path. PID file under Electron `userData/raven/`,
+  /health probe, clean SIGTERM on `app.before-quit`. macOS-only this
+  PR; non-darwin platforms surface "voice: macOS only in this build"
+  via the Voice app pill.
+- Voice control app (`shell/src/apps/voice-control/`, order: 80, icon
+  `Mic`): status pill (green ready / amber listening / blue
+  processing / red offline-or-error with reason), Start/Stop toggle,
+  last 5 transcripts and last 5 tool calls. Subscribes to the daemon
+  WS for live updates.
+- Preload gains `window.homeOS.voice` surface (`availability`,
+  `status`, `start`, `stop`, `recentTranscripts`, `recentToolCalls`,
+  and four `on*` subscribe helpers). `GEMINI_API_KEY` env var
+  required; absence degrades voice gracefully (voice offline, shell
+  still works).
 
 ### Changed
 

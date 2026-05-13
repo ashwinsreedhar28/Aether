@@ -437,3 +437,96 @@ canvas to drive a round-trip from the renderer.
   in ~200ms in dev) and matches RAVEN_MESH's deployment model.
 - *Persist secrets to disk in `data/`* — rejected for this PR; ephemeral
   per-launch secrets are strictly safer until Keychain integration lands.
+
+---
+
+## [2026-05-12] Voice via daemon pattern; mesh rebase deferred
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director); flagged by Implementer
+**Context:** Voice has a tight latency budget (sub-second feel), needs
+to own audio devices and an LLM session, and benefits from surviving
+shell restarts where possible. This PR was scoped before Lane 1's
+`core/` mesh substrate landed (it has since merged in PR #10).
+Two ways to add voice:
+1. Wait for the mesh, then build voice as a mesh node.
+2. Ship voice immediately using VIEWER's existing detached-daemon
+   pattern (Node.js HTTP+WS supervisor → Python child running the
+   live-audio loop). Rebase to mesh as a small follow-up PR.
+
+The brief specified path 2 to keep both lanes moving in parallel.
+
+**Sub-context (LLM provider — implementer-flagged discrepancy):**
+The task brief described the LLM as **Cerebras**. The code in
+`_ingest/VIEWER/apps/raven/` actually uses **Google Gemini Live API**
+(`gemini-2.5-flash-native-audio-preview-09-2025`) for the voice loop;
+Cerebras appears only inside `cerebras_tool.py` as a side tool for
+generating HTML/visual content (it is not the conversational LLM and
+does not handle audio). Cerebras has no live-audio API today that
+matches what VIEWER's `orchestrator.py` consumes — swapping the
+provider would be a substantial rewrite, not a configuration change.
+Per CLAUDE.md §13, this is the "Architect intent vs. code reality"
+case: the implementer goes with the code reality and flags loudly.
+This ADR is that flag; Architect confirmed Gemini at PR review.
+
+**Decision:** Ship voice using VIEWER's daemon pattern intact.
+- Vendor `_ingest/VIEWER/apps/raven-daemon` → `daemons/raven-daemon/`
+  (Node.js HTTP+WS on `127.0.0.1:7433`, loopback-only).
+- Vendor `_ingest/VIEWER/apps/raven` → `daemons/raven-core/` (Python
+  Flask-free runtime — Flask sidecar was dead code and removed).
+- Shell's `ravenDaemonManager` spawns the Node daemon detached;
+  the daemon supervises the Python child via `child_process.spawn`.
+  Boot ordering vs. the mesh's `coreManager`: Core first
+  (load-bearing for mesh-dependent apps), then raven (degrades
+  gracefully — Voice app surfaces an "unavailable" pill if the
+  daemon fails to start). Both are off the splash → reveal critical
+  path; both are torn down in parallel via `Promise.allSettled` on
+  `before-quit`.
+- Two tools enabled this PR: `time_tool`, `memory_tool`. Other
+  vendored tools (`cerebras_tool`, `silence_tool`, `system_tool`)
+  remain on disk but are not registered.
+- LLM: **Gemini Live API** (env var: `GEMINI_API_KEY`).
+
+**Consequences:**
+- Voice runs without mesh. Tool calls dispatch directly via Python
+  function calls — no envelope signing, no edge graph, no audit log
+  yet. Acceptable because the surface is local-loopback only and the
+  enabled tools are read-only (time) or scoped-disk (memory).
+- Rebase-to-mesh follow-up (`feat/voice-mesh-rebase`) will swap
+  `raven_core/tools/__init__.py`'s direct-Python `handle_function_call`
+  for `mesh.invoke()` against the appropriate node surfaces, and add
+  the voice daemon to `manifest.yaml` with its own edge declarations.
+  Well-scoped because the rest of the daemon is mesh-agnostic.
+- Audio-permission prompt on first launch (one-time macOS system
+  dialog). Unavoidable; persistent thereafter.
+- First-launch latency: ~30s for the Python `venv` install + `pip
+  install -r requirements.txt`. Subsequent launches are ~1–2s.
+  Bootstrap is async (Promise-based spawn — `spawnSync` would freeze
+  Electron's main thread for the full 30s, tripping the network
+  service watchdog and producing a black screen).
+- `GEMINI_API_KEY` is required. Without it the shell still loads,
+  Voice app shows red `voice: missing GEMINI_API_KEY`, every other
+  app works normally.
+- macOS-only this PR. Daemon spawn is gated on
+  `process.platform === 'darwin'`; other platforms surface
+  `voice: macOS only in this build`.
+- Echo trade-off documented separately: while playing audio out, the
+  mic is gated (`_playback_until` monotonic timestamp) to prevent
+  the MacBook speaker from feeding back into the mic and triggering
+  false interruptions. Consequence: no barge-in. `fix/voice-barge-in`
+  follow-up will swap this for Apple `voiceProcessingIO` AEC.
+- `pyaudio` requires `brew install portaudio` once per developer
+  machine; the bootstrap detects the missing-header signature in the
+  pip output and rewrites the pill reason to surface the brew
+  command.
+
+**Alternatives considered:**
+- *Wait for the mesh to land first* — rejected; defeats
+  parallelisation and delays the highest-value Jarvis-feeling demo.
+- *Skip voice entirely until mesh lands* — rejected; voice is the
+  surface most likely to drive direction from the Director.
+- *Use Cerebras as the conversational LLM* — rejected as out-of-scope
+  rewrite. Cerebras has no live-audio API today.
+- *Use the Cerebras sub-tool path (`call_cerebra` for HTML)* —
+  deferred along with the rest of the disabled tool set; not load-
+  bearing for the two-tool demo.

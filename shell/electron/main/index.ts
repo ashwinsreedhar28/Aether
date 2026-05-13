@@ -9,6 +9,7 @@ import {
   getMeshState,
 } from './services/mesh'
 import { registerFileHandlers } from './handlers/files'
+import { getRavenDaemonManager } from './services/ravenDaemonManager'
 
 // Resolved relative to the compiled main entry at out/main/index.js.
 // Resources sit at the project root under shell/resources/.
@@ -165,6 +166,8 @@ ipcMain.handle('shell:metadata', () => {
   }
 })
 
+// Mesh IPC. Renderer-facing surface is window.homeOS.mesh in preload.
+// The renderer never holds a signing secret; main owns the shell's MeshNode.
 ipcMain.handle('mesh:invoke', async (_e, target: string, payload: Record<string, unknown>) => {
   return meshInvoke(target, payload)
 })
@@ -179,21 +182,67 @@ ipcMain.handle('mesh:status', async () => {
   }
 })
 
+// Voice IPC — proxies to the raven daemon. The daemon-manager handles
+// bootstrap, spawn supervision, WS subscription, and graceful shutdown.
+// Renderer-facing surface is window.homeOS.voice in preload.
+//
+// Read-side handlers (status / recent-*) short-circuit to safe defaults
+// when the daemon isn't reachable. The renderer's useEffect fires these
+// on mount, well before the bootstrap finishes — without this guard we
+// flood main with ECONNREFUSED for every render until the daemon is up.
+const raven = getRavenDaemonManager()
+
+ipcMain.handle('voice:availability', () => raven.getAvailability())
+ipcMain.handle('voice:status', () => {
+  if (raven.getAvailability().kind !== 'available') {
+    return { status: 'stopped' as const }
+  }
+  return raven.status()
+})
+ipcMain.handle('voice:start', () => raven.listenStart())
+ipcMain.handle('voice:stop', () => raven.listenStop())
+ipcMain.handle('voice:recent-transcripts', (_e, limit?: number) => {
+  if (raven.getAvailability().kind !== 'available') {
+    return { transcripts: [] }
+  }
+  return raven.transcripts(typeof limit === 'number' ? limit : 5)
+})
+ipcMain.handle('voice:recent-tool-calls', (_e, limit?: number) => {
+  if (raven.getAvailability().kind !== 'available') {
+    return { toolCalls: [] }
+  }
+  return raven.toolCalls(typeof limit === 'number' ? limit : 5)
+})
+
+function broadcastToRenderers(channel: string, payload: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue
+    win.webContents.send(channel, payload)
+  }
+}
+
+raven.on('availability', (a) => broadcastToRenderers('voice:availability-changed', a))
+raven.on('status', (state) => broadcastToRenderers('voice:status-changed', state))
+raven.on('transcript', (entry) => broadcastToRenderers('voice:transcript', entry))
+raven.on('toolCall', (entry) => broadcastToRenderers('voice:tool-call', entry))
+
 app.whenReady().then(() => {
   // Splash + main + tray created immediately so the reveal sequence stays
   // on PR #1's tested timing (splash → renderer-ready signal → destroy
-  // splash → 180ms settle → show main). Mesh boot is OFF this critical
-  // path; it spawns in parallel and the Mesh app's status pill flips
-  // when Core is healthy. If mesh fails to start, the shell stays
-  // useful for non-mesh apps (Welcome / News / Markdown) — mesh-
-  // dependent features surface the failure via the pill + invoke
-  // rejections + the dialog below.
+  // splash → 180ms settle → show main). Both subsystem boots (mesh +
+  // voice) are OFF this critical path; their respective status surfaces
+  // (Mesh Dev Tools pill, Voice pill) flip when each becomes healthy.
   registerFileHandlers()
   splashWindow = createSplash()
   mainWindow = createMain()
   createTray()
+
   void revealMain()
 
+  // Subsystem boot order: mesh first (load-bearing for mesh-dependent
+  // apps — Mesh, eventually anything routed through manifest), then
+  // voice (degrades gracefully — Voice pill goes red with a reason if
+  // the daemon can't start; rest of the shell is unaffected).
   startMesh().catch((err) => {
     const message = (err as Error).message ?? String(err)
     dialog.showErrorBox(
@@ -201,25 +250,56 @@ app.whenReady().then(() => {
       `The mesh substrate could not start. Mesh-dependent features will be unavailable until you restart.\n\n${message}`,
     )
   })
+
+  // Voice is opt-in. ensureRunning resolves once the daemon is healthy
+  // OR the bootstrap times out. First launch is ~30s on a clean checkout
+  // for the Python venv + pip install; bootstrap is async so the main
+  // thread stays responsive (every other app remains usable while voice
+  // initialises in the background).
+  void raven
+    .ensureRunning()
+    .then((avail) => {
+      if (avail.kind !== 'available') {
+        console.warn('[homeOS] voice unavailable:', avail.reason)
+      } else {
+        console.log('[homeOS] voice daemon healthy')
+      }
+    })
+    .catch((err) => {
+      console.error('[homeOS] raven ensureRunning threw:', err)
+    })
 })
 
-// Clean mesh shutdown. before-quit fires on user-initiated quits AND on
+// Clean shutdown. before-quit fires on user-initiated quits AND on
 // window-all-closed quits (since 'window-all-closed' calls app.quit()).
 // Pattern matches the Architect's spec: preventDefault → await cleanup →
 // flip cleanedUp → call app.quit() again. The second before-quit returns
 // early without preventDefault, and Electron's quit sequence proceeds
 // (will-quit → quit → exit) with the children already reaped.
+//
+// Both mesh and voice children get SIGTERM'd in parallel via
+// Promise.allSettled. Sequential stop took up to 12s worst-case (long
+// enough to risk Electron's quit timeout firing) — parallel keeps worst-
+// case bounded by the slower of the two cleanups.
+async function stopAllChildren(): Promise<void> {
+  const results = await Promise.allSettled([
+    stopMesh(),
+    raven.stop(),
+  ])
+  for (const r of results) {
+    if (r.status === 'rejected') {
+      console.warn('[homeOS] child cleanup rejected:', r.reason)
+    }
+  }
+}
+
 app.on('before-quit', (event) => {
   if (cleanedUp) return
   event.preventDefault()
   if (quitInFlight) return
   quitInFlight = true
   void (async () => {
-    try {
-      await stopMesh()
-    } catch (e) {
-      console.warn('[homeOS] stopMesh failed:', e)
-    }
+    await stopAllChildren()
     cleanedUp = true
     app.quit()
   })()
@@ -232,16 +312,13 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   process.on(sig, () => {
     if (cleanedUp) return
     void (async () => {
-      try {
-        await stopMesh()
-      } catch {
-        /* best-effort */
-      }
+      await stopAllChildren()
       cleanedUp = true
       app.exit(0)
     })()
   })
 }
+
 
 // Week-1 behaviour per CLAUDE.md §11: closing the only window quits the app
 // on every platform. Once homeOS earns a "background mode" (substrate

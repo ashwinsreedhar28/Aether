@@ -1,0 +1,15 @@
+# homeOS-voice raven-core runtime deps. Vendored from VIEWER and trimmed:
+#   - flask, flask-cors, cerebras-cloud-sdk dropped (only the disabled
+#     cerebras_tool / cerebra.py sidecar needed them; cerebra.py was
+#     deleted in this PR).
+#   - opencv-python, mss, pillow kept even though we always launch with
+#     --mode none, because raven_core/vision.py top-level-imports cv2 +
+#     mss and raven_core/orchestrator.py top-level-imports vision. A
+#     follow-up PR can prune vision when system_tool / camera modes are
+#     decided.
+google-genai
+opencv-python
+pyaudio
+pillow
+mss
+requests

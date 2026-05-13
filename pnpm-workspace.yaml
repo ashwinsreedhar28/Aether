@@ -2,3 +2,4 @@ packages:
   - 'shell'
   - 'core/node_sdk_ts'
   - 'nodes/*'
+  - 'daemons/raven-daemon'

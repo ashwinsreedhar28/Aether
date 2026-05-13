@@ -147,7 +147,10 @@ ipcMain.handle('shell:metadata', () => {
     name: 'homeOS',
     version: app.getVersion(),
     isDev,
-    bootedAt: new Date().toISOString()
+    bootedAt: new Date().toISOString(),
+    // Renderer uses platform to inset the top nav past the macOS traffic
+    // lights when titleBarStyle: 'hiddenInset' is in effect.
+    platform: process.platform
   }
 })
 

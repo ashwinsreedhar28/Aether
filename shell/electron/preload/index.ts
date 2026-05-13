@@ -13,6 +13,8 @@ const api = {
     version: string
     isDev: boolean
     bootedAt: string
+    /** node's process.platform — 'darwin' | 'linux' | 'win32' | ... */
+    platform: string
   }> => ipcRenderer.invoke('shell:metadata')
 }
 

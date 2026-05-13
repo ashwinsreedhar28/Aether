@@ -24,6 +24,10 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Fixed
 
+- Top nav no longer clashes with macOS traffic-light buttons under
+  `titleBarStyle: 'hiddenInset'`; nav now respects an 80px left
+  inset on macOS and exposes the empty strip as a drag region.
+
 ### Removed
 
 ## [0.0.2] - 2026-05-12

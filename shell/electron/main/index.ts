@@ -100,9 +100,9 @@ async function revealMain(): Promise<void> {
     splashWindow.destroy()
   }
   splashWindow = null
-  // Two-frame compositor settle (~32ms on M-series). Without this, the
-  // main window's first paint can land before the splash's destroy has
-  // been composited, producing visible jitter at reveal.
+  // Compositor settle. 180ms is generous — empirically enough on
+  // M-series to ensure the splash destroy has been composited before
+  // the main window's first paint lands. Without this, reveal jitters.
   await new Promise<void>((resolve) => setTimeout(resolve, 180))
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show()

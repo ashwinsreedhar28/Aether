@@ -11,8 +11,3 @@ ReactDOM.createRoot(root).render(
     <App />
   </React.StrictMode>
 )
-
-// Tell main process the renderer is mounted so the splash → reveal
-// sequence can fire. Watchdog in main covers the case where this
-// never sends (renderer crash, dev-server race).
-window.homeOS.signalReady()

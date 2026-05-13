@@ -20,6 +20,14 @@ export function App() {
   const [meta, setMeta] = useState<Metadata | null>(null)
   const [today, setToday] = useState<string>(() => formatToday(new Date()))
 
+  // Signal renderer-ready after first commit (not synchronously after
+  // render()). useEffect fires after the DOM has been committed, so the
+  // splash → reveal sequence on the main side waits until React has
+  // actually painted, not just been told to render.
+  useEffect(() => {
+    window.homeOS.signalReady()
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     void window.homeOS.getMetadata().then((m) => {

@@ -247,7 +247,7 @@ export class RavenDaemonManager extends EventEmitter {
    */
   async ensureRunning(): Promise<VoiceAvailability> {
     if (process.platform !== 'darwin') {
-      this.setAvailability({ kind: 'unavailable', reason: 'voice: macOS only in this build' })
+      this.setAvailability({ kind: 'unavailable', reason: 'macOS only in this build' })
       return this.availability
     }
 
@@ -257,7 +257,7 @@ export class RavenDaemonManager extends EventEmitter {
       // code actually wants.
       this.setAvailability({
         kind: 'unavailable',
-        reason: 'voice: missing GEMINI_API_KEY env var',
+        reason: 'missing GEMINI_API_KEY env var',
       })
       return this.availability
     }
@@ -284,7 +284,7 @@ export class RavenDaemonManager extends EventEmitter {
       if (!healthy) {
         this.setAvailability({
           kind: 'unavailable',
-          reason: 'voice: daemon did not become healthy within 10s',
+          reason: 'daemon did not become healthy within 10s',
         })
         return this.availability
       }

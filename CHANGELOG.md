@@ -8,6 +8,17 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- App-discovery system (`import.meta.glob` of `src/apps/*`,
+  `AppDefinition` shape adopted from VIEWER). Drop a folder into
+  `src/apps/<name>/` with an `index.ts` exporting an `AppDefinition`
+  and it auto-registers.
+- First content app: `news` with three hardcoded faked articles
+  (Jarvis-feeling categories spanning finance/tech/sports, urgency
+  and category styling via holographic theme). Faked data — no
+  polling, no mesh, no real source yet.
+- Welcome window refactored into the `welcome` app, discovered the
+  same way as every other app.
+
 ### Changed
 
 ### Fixed

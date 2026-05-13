@@ -147,3 +147,48 @@ submodule URL there. None of the four show any sign of doing this today.
 - *Keep gitignored* (the previous state) — rejected: every citation in
   `MASTER_SYNTHESIS.md` and future task specs is effectively meaningless
   across machines.
+
+---
+
+## [2026-05-12] App-discovery system: VIEWER pattern adopted, single-window for now
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Shell needs more than one surface — every future content app
+(finance, sports, markdown editor, agent-manager, …) has to be a folder
+drop, not a core refactor. VIEWER already ships exactly the pattern we
+need: `import.meta.glob('./*/index.ts', { eager: true })` against
+`src/apps/`, each app folder exporting `app: AppDefinition`. The full
+VIEWER registry layers on file-type routing, dynamic register/unregister,
+and a per-app `AppContext` / `AppWrapper` for window + tab state —
+load-bearing for VIEWER's multi-window workspace, all out-of-scope for
+us today.
+**Decision:** Adopt VIEWER's `import.meta.glob` + `AppDefinition`
+pattern, simplified ruthlessly:
+- `AppDefinition` keeps `id`, `name`, `icon`, `component`, optional
+  `defaultSize`. No `fileTypes` (no file-based apps yet). Component is
+  zero-arg (no `AppProps` — single-window, no per-instance props).
+- Registry exposes only `getApps()` and `getApp(id)`. No
+  `getAppForFile`, no `getFileTypeMapping`, no `registerApp` /
+  `unregisterApp`.
+- A tiny Zustand store (`useActiveApp`) holds a single `activeAppId`
+  string. Default `'welcome'`. State is non-persistent — resets to
+  default on relaunch.
+- A thin top-nav in `App.tsx` lists discovered apps and swaps the
+  active component on click. Previous app unmounts when the active
+  switches (no keep-alive yet).
+**Consequences:**
+- Adding an app is now a folder drop. Verified end-to-end in PR #5 by
+  staging a `test-app` stub, confirming it appeared in the renderer
+  bundle after a build, then deleting before commit.
+- Multi-window, tabs, drag-resize, persisted active-app state — all
+  later PRs.
+- Active app's `getMetadata` (Welcome) IPC will re-fire on every
+  switch-back. Acceptably cheap (a single in-process IPC call); the
+  alternative (caching layer / hoisted state) is YAGNI for week 1.
+**Alternatives considered:**
+- *Route-based (react-router)* — rejected: pulls in a router for what
+  amounts to a single conditional render. More mass than needed.
+- *Full VIEWER port (windows / tabs / file routing / AppContext)* —
+  rejected as week-1 over-investment. VIEWER's multi-window stack is
+  what we converge to, not what we start with.

@@ -200,3 +200,41 @@ own icon directly, `AppDefinition.icon` becomes
 `ComponentType<{ size?: number }>` rather than `string`, and the central
 map disappears. Eliminates the registry-update friction of adding each
 new icon.
+
+---
+
+## [2026-05-12] PR comments adopted as primary review channel; review heuristics codified
+
+**Status:** accepted
+**Decided by:** Director (acting on Architect's proposal)
+**Context:** PRs #1–#5 routed every Architect note through Director-as-
+postal-service: Architect's chat reply → Director paste into the next
+chat with Claude Code → Claude Code reads → fix → push → Director relays
+again. Friction compounded across review rounds. Director wanted
+attention reserved for direction, visual verification, and merge — not
+relay duties. At the same time, recurring review patterns (nav ordering,
+traffic-light insets, comment/code drift, destructive-op pre-flight,
+git-status column semantics) kept surfacing post-PR rather than
+pre-PR — every one a saveable round-trip.
+**Decision:** Two changes shipping together:
+- Architect chat replies → Director paste as a single PR comment →
+  Claude Code reads via `gh pr view <n> --comments`. Review
+  *conversation* lives on the PR; chat between Director and Architect
+  reserved for direction-level decisions and visual-test feedback.
+- Review heuristics extracted from PR #1–#5 feedback patterns and
+  added to CLAUDE.md §11 (replacing the now-shipped First Task spec)
+  for self-application before opening any PR. §7 self-review template
+  gains a "Pre-PR heuristics" prompt so the checklist is run for real.
+**Consequences:**
+- Director paste-load drops by ~half on clean PRs and more on
+  review-cycle PRs.
+- Architect's review history lives on the PR (better audit trail; one
+  click instead of chat-scrolling).
+- Heuristics list grows as patterns recur — each future entry is a
+  follow-up PR, not an upfront design exercise.
+- §11 slot reused, not inserted. Section numbering after §11 unchanged.
+**Alternatives considered:**
+- *Status quo* — rejected, friction compounds across review rounds.
+- *GitHub Action wiring Architect chat → PR comment directly* —
+  rejected as week-1 over-investment. Revisit when paste load becomes
+  a measurable bottleneck again.

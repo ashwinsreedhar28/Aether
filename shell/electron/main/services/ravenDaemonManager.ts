@@ -155,6 +155,11 @@ export class RavenDaemonManager extends EventEmitter {
   /**
    * One-time bootstrap. Returns false if any step fails (and reason is set
    * on availability).
+   *
+   * Emits transient `unavailable` events before each blocking step so the
+   * voice-control pill can show *what* the 30s first-boot is doing (per
+   * PR #9 review). On success the caller flips availability to 'available'
+   * once the daemon is healthy.
    */
   private ensureBuilt(): boolean {
     const daemonDist = path.join(this.daemonDir, 'dist', 'index.js')
@@ -162,6 +167,7 @@ export class RavenDaemonManager extends EventEmitter {
 
     if (!fs.existsSync(daemonModules)) {
       console.log('[ravenDaemonManager] installing daemon node_modules — first launch')
+      this.setAvailability({ kind: 'unavailable', reason: 'installing daemon deps…' })
       const r = spawnSync('npm', ['install', '--no-audit', '--no-fund'], {
         cwd: this.daemonDir,
         stdio: 'inherit',
@@ -174,6 +180,7 @@ export class RavenDaemonManager extends EventEmitter {
 
     if (!fs.existsSync(daemonDist)) {
       console.log('[ravenDaemonManager] building raven-daemon (tsc) — first launch')
+      this.setAvailability({ kind: 'unavailable', reason: 'building daemon…' })
       const tsc = path.join(this.daemonDir, 'node_modules', '.bin', 'tsc')
       const r = spawnSync(tsc, [], { cwd: this.daemonDir, stdio: 'inherit' })
       if (r.status !== 0) {
@@ -185,6 +192,7 @@ export class RavenDaemonManager extends EventEmitter {
     const venvPython = path.join(this.coreDir, '.venv', 'bin', 'python')
     if (!fs.existsSync(venvPython)) {
       console.log('[ravenDaemonManager] creating raven-core venv — first launch (~30s)')
+      this.setAvailability({ kind: 'unavailable', reason: 'creating python venv…' })
       const venv = spawnSync('python3', ['-m', 'venv', '.venv'], {
         cwd: this.coreDir,
         stdio: 'inherit',
@@ -193,6 +201,7 @@ export class RavenDaemonManager extends EventEmitter {
         this.setAvailability({ kind: 'unavailable', reason: 'python3 -m venv failed (is python3 installed?)' })
         return false
       }
+      this.setAvailability({ kind: 'unavailable', reason: 'installing python deps (~30s)…' })
       const pip = spawnSync(
         path.join(this.coreDir, '.venv', 'bin', 'pip'),
         ['install', '-q', '-r', 'requirements.txt'],
@@ -269,6 +278,7 @@ export class RavenDaemonManager extends EventEmitter {
       this.reapStalePid()
       if (!this.ensureBuilt()) return this.availability
 
+      this.setAvailability({ kind: 'unavailable', reason: 'starting daemon…' })
       this.spawnDaemon()
       const healthy = await this.waitForHealth(HEALTH_TIMEOUT_MS)
       if (!healthy) {

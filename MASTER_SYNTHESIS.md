@@ -231,7 +231,7 @@ Both managers (`DaemonManager`, `RavenDaemonManager`) share an identical pattern
 4. Stale PID file is reaped before respawning.
 5. Generic HTTP `request<T>(method, path, body)` helper.
 
-**Python Raven ([`_ingest/VIEWER/apps/raven/`](_ingest/VIEWER/apps/raven/)).** Flask backend with `raven_core/` containing `orchestrator`, `client`, `vision`, `audio`, tools (`time_tool`, `memory_tool`, `system_tool`, `silence_tool`, `cerebras_tool`), and a JSON-file memory store. Cerebras Cloud SDK for low-latency LLM calls; optional Gemini for vision.
+**Python Raven ([`_ingest/VIEWER/apps/raven/`](_ingest/VIEWER/apps/raven/)).** Flask backend with `raven_core/` containing `orchestrator`, `client`, `vision`, `audio`, tools (`time_tool`, `memory_tool`, `system_tool`, `silence_tool`, `cerebras_tool`), and a JSON-file memory store. Gemini Live API for the live bidirectional audio loop (voice + vision); Cerebras Cloud SDK only as a side-tool for fast HTML/UI generation via `cerebras_tool`.
 
 **Holographic design system.** CSS vars: `--holo-bg`, `--holo-text`, `--holo-muted`, `--holo-accent`, `--holo-border`. Translucent panels (`bg-[rgba(15,15,25,0.5)]`), subtle glows, status pills (green/red/yellow/blue).
 
@@ -254,7 +254,7 @@ Both managers (`DaemonManager`, `RavenDaemonManager`) share an identical pattern
 | **Agent self-modification** | — | — | **ledger volume (identity/memory/skills)** | files-on-disk |
 | **Inter-agent messaging** | — | invoke surface | mailbox + intercom + MCP | — |
 | **MCP** | — | — | **MCP server bundled** | MCP server manager (Electron-side) |
-| **Voice / multimodal** | TTS reels (offline) | — | — | **Raven voice (Cerebras + vision)** |
+| **Voice / multimodal** | TTS reels (offline) | — | — | **Raven voice (Gemini Live + vision)** |
 | **Modular UI apps** | monolithic App.tsx | — | dashboard (fixed pages) | **27 auto-discovered apps** |
 | **Command palette** | — | — | — | **Cmd+P fuzzy across apps/files/AI** |
 | **Notifications** | tray + digest + per-domain armed flag | — | team events | — |
@@ -427,9 +427,9 @@ research agent read my brokerage statements," that's a new edge from
 
 - **Pulse** = Ollama local, optional Claude (`claudeService.ts`).
 - **NEXUS** = Claude Code CLI / Anthropic SDK / Gemini CLI / Codex CLI.
-- **VIEWER** = `@anthropic-ai/claude-agent-sdk` + Cerebras (low-latency voice) + Gemini (vision).
+- **VIEWER** = `@anthropic-ai/claude-agent-sdk` + Gemini Live (voice + vision) + Cerebras (fast HTML-gen side-tool).
 
-**Decision required.** Single `ai.*` namespace with multiple nodes: `ai.claude`, `ai.ollama`, `ai.cerebras`, `ai.gemini`. Each agent/feature edge-permits the providers it should use. Voice (latency-bound) defaults to Cerebras; deep reasoning to Claude; private/offline to Ollama; vision to Gemini.
+**Decision required.** Single `ai.*` namespace with multiple nodes: `ai.claude`, `ai.ollama`, `ai.cerebras`, `ai.gemini`. Each agent/feature edge-permits the providers it should use. Voice (latency-bound, live bidirectional audio) defaults to Gemini Live (Cerebras has no live-audio API as of this writing); fast text / HTML generation defaults to Cerebras; deep reasoning to Claude; private/offline to Ollama; vision to Gemini.
 
 ### 4.7 Stream-not-queue vs. NEXUS's queue + retry
 
@@ -586,9 +586,9 @@ tools become mesh edges into existing nodes.
 **Phase 5 — Teams, mailbox, boards, cron.** All ex-NEXUS, now expressed as mesh
 nodes + edges. Mailbox = inbox surface; boards = files; cron = `scheduler_cron`.
 
-**Phase 6 — AI router.** `ai.*` nodes finalized. Voice → Cerebras; deep → Claude;
-local → Ollama; vision → Gemini. Single tool selection rule: lowest-latency provider
-permitted by the calling agent's edges.
+**Phase 6 — AI router.** `ai.*` nodes finalized. Voice → Gemini Live (live audio);
+fast text/HTML → Cerebras; deep → Claude; local → Ollama; vision → Gemini. Single
+tool selection rule: lowest-latency provider permitted by the calling agent's edges.
 
 **Phase 7 — Polish.** Holographic theme system-wide. Splash/boot orchestration like
 Pulse. Power/idle/suspend respect in every scheduler. macOS packaging (electron-

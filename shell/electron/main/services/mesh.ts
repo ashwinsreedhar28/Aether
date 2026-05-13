@@ -2,6 +2,7 @@ import { MeshNode, type Envelope } from '@homeos/mesh-node-sdk'
 import { CoreManager } from './coreManager'
 import { NodeManager } from './nodeManager'
 import { generateMeshSecrets, type MeshSecrets } from './secrets'
+import { cleanupStaleSpawns } from './staleSpawns'
 
 // One-stop orchestrator for the mesh substrate. Owns:
 //   * the Core daemon (Python child process)
@@ -43,6 +44,10 @@ export async function startMesh(): Promise<void> {
   meshState = 'starting'
   meshError = null
   try {
+    // Kill any Core / host_notifications left behind by a previous run that
+    // didn't clean up — e.g. a dev-mode HMR restart that SIGKILL'd the old
+    // Electron main before before-quit could fire. See staleSpawns.ts.
+    await cleanupStaleSpawns()
     secrets = generateMeshSecrets()
     coreManager = new CoreManager({ secrets })
     await coreManager.ensureRunning()
@@ -74,21 +79,24 @@ export async function startMesh(): Promise<void> {
 }
 
 export async function stopMesh(): Promise<void> {
-  // Stop nodes first so they unregister cleanly before Core goes away.
-  try {
-    await nodeManager?.stopAll()
-  } finally {
-    nodeManager = null
-    shellNode = null
+  // Parallel SIGTERM + waitForExit on every child. Sequential stop took up
+  // to 12s worst-case, long enough to risk Electron's quit timeout firing
+  // before cleanup completed. Running them in parallel keeps worst-case at
+  // ~7s (the longer of the two child timeouts).
+  const nodeStop = nodeManager?.stopAll() ?? Promise.resolve()
+  const coreStop = coreManager?.stop() ?? Promise.resolve()
+  const results = await Promise.allSettled([nodeStop, coreStop])
+  for (const r of results) {
+    if (r.status === 'rejected') {
+      console.warn('[stopMesh] child cleanup rejected:', r.reason)
+    }
   }
-  try {
-    await coreManager?.stop()
-  } finally {
-    coreManager = null
-    secrets = null
-    meshState = 'idle'
-    meshError = null
-  }
+  nodeManager = null
+  shellNode = null
+  coreManager = null
+  secrets = null
+  meshState = 'idle'
+  meshError = null
 }
 
 export function getCoreUrl(): string | null {

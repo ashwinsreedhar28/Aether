@@ -66,12 +66,23 @@ export class RavenDaemonManager extends EventEmitter {
     this.dataDir = path.join(app.getPath('userData'), 'raven')
     fs.mkdirSync(this.dataDir, { recursive: true })
 
-    // Resolve repo root from the compiled main entry: out/main/index.js →
-    // ../../.. lands at the shell/ directory; one more up gets the repo
-    // root. In dev (electron-vite serves from out/), the same path applies.
-    this.repoRoot = path.resolve(__dirname, '../../../..')
+    // Compiled main entry lives at <repo>/shell/out/main/index.js, so three
+    // '..' segments take us back to the repo root. In packaged mode this
+    // will need a different resolution path (out lives inside app.asar);
+    // out of scope for week-1 dev.
+    this.repoRoot = path.resolve(__dirname, '..', '..', '..')
     this.daemonDir = path.join(this.repoRoot, 'daemons', 'raven-daemon')
     this.coreDir = path.join(this.repoRoot, 'daemons', 'raven-core')
+
+    // Fail loudly if resolution drifts again — silent misresolution
+    // surfaces downstream as misleading "pnpm not found on PATH" errors
+    // (the actual ENOENT is on the missing cwd, not the binary).
+    if (!fs.existsSync(path.join(this.daemonDir, 'package.json'))) {
+      console.error(
+        `[ravenDaemonManager] daemonDir lookup failed: ${this.daemonDir} ` +
+          `(expected to contain package.json). __dirname=${__dirname}`
+      )
+    }
   }
 
   getAvailability(): VoiceAvailability {
@@ -212,14 +223,20 @@ export class RavenDaemonManager extends EventEmitter {
     args: string[],
     cwd: string
   ): { ok: true } | { ok: false; summary: string } {
-    console.log(`[ravenDaemonManager] ${label}: ${cmd} ${args.join(' ')}`)
+    console.log(`[ravenDaemonManager] ${label}: cwd=${cwd} cmd=${cmd} ${args.join(' ')}`)
+    // ENOENT-on-cwd is sneaky: spawnSync reports the same code as
+    // ENOENT-on-bin and the surfaced error message blames the binary.
+    // Pre-check cwd so the failure mode is unambiguous.
+    if (!fs.existsSync(cwd)) {
+      return { ok: false, summary: `${label}: cwd does not exist: ${cwd}` }
+    }
     const r = spawnSync(cmd, args, { cwd, encoding: 'utf-8' })
     if (r.stdout) process.stdout.write(r.stdout)
     if (r.stderr) process.stderr.write(r.stderr)
     if (r.error) {
       const code = (r.error as NodeJS.ErrnoException).code
-      // ENOENT == executable not on PATH — most common failure mode when
-      // Electron is launched outside a login shell (nvm, asdf, etc.).
+      // ENOENT now genuinely means the executable isn't on PATH (cwd was
+      // ruled out above).
       const detail = code === 'ENOENT' ? `${cmd} not found on PATH` : r.error.message
       return { ok: false, summary: `${label}: ${detail}` }
     }

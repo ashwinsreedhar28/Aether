@@ -8,6 +8,22 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+### Changed
+
+- Workflow refactor: Architect↔Implementer reviews now ride on PR
+  comments (Director relays one paste per round-trip, down from ~four).
+  §11 First Task removed and replaced with an Architect Review
+  Heuristics checklist self-applied before each PR. §7 self-review
+  template gains a heuristics-check section.
+
+### Fixed
+
+### Removed
+
+## [0.0.3] - 2026-05-12
+
+### Added
+
 - App-discovery system (`import.meta.glob` of `src/apps/*`,
   `AppDefinition` shape adopted from VIEWER). Drop a folder into
   `src/apps/<name>/` with an `index.ts` exporting an `AppDefinition`

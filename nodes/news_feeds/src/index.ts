@@ -4,6 +4,7 @@ import { MeshNode, MeshDeny, type Envelope } from '@homeos/mesh-node-sdk'
 import { FEEDS } from './feeds'
 import { FeedPoller } from './fetcher'
 import { ArticleStore } from './storage'
+import { isCategory, type Category } from './types'
 
 const NODE_ID = 'news_feeds'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
@@ -14,6 +15,34 @@ const MAX_LIMIT = 100
 interface RecentArgs {
   limit?: number
   since?: string
+  category?: string | string[]
+}
+
+// Normalise the schema-validated category field into a Category[] (or
+// undefined for "no filter"). The JSON Schema enforces values; this is a
+// belt-and-suspenders check so a misconfigured Core that ever stops
+// validating doesn't leak unvetted strings into SQL. Returns undefined
+// for missing or empty arrays — both mean "no filter".
+function normaliseCategory(value: unknown): Category[] | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string') {
+    if (!isCategory(value)) {
+      throw new MeshDeny('news_feeds_bad_category', { category: value })
+    }
+    return [value]
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return undefined
+    const out: Category[] = []
+    for (const v of value) {
+      if (!isCategory(v)) {
+        throw new MeshDeny('news_feeds_bad_category', { category: v })
+      }
+      if (!out.includes(v)) out.push(v)
+    }
+    return out
+  }
+  throw new MeshDeny('news_feeds_bad_category', { category: value })
 }
 
 function log(msg: string): void {
@@ -45,7 +74,8 @@ function makeRecentHandler(store: ArticleStore) {
         throw new MeshDeny('news_feeds_bad_since', { since })
       }
     }
-    const articles = store.recent({ limit, since })
+    const categories = normaliseCategory(payload?.category)
+    const articles = store.recent({ limit, since, categories })
     return { articles }
   }
 }

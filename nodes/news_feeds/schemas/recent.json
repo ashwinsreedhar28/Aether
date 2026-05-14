@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "news_feeds.recent",
-  "description": "Get recent articles aggregated from the node's configured RSS/Atom feeds, ordered by published_at desc.",
+  "description": "Get recent articles aggregated from the node's configured RSS/Atom feeds, ordered by published_at desc. Optionally filter to one or more categories.",
   "type": "object",
   "additionalProperties": true,
   "properties": {
@@ -14,6 +14,25 @@
     "since": {
       "type": "string",
       "description": "Optional ISO 8601 datetime. Only articles with published_at >= since are returned."
+    },
+    "category": {
+      "description": "Optional category filter. A single category string, or an array of 1–7 unique category strings. Articles whose category is in the resulting set are returned. Omit to return across all categories. Unknown categories are rejected by Core before the handler runs.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["world", "us", "tech", "business", "sports", "science", "local"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["world", "us", "tech", "business", "sports", "science", "local"]
+          },
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true
+        }
+      ]
     }
   }
 }

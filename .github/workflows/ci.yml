@@ -40,15 +40,15 @@ jobs:
       - name: workspace — install
         run: pnpm install --frozen-lockfile
 
-      # @homeos/mesh-node-sdk publishes types via dist/. shell + nodes
+      # @aether/mesh-node-sdk publishes types via dist/. shell + nodes
       # consumers can't typecheck against the workspace alias until
       # dist exists. Same for host_notifications (the shell spawns its
       # compiled JS at runtime; building it now is the cheapest way to
       # verify it still compiles).
       - name: workspace — pre-build workspace packages
         run: |
-          pnpm --filter @homeos/mesh-node-sdk build
-          pnpm --filter @homeos/host-notifications build
+          pnpm --filter @aether/mesh-node-sdk build
+          pnpm --filter @aether/host-notifications build
 
       - name: workspace — typecheck
         run: pnpm -r typecheck
@@ -63,9 +63,9 @@ jobs:
         run: python3 -m pip install --quiet aiohttp pyyaml jsonschema
 
       - name: core/node_sdk_ts — round-trip test
-        run: pnpm --filter @homeos/mesh-node-sdk test
+        run: pnpm --filter @aether/mesh-node-sdk test
 
       # Full shell build proves electron-vite renders main / preload /
       # renderer with the workspace deps wired correctly.
       - name: shell — build
-        run: pnpm --filter homeos-shell build
+        run: pnpm --filter aether-shell build

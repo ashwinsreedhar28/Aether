@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "news_feeds.search",
-  "description": "Keyword search over the node's curated article pool (title / summary / feed name) backed by SQLite FTS5 with porter stemming. Returns articles ordered by FTS5 rank, then published_at desc as tiebreaker. Search scope is the polled feed pool only — off-feed topics return an empty list rather than reaching out to the open web.",
+  "description": "Keyword search over the node's curated article pool (title / summary / feed name) backed by SQLite FTS5 with porter stemming. Returns articles ordered by FTS5 rank, then published_at desc as tiebreaker. Search scope is the polled feed pool only — off-feed topics return an empty list rather than reaching out to the open web. Optionally filters by category and / or urgency bucket; both AND-combine with the FTS5 match.",
   "type": "object",
   "required": ["query"],
   "additionalProperties": true,
@@ -33,6 +33,25 @@
           },
           "minItems": 1,
           "maxItems": 7,
+          "uniqueItems": true
+        }
+      ]
+    },
+    "urgency": {
+      "description": "Optional urgency filter. A single urgency bucket, or an array of 1–3 unique buckets. Articles whose urgency is in the resulting set are returned. Same heuristic buckets as news_feeds.recent. AND-combines with the FTS5 match and the optional category filter.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "minItems": 1,
+          "maxItems": 3,
           "uniqueItems": true
         }
       ]

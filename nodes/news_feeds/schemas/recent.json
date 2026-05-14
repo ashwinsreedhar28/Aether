@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "news_feeds.recent",
-  "description": "Get recent articles aggregated from the node's configured RSS/Atom feeds, ordered by published_at desc. Optionally filter to one or more categories.",
+  "description": "Get recent articles aggregated from the node's configured RSS/Atom feeds, ordered by published_at desc. Optionally filter to one or more categories and / or urgency buckets.",
   "type": "object",
   "additionalProperties": true,
   "properties": {
@@ -30,6 +30,25 @@
           },
           "minItems": 1,
           "maxItems": 7,
+          "uniqueItems": true
+        }
+      ]
+    },
+    "urgency": {
+      "description": "Optional urgency filter. A single urgency bucket, or an array of 1–3 unique buckets. Articles whose urgency is in the resulting set are returned. Buckets are computed deterministically at fetch time by the node's scorer (no LLM); 'high' approximates breaking-news status. Omit to return across all buckets. AND-combines with the category filter when both are present — e.g. category='tech' + urgency='high' returns high-urgency tech articles only.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "minItems": 1,
+          "maxItems": 3,
           "uniqueItems": true
         }
       ]

@@ -5,6 +5,154 @@ Never edit a past entry — supersede with a new one.
 
 ---
 
+## [2026-05-13] News urgency scoring via heuristic
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Director's smoke testing surfaced a real problem with the
+news stack: "what's the latest news" returns whatever is most recent,
+regardless of importance. The `news_feeds.recent` surface — and by
+extension the voice tool `news_recent` and the News app's category
+chips — collapse "recency" and "importance" into a single axis, which
+means filler items chronologically adjacent to a breaking story
+dominate the spoken read. Pulse had urgency scoring as a core feature
+of its news pipeline; this is the lift, adapted to homeOS's mesh shape.
+The use case shows up in voice especially clearly — "what's breaking"
+should not be a synonym for "what's most recent" — and an Urgent chip
+on the News app makes the same distinction visually.
+**Decision:** Every article gets a deterministic `urgency` bucket
+(`low` | `medium` | `high`) at fetch time, computed by a pure-function
+heuristic scorer in `nodes/news_feeds/src/scorer.ts`. No LLM, no
+external API calls — the scorer reads only fields the parser already
+has on hand. The 0–100 score sums four independently-capped
+components:
+
+- **Source weight (0–30)** — declared per-feed in `feeds.ts`. Three
+  tiers: 30 (Reuters breaking-news wires), 20 (major outlets), 10
+  (aggregators / blogs). Deliberately coarse — a finer gradation
+  would obscure the tier reasoning without changing bucket outcomes.
+- **Title language (0–30)** — `BREAKING:` / `URGENT:` prefix (+20),
+  ALL-CAPS title (+15, combined cap at +20 with the prefix to avoid
+  double-counting both signals when a publisher uses both), per-word
+  urgency vocabulary (+5 each, cap +15). Total capped at 30.
+- **Recency (0–25)** — brackets in ascending age: <1h → 25, 1–4h →
+  15, 4–12h → 5, older → 0. Recomputed at score time so an article
+  that scored low in its first poll cycle will not later transition
+  upward purely from cooling recency (scoring happens at fetch only).
+- **Topic keywords (0–15)** — small hardcoded vocabulary of
+  always-urgent subjects (war, attack, shooting, earthquake,
+  hurricane, wildfire, evacuation, recall, outbreak, tsunami).
+  Matched in title + summary with word boundaries (so "fire" in
+  "firefox" does not trigger). Per-hit +5, cap +15.
+
+Buckets: low (0–39), medium (40–69), high (70+). The HIGH_THRESHOLD
+is tuned so an article needs at least two strong signals to clear it
+— a clean Reuters breaking-news headline within the hour about an
+always-urgent topic typically lands in the 75–90 range.
+
+The urgency dimension surfaces three ways:
+
+- `news_feeds.recent` and `news_feeds.search` gain an optional
+  `urgency` parameter (single bucket or 1–3-bucket array). AND-
+  combines with the category filter and the search match clause.
+- New `news_feeds.breaking({limit?})` surface returns the high
+  bucket only, ordered newest-first. Convenience surface — strictly
+  equivalent to `recent({urgency:'high'})` but named explicitly so
+  the voice tool and any future "what's breaking" UI can address it
+  directly.
+- New voice tool `news_breaking(limit?)`, alongside `urgency`
+  parameters on the existing `news_recent` and `news_search` tools.
+  Prompt updates teach Gemini to map "what's breaking" / "anything
+  urgent" / "any major news" → `news_breaking()`, and
+  "what's important in tech" → `news_recent(category='tech',
+  urgency='high')`.
+- News app gains an "Urgent" chip in the filter row (sits between
+  All and the category chips; uses the breaking-red palette so the
+  filter and the article badges are visually tied), and article
+  cards show a red "Breaking" badge for high-urgency items and an
+  amber "Major" badge for medium. Low is intentionally suppressed —
+  visual quiet for the routine case keeps the list scannable.
+
+Schema bumps to `user_version=3`. The v2→v3 migration adds an
+`urgency TEXT NOT NULL DEFAULT 'low'` column and a compound
+`(urgency, published_at DESC)` index, both inside the same
+transactional `migrate()` step (CLAUDE.md §10 schema-migrations
+gotcha — column-dependent indexes never live in the initial CREATE
+block). Pre-existing rows get the 'low' default until the UPSERT
+re-scores them within 15 minutes of the next poll.
+
+All weight and threshold constants are exported from `scorer.ts` for
+transparency, and each weight's rationale is documented inline so
+future tuning has a single dial-board to adjust without re-deriving
+the design intent.
+**Consequences:**
+- Scoring adds no I/O to the poll cycle — it's synchronous CPU only,
+  using fields the parser already has. Negligible per-article cost.
+- Buckets are coarse on purpose. An article scoring 41 (medium-low
+  edge) and another scoring 68 (medium-high edge) are both "medium"
+  even though they're nearly 30 points apart. The audit story —
+  "why did this rate medium?" — is easier when the answer reduces
+  to "which signals fired" rather than "which decimal of the
+  cumulative range."
+- The vocabularies (TITLE_URGENCY_WORDS, TOPIC_URGENCY_WORDS) are
+  small and intentionally hard-coded. Pulse's vocab was larger; we
+  pruned to terms whose presence reliably signals significance,
+  accepting that some legitimately urgent items may not match any
+  word. The cap on per-word contributions prevents a single
+  sensational headline from gaming the score with five keywords;
+  the source-weight + recency components are what carry a clean
+  wire-service headline into the high bucket.
+- The `news_feeds.breaking` surface is redundant with
+  `news_feeds.recent({urgency: 'high'})`. We added it anyway so the
+  voice tool name and the prompt's mental model line up — "what's
+  breaking" → `news_breaking()` reads cleaner than "what's
+  breaking" → `news_recent` with two arguments. Future maintenance
+  cost is low: both surfaces share `storage.breaking()` / the
+  `(urgency, published_at)` index.
+- The 'low' default backfill is a one-time inaccuracy ≤15 minutes
+  wide. Same trade as the category migration in PR #16, accepted.
+- Voice tool count grows to 12 (was 11). The system prompt
+  enumeration is now meaningfully large; if it grows further (Phase
+  3 expansion) we should reconsider how the prompt presents the
+  tool list — but not yet.
+**Alternatives considered:**
+- *LLM-based urgency classification* (call Gemini / Claude per
+  article to assign an urgency score) — rejected for three reasons:
+  cost (15-minute poll × ~33 feeds × ~30 articles each = ~1000
+  inference calls per poll), latency added to the poll cycle, and
+  determinism (a heuristic gives the same answer twice; an LLM
+  doesn't). The heuristic catches the obvious cases well; the
+  long-tail "this is urgent for non-obvious reasons" case is rare
+  enough that the cost trade-off doesn't pay. Revisit if a
+  cheap-enough local classifier appears or if the heuristic's
+  miss-rate becomes load-bearing.
+- *User-tunable weight sliders* (let the Director adjust source
+  weights / vocabularies in a Settings app) — rejected for now.
+  There is no Settings app yet, and adding a per-user-config layer
+  to a node that's still proving its template is premature. The
+  exported constants in `scorer.ts` make tuning a code change
+  rather than a setting; that's the right granularity until we
+  have evidence a single global tuning isn't sufficient.
+- *Urgency-driven notifications* (fire `host_notifications.notify`
+  when an article crosses into high while the shell is running) —
+  rejected as out of scope for this PR. Belongs in the future
+  "digest engine" lane along with quiet hours, dedup-across-feeds,
+  and notification rate-limiting. The data is in place for that
+  future work to consume.
+- *Per-article continuous urgency score (0–100) instead of three
+  buckets* — rejected. The voice and UI consumers don't benefit
+  from gradation finer than "should I mention this aloud / show a
+  badge"; the bucket abstraction is what callers want, and storing
+  only the bucket keeps the schema simple. The raw score is
+  recomputed-on-demand if needed for debugging.
+- *Storing urgency only on the breaking surface, not on the
+  articles row* — rejected. Recomputing the score at every query
+  time scales worse than the one-time-per-fetch path, and the
+  index on `(urgency, published_at DESC)` is what makes the
+  breaking surface fast.
+
+---
+
 ## [2026-05-13] Voice session context for follow-up resolution
 
 **Status:** accepted

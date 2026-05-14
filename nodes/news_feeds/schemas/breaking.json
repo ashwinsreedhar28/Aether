@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "news_feeds.breaking",
+  "description": "Get articles whose urgency bucket is 'high', ordered by published_at desc. Convenience surface — equivalent to news_feeds.recent({urgency: 'high'}) but named explicitly so the voice tool and any future 'what's breaking' UI can address it directly. Urgency is computed deterministically per article at fetch time by the node's scorer (source weight + title language + recency + topic keywords). Returns an empty list when no current articles cleared the high threshold — that means 'nothing breaking in the feed pool right now,' not 'an error occurred.'",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "description": "Maximum number of high-urgency articles to return. Default 10 if omitted; clamped to 50."
+    }
+  }
+}

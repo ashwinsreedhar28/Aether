@@ -21,10 +21,13 @@
         "description": "Send a native desktop notification on the user's screen. Use when the user explicitly asks to be notified, alerted, or reminded with a popup."
       },
       "news_recent": {
-        "description": "Get recent news headlines aggregated from the user's RSS feeds, optionally filtered to one of seven categories (world, us, tech, business, sports, science, local). Use for broad news questions ('what's in the news', 'top headlines') — prefer news_search when the user names a specific topic."
+        "description": "Get recent news headlines aggregated from the user's RSS feeds, optionally filtered to one of seven categories (world, us, tech, business, sports, science, local) and/or one of three urgency buckets (low, medium, high). Use for broad news questions ('what's in the news', 'top headlines') — prefer news_search when the user names a specific topic, news_breaking for bare 'what's breaking' questions."
       },
       "news_search": {
-        "description": "Keyword-search the user's curated RSS feed pool for a specific topic, person, place, or event. Use whenever the user names a subject ('what's the latest on Iran', 'any news about wildfires', 'tech news about OpenAI'). Scope is the polled feed pool only — not an open-web search. Empty results mean no current coverage in the curated feeds, not 'nothing is happening'."
+        "description": "Keyword-search the user's curated RSS feed pool for a specific topic, person, place, or event. Use whenever the user names a subject ('what's the latest on Iran', 'any news about wildfires', 'tech news about OpenAI'). Optional urgency filter narrows to a single bucket. Scope is the polled feed pool only — not an open-web search. Empty results mean no current coverage in the curated feeds, not 'nothing is happening'."
+      },
+      "news_breaking": {
+        "description": "Get only high-urgency ('breaking') news items from the user's curated RSS feeds, ordered newest-first. Use for bare 'what's breaking', 'anything urgent', or 'any major news' questions without a specific topic or category. Equivalent to news_recent with urgency='high' but named explicitly. Empty results mean nothing currently clears the breaking threshold — never substitute remembered headlines."
       },
       "finance_quote": {
         "description": "Get the latest price and day change for a single tracked US stock symbol. Use for any question about a specific stock, ticker, or company — never quote prices from training data."

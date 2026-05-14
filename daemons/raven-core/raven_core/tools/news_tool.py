@@ -1,22 +1,34 @@
-"""News Tool - Read recent headlines and keyword-search via the mesh.
+"""News Tool - Read recent headlines, keyword-search, and surface
+breaking-urgency items via the mesh.
 
-Two voice tools, both routed through ``mesh_invoke`` to the news_feeds
+Three voice tools, all routed through ``mesh_invoke`` to the news_feeds
 node:
 
-  - ``news_recent(limit?, category?)`` → ``news_feeds.recent``
-  - ``news_search(query, category?)``  → ``news_feeds.search``
+  - ``news_recent(limit?, category?, urgency?)``  → ``news_feeds.recent``
+  - ``news_search(query, category?, urgency?)``   → ``news_feeds.search``
+  - ``news_breaking(limit?)``                      → ``news_feeds.breaking``
 
 Same pattern as notify_tool / finance_tool: declare the function for
 Gemini, implement as a thin ``await mesh_invoke(...)``, add the edge in
 manifest.yaml. The renderer-side News app drives the same surfaces —
 proves the mesh is a real graph, not point-to-point IPC.
 
-Categories: both tools accept an optional ``category`` parameter that
-maps natural-language phrasing ("tech news", "local headlines") onto
-the seven-category taxonomy declared in
+Categories: news_recent / news_search accept an optional ``category``
+that maps natural-language phrasing ("tech news", "local headlines")
+onto the seven-category taxonomy declared in
 ``nodes/news_feeds/src/types.ts``. The mesh schema enum-validates the
 value; an unknown category surfaces as a clean error rather than a
 silent no-op.
+
+Urgency: news_recent / news_search additionally accept an optional
+``urgency`` filter (low / medium / high) so the model can narrow to
+breaking-bucket items within a category — e.g. "what's important in
+tech" maps to news_recent(category='tech', urgency='high'). The
+shortcut ``news_breaking`` is equivalent to
+news_recent(urgency='high') but named explicitly so the model can
+treat "what's breaking" / "anything urgent" / "any major news" as a
+single dedicated call. Urgency is computed deterministically by the
+node's scorer at fetch time (heuristic-only, no LLM).
 
 Search scope: news_search hits the user's curated feed pool only (FTS5
 over the polled articles table) — NOT the open web. The system prompt
@@ -31,7 +43,7 @@ from google.genai import types
 
 from ..mesh_client import MeshUnavailable, mesh_invoke
 
-FUNCTIONS = ["news_recent", "news_search"]
+FUNCTIONS = ["news_recent", "news_search", "news_breaking"]
 
 # Gemini Live reads results aloud. Five articles is ~30s of speech for
 # title+source — about as much as a user wants in a single hit. Cap at
@@ -60,6 +72,18 @@ CATEGORIES: tuple[str, ...] = (
     "local",
 )
 _CATEGORY_SET = frozenset(CATEGORIES)
+
+# Mirrors nodes/news_feeds/src/types.ts URGENCIES — ascending intensity
+# (low → medium → high). Same ordering used by the JSON Schema enum and
+# the system prompt; keep them in sync.
+URGENCIES: tuple[str, ...] = ("low", "medium", "high")
+_URGENCY_SET = frozenset(URGENCIES)
+
+# news_breaking spoken-bandwidth ceiling. The node default is 10, but
+# Gemini reads aloud — five high-urgency items is ~30s of speech, the
+# practical ceiling for a single voice turn.
+BREAKING_DEFAULT_LIMIT = 5
+BREAKING_MAX_LIMIT = 10
 
 
 def _clamp_limit(value: Any, *, default: int = DEFAULT_LIMIT, ceiling: int = MAX_LIMIT) -> int:
@@ -91,14 +115,28 @@ def _normalise_category(value: Any) -> str | None:
     return None
 
 
+def _normalise_urgency(value: Any) -> str | None:
+    """Mirror of _normalise_category for the urgency enum. Unknown
+    values silently fall back to None ("no urgency filter") rather
+    than raising — same anti-blowup posture as category."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().lower()
+    if cleaned in _URGENCY_SET:
+        return cleaned
+    return None
+
+
 def _strip_article(raw: Any) -> dict[str, Any] | None:
     """Reduce a stored article to the spoken-readable fields.
 
     Drops url / id / fetched_at / published_at — Gemini doesn't need
     them to speak headlines aloud, and dropping them keeps the model's
     output focused on the readable fields rather than reciting URLs.
-    Category is included so the model can confirm scope when the user
-    asks "what categories did you read"-style follow-ups.
+    Category and urgency are included so the model can answer follow-up
+    questions about scope ("which were the urgent ones?") and so the
+    response payload carries enough context for any future renderer
+    that consumes the same shape.
     """
     if not isinstance(raw, dict):
         return None
@@ -106,14 +144,19 @@ def _strip_article(raw: Any) -> dict[str, Any] | None:
         "title": raw.get("title", ""),
         "source": raw.get("feed", ""),
         "category": raw.get("category", ""),
+        "urgency": raw.get("urgency", ""),
         "summary": raw.get("summary", ""),
     }
 
 
-async def _news_recent(limit: int, category: str | None) -> dict[str, Any]:
+async def _news_recent(
+    limit: int, category: str | None, urgency: str | None
+) -> dict[str, Any]:
     payload: dict[str, Any] = {"limit": limit}
     if category is not None:
         payload["category"] = category
+    if urgency is not None:
+        payload["urgency"] = urgency
     try:
         response = await mesh_invoke("news_feeds.recent", payload)
     except MeshUnavailable as e:
@@ -124,13 +167,22 @@ async def _news_recent(limit: int, category: str | None) -> dict[str, Any]:
         return {"error": "malformed response", "detail": "missing articles list"}
 
     articles = [a for a in (_strip_article(r) for r in raw_articles) if a is not None]
-    return {"articles": articles, "count": len(articles), "filtered_category": category}
+    return {
+        "articles": articles,
+        "count": len(articles),
+        "filtered_category": category,
+        "filtered_urgency": urgency,
+    }
 
 
-async def _news_search(query: str, limit: int, category: str | None) -> dict[str, Any]:
+async def _news_search(
+    query: str, limit: int, category: str | None, urgency: str | None
+) -> dict[str, Any]:
     payload: dict[str, Any] = {"query": query, "limit": limit}
     if category is not None:
         payload["category"] = category
+    if urgency is not None:
+        payload["urgency"] = urgency
     try:
         response = await mesh_invoke("news_feeds.search", payload)
     except MeshUnavailable as e:
@@ -152,22 +204,49 @@ async def _news_search(query: str, limit: int, category: str | None) -> dict[str
         "count": len(articles),
         "query": query,
         "filtered_category": category,
+        "filtered_urgency": urgency,
     }
 
 
+async def _news_breaking(limit: int) -> dict[str, Any]:
+    """Thin wrapper over news_feeds.breaking — returns high-urgency
+    items only, ordered newest-first. Empty articles list is the honest
+    answer when nothing currently clears the high threshold; the
+    prompt tells Gemini to say so plainly rather than substitute
+    remembered headlines."""
+    payload: dict[str, Any] = {"limit": limit}
+    try:
+        response = await mesh_invoke("news_feeds.breaking", payload)
+    except MeshUnavailable as e:
+        return {"error": "mesh unavailable", "detail": str(e)}
+
+    raw_articles = response.get("articles") if isinstance(response, dict) else None
+    if not isinstance(raw_articles, list):
+        return {"error": "malformed response", "detail": "missing articles list"}
+
+    articles = [a for a in (_strip_article(r) for r in raw_articles) if a is not None]
+    return {"articles": articles, "count": len(articles)}
+
+
 def get_tools() -> list[types.Tool]:
-    """Return Gemini function declarations for news_recent + news_search."""
+    """Return Gemini function declarations for news_recent + news_search
+    + news_breaking."""
     recent_func = types.FunctionDeclaration(
         name="news_recent",
         description=(
             "Get recent news headlines. Use when the user asks broadly "
             "about news, headlines, current events, or what's happening "
             "WITHOUT naming a specific topic. Returns a list of recent "
-            "articles with title, source, category, and a brief summary. "
-            "Read the titles and sources aloud; use the summary for "
-            "context if the user asks for more detail on a specific "
-            "story. For topic-specific questions ('what's the latest "
-            "on X', 'any news about Y') prefer news_search."
+            "articles with title, source, category, urgency, and a "
+            "brief summary. Read the titles and sources aloud; use the "
+            "summary for context if the user asks for more detail on a "
+            "specific story. For topic-specific questions ('what's the "
+            "latest on X', 'any news about Y') prefer news_search. For "
+            "'what's breaking', 'anything urgent', 'any major news' "
+            "without a specific topic prefer news_breaking. To narrow "
+            "recent results to high-urgency items within a category "
+            "('what's important in tech'), pass urgency='high' alongside "
+            "the category."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
@@ -193,6 +272,21 @@ def get_tools() -> list[types.Tool]:
                         "categories."
                     ),
                 ),
+                "urgency": types.Schema(
+                    type=types.Type.STRING,
+                    enum=list(URGENCIES),
+                    description=(
+                        "Optional filter to a single urgency bucket. "
+                        "Valid values: low, medium, high. 'high' is the "
+                        "breaking-news bucket — pass it when the user "
+                        "asks for important / urgent / major items "
+                        "within a category ('what's important in tech', "
+                        "'any urgent business news'). For bare 'what's "
+                        "breaking' without a category prefer the "
+                        "dedicated news_breaking tool. Omit to return "
+                        "across all urgency buckets."
+                    ),
+                ),
             },
         ),
     )
@@ -210,7 +304,9 @@ def get_tools() -> list[types.Tool]:
             "list. An empty result means no matching coverage in the "
             "current feed pool, not 'nothing is happening' — say so "
             "plainly. Prefer this tool over news_recent whenever the "
-            "user mentions a specific topic."
+            "user mentions a specific topic. To narrow further to "
+            "high-urgency items only ('any urgent news on Iran'), pass "
+            "urgency='high'."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
@@ -238,11 +334,56 @@ def get_tools() -> list[types.Tool]:
                         "search."
                     ),
                 ),
+                "urgency": types.Schema(
+                    type=types.Type.STRING,
+                    enum=list(URGENCIES),
+                    description=(
+                        "Optional. Same three-bucket urgency enum as "
+                        "news_recent. Pass 'high' to filter the search "
+                        "to breaking-bucket matches only."
+                    ),
+                ),
             },
             required=["query"],
         ),
     )
-    return [types.Tool(function_declarations=[recent_func, search_func])]
+    breaking_func = types.FunctionDeclaration(
+        name="news_breaking",
+        description=(
+            "Get only high-urgency ('breaking') news items from the "
+            "user's curated feed pool, ordered newest-first. Use for "
+            "bare 'what's breaking', 'anything urgent', 'any major "
+            "news' style questions WITHOUT a specific topic or "
+            "category — that's the dedicated breaking call. Equivalent "
+            "to news_recent with urgency='high' but named explicitly so "
+            "the model can treat the 'breaking' phrasing as a single "
+            "shortcut. Returns the same article shape as news_recent "
+            "(title, source, category, urgency, summary). An empty "
+            "list means nothing in the curated feed pool currently "
+            "clears the high-urgency threshold — say so plainly "
+            "('nothing breaking in the feed pool right now, sir'), do "
+            "NOT substitute remembered headlines."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "limit": types.Schema(
+                    type=types.Type.INTEGER,
+                    description=(
+                        f"Optional. How many high-urgency items to "
+                        f"return. Default {BREAKING_DEFAULT_LIMIT}, max "
+                        f"{BREAKING_MAX_LIMIT}. Prefer the default "
+                        "unless the user asks for more or fewer."
+                    ),
+                ),
+            },
+        ),
+    )
+    return [
+        types.Tool(
+            function_declarations=[recent_func, search_func, breaking_func]
+        )
+    ]
 
 
 async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
@@ -251,6 +392,7 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
         return await _news_recent(
             limit=_clamp_limit(args.get("limit", DEFAULT_LIMIT)),
             category=_normalise_category(args.get("category")),
+            urgency=_normalise_urgency(args.get("urgency")),
         )
     if name == "news_search":
         raw_query = args.get("query", "")
@@ -267,5 +409,14 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
                 ceiling=SEARCH_MAX_LIMIT,
             ),
             category=_normalise_category(args.get("category")),
+            urgency=_normalise_urgency(args.get("urgency")),
+        )
+    if name == "news_breaking":
+        return await _news_breaking(
+            limit=_clamp_limit(
+                args.get("limit", BREAKING_DEFAULT_LIMIT),
+                default=BREAKING_DEFAULT_LIMIT,
+                ceiling=BREAKING_MAX_LIMIT,
+            ),
         )
     return None

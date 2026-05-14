@@ -8,49 +8,74 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
-- **Voice session context for follow-up resolution.** New
-  `raven_core/session_context.py` tracks the last five user utterances,
-  the last five tool calls (with one-line recaps), the most recent
-  topical state (`last_ticker`, `last_category`, `last_entity`), and
-  the cached article / quote lists from the most recent news_* /
-  finance_market_summary call. Updates happen in two places: per-tool
-  topical extraction in `tools/__init__.py:update_session_context`,
-  invoked from the orchestrator after every `handle_function_call`;
-  and per-user-utterance in `orchestrator._on_user_transcript`, fed
-  by Gemini Live's `input_audio_transcription` stream (newly enabled
-  in `client.create_live_config`). The compact context summary is
-  attached to every outgoing `FunctionResponse` under the
-  `_session_context` field — Gemini Live's `system_instruction` is
-  set once at connect time and cannot be hot-swapped per turn, so
-  attaching the recap to tool results is the closest feasible
-  equivalent to "re-format the system prompt at each turn." The
-  voice system prompt gains a "Conversation context" section
-  enumerating the recap shape, a Reference-resolution rules block,
-  and ten new few-shot examples covering ordinal references ("the
-  second one"), topic inheritance ("how about last week"),
-  cross-category follow-ups ("any tech news on this"), and the
-  null-context clarification path. See DECISIONS.md 2026-05-13
-  "Voice session context for follow-up resolution".
-- **User-side transcripts now flow through the daemon transcript
-  channel** alongside Gemini's spoken text — `JsonLogger.transcript`
-  is now called with `speaker='user'` on every input_transcription
-  fragment. The renderer-side transcript view picks up both
-  speakers without further changes.
-- **`docs/vision-roadmap.md`** captures the 4-PR vision arc sequence
-  (`feat/vision-capture-node` → `feat/vision-gesture-watcher` →
-  `feat/raven-gesture-actions` → `feat/pointing-app-integration`),
-  the six-gesture laptop vocabulary (open palm, point, thumbs up/down,
-  pinch, swipe, two-finger wave), the hardware-constraint reasoning
-  (MacBook Pro webcam-only v1 vs. eventual home substrate with depth
-  sensors and projectors), and the laptop-vs-home-substrate scope
-  split. Encoded before any vision PR fires so the trajectory is
-  legible across sessions.
-- **DECISIONS.md ADR "Vision arc: gesture-driven interaction on
-  laptop + future projection on home substrate"** accepted as
-  roadmap. Locks the 4-PR ordering, the six-gesture vocabulary,
-  and the mesh-not-MCP placement of vision data. Alternatives
-  considered (LLM-from-raw-frames, Apple Vision framework, gesture-
-  as-MCP) recorded with rejection reasoning.
+- **News urgency scoring (heuristic).** Every article now gets a
+  deterministic `urgency` bucket — `low` / `medium` / `high` — scored
+  at fetch time by a pure-function heuristic in
+  `nodes/news_feeds/src/scorer.ts`. No LLM, no external API calls. The
+  0–100 score sums four independently-capped components: source weight
+  (0–30, declared per-feed in `feeds.ts` across three tiers: 30
+  Reuters-style breaking-news wires, 20 major outlets, 10 aggregators
+  /blogs), title language (0–30: BREAKING/URGENT prefix +20, ALL-CAPS
+  +15 with a combined cap, urgency vocabulary +5/word capped at +15),
+  recency (0–25: <1h → 25, 1–4h → 15, 4–12h → 5, older → 0), and
+  topic-keyword hits in title + summary (0–15: war / attack /
+  shooting / earthquake / hurricane / wildfire / evacuation / recall
+  / outbreak / tsunami). Buckets: low (0–39), medium (40–69), high
+  (70+). All weight and threshold constants are exported from
+  `scorer.ts` for transparency. Decouples "recency" from "importance"
+  so voice queries like "what's breaking" return genuinely-newsworthy
+  content rather than whatever happens to be freshest. See
+  DECISIONS.md 2026-05-13 "News urgency scoring via heuristic" for
+  the weight rationale and the alternatives we rejected (LLM scoring,
+  user-tunable weights).
+- **`news_feeds.recent` and `news_feeds.search` gain an optional
+  `urgency` parameter** — either a single bucket or a 1–3-element
+  unique array. JSON Schema enum-validates against `low|medium|high`.
+  AND-combines with the existing category filter and (for search)
+  the FTS5 match clause — `category='tech' + urgency='high'` returns
+  high-urgency tech articles only.
+- **New mesh surface `news_feeds.breaking({limit?})`.** Returns
+  urgency='high' articles ordered by `published_at` desc. Default
+  `limit` 10, clamped to 50. Strictly equivalent to
+  `news_feeds.recent({urgency:'high'})` but named explicitly so the
+  voice tool and any future "what's breaking" UI can address it
+  directly. Backed by the new compound index
+  `idx_articles_urgency_published_at`.
+- **New voice tool `news_breaking(limit?)`.** Thin `mesh_invoke`
+  wrapper around `news_feeds.breaking`. Same Article stripping as
+  `news_recent` / `news_search` (now also carries `urgency` through
+  to the response payload). System prompt enumerates the three
+  urgency buckets, teaches Gemini to map "what's breaking" /
+  "anything urgent" / "any major news" → `news_breaking()`,
+  "what's important in tech" → `news_recent(category='tech',
+  urgency='high')`, and "any urgent news on Iran" → `news_search`
+  with `urgency='high'`. Anti-hallucination guardrail extended:
+  empty `news_breaking` → "Nothing breaking in the feed pool right
+  now, sir" — never substitute remembered headlines. Tool count
+  bumps to 12. `news_recent` and `news_search` voice tools also
+  accept the optional `urgency` filter for category- /
+  topic-bounded urgency queries.
+- **Two new manifest edges** mirroring the existing `recent` /
+  `search` pattern: `shell → news_feeds.breaking` (reserved for a
+  future renderer-side breaking view — the v0.3.6 News app
+  consumes via `recent` with `urgency='high'`) and
+  `raven → news_feeds.breaking` (consumed immediately by the
+  `news_breaking` voice tool). Same multi-consumer-on-one-surface
+  pattern.
+- **News app gains an "Urgent" chip and per-article urgency
+  badges.** Chip row order: All → Urgent → seven category chips
+  (broad → specific). The Urgent chip uses the breaking-red
+  palette (matching the high-urgency badge); selecting it
+  re-invokes `news_feeds.recent` with `urgency='high'` and no
+  category filter — mutually exclusive with category selection.
+  Article cards render a red "Breaking" badge for high-urgency
+  items and an amber "Major" badge for medium; low is
+  intentionally suppressed (visual quiet for routine items).
+  Empty-state copy now branches three ways: first-poll vs. urgent
+  ("Nothing breaking in the feed pool right now") vs. category
+  filter.
+- `nodes/news_feeds/schemas/breaking.json` — JSON Schema for the
+  new surface. Single optional `limit` integer (1–50, default 10).
 
 - **News keyword search backed by SQLite FTS5.** New mesh surface
   `news_feeds.search({query, limit?, category?})` ranks articles by

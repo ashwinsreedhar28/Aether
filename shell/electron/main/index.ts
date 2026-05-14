@@ -1,4 +1,6 @@
 import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell, dialog } from 'electron'
+import { existsSync, renameSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
   startMesh,
@@ -11,12 +13,43 @@ import {
 import { registerFileHandlers } from './handlers/files'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 
+// Lock Electron's app name before any code calls app.getPath('userData') —
+// app.getPath derives the userData root from the app name, and we want the
+// migration step below to be the only thing that touches the old location.
+app.setName('Aether')
+
+// One-time rename of the working-name userData root. The renamed app's
+// productName is "Aether", so app.getPath('userData') resolves to
+// ~/Library/Application Support/Aether/ on macOS. Pre-rename, Electron put
+// that same data under ~/Library/Application Support/homeOS/ — news / finance
+// SQLite + raven memory live there. Idempotent: no-op if the new path already
+// exists (fresh install or already-migrated) or the old path doesn't (fresh
+// install). macOS-only — the working name never shipped on other platforms.
+function migrateDataDirFromHomeOS(): void {
+  if (process.platform !== 'darwin') return
+  const supportRoot = join(homedir(), 'Library', 'Application Support')
+  const oldPath = join(supportRoot, 'homeOS')
+  const newPath = join(supportRoot, 'Aether')
+  if (!existsSync(oldPath) || existsSync(newPath)) return
+  try {
+    renameSync(oldPath, newPath)
+    console.log(`[aether-migrate] moved userData ${oldPath} -> ${newPath}`)
+  } catch (err) {
+    // Don't fail boot — the renamed app will start with an empty userData
+    // root and the user can re-onboard. Better than a crash loop.
+    console.warn('[aether-migrate] userData rename failed; continuing fresh:', err)
+  }
+}
+
+migrateDataDirFromHomeOS()
+
 // Resolved relative to the compiled main entry at out/main/index.js.
 // Resources sit at the project root under shell/resources/.
 const RESOURCES_DIR = join(__dirname, '../../resources')
 const PRELOAD_PATH = join(__dirname, '../preload/index.js')
 const SPLASH_HTML = join(RESOURCES_DIR, 'splash.html')
 const TRAY_ICON = join(RESOURCES_DIR, 'icons/trayTemplate.png')
+const APP_ICON = join(__dirname, '../../assets/aether-icon.png')
 
 const isDev = !app.isPackaged
 
@@ -72,6 +105,12 @@ function createMain(): BrowserWindow {
     minWidth: 800,
     minHeight: 500,
     show: false,
+    title: 'Aether',
+    // PNG icon path is mostly load-bearing on Windows/Linux (window
+    // chrome + taskbar). On macOS, packaged builds source the dock
+    // icon from the bundled .icns via electron-builder's mac.icon,
+    // and dev runs show Electron's default — harmless to pass.
+    icon: APP_ICON,
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#0a0a0f',
     vibrancy: 'under-window',
@@ -141,12 +180,12 @@ function createTray(): void {
   if (icon.isEmpty()) {
     // Loud warning — running without a tray icon is fine for dev but the
     // generated PNG is supposed to be committed in this PR.
-    console.warn('[homeOS] tray icon missing at', TRAY_ICON, '— run `pnpm gen:icons`')
+    console.warn('[aether] tray icon missing at', TRAY_ICON, '— run `pnpm gen:icons`')
   } else {
     icon.setTemplateImage(true)
   }
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
-  tray.setToolTip('homeOS')
+  tray.setToolTip('Aether')
   tray.on('click', ensureMainVisible)
 }
 
@@ -156,7 +195,7 @@ ipcMain.on('shell:renderer-ready', () => {
 
 ipcMain.handle('shell:metadata', () => {
   return {
-    name: 'homeOS',
+    name: 'Aether',
     version: app.getVersion(),
     isDev,
     bootedAt: new Date().toISOString(),
@@ -180,7 +219,7 @@ ipcMain.handle('shell:openExternal', async (_e, url: unknown) => {
   return { ok: true }
 })
 
-// Mesh IPC. Renderer-facing surface is window.homeOS.mesh in preload.
+// Mesh IPC. Renderer-facing surface is window.aether.mesh in preload.
 // The renderer never holds a signing secret; main owns the shell's MeshNode.
 ipcMain.handle('mesh:invoke', async (_e, target: string, payload: Record<string, unknown>) => {
   return meshInvoke(target, payload)
@@ -198,7 +237,7 @@ ipcMain.handle('mesh:status', async () => {
 
 // Voice IPC — proxies to the raven daemon. The daemon-manager handles
 // bootstrap, spawn supervision, WS subscription, and graceful shutdown.
-// Renderer-facing surface is window.homeOS.voice in preload.
+// Renderer-facing surface is window.aether.voice in preload.
 //
 // Read-side handlers (status / recent-*) short-circuit to safe defaults
 // when the daemon isn't reachable. The renderer's useEffect fires these
@@ -260,7 +299,7 @@ app.whenReady().then(() => {
   startMesh().catch((err) => {
     const message = (err as Error).message ?? String(err)
     dialog.showErrorBox(
-      'homeOS — mesh failed to start',
+      'Aether — mesh failed to start',
       `The mesh substrate could not start. Mesh-dependent features will be unavailable until you restart.\n\n${message}`,
     )
   })
@@ -274,13 +313,13 @@ app.whenReady().then(() => {
     .ensureRunning()
     .then((avail) => {
       if (avail.kind !== 'available') {
-        console.warn('[homeOS] voice unavailable:', avail.reason)
+        console.warn('[aether] voice unavailable:', avail.reason)
       } else {
-        console.log('[homeOS] voice daemon healthy')
+        console.log('[aether] voice daemon healthy')
       }
     })
     .catch((err) => {
-      console.error('[homeOS] raven ensureRunning threw:', err)
+      console.error('[aether] raven ensureRunning threw:', err)
     })
 })
 
@@ -302,7 +341,7 @@ async function stopAllChildren(): Promise<void> {
   ])
   for (const r of results) {
     if (r.status === 'rejected') {
-      console.warn('[homeOS] child cleanup rejected:', r.reason)
+      console.warn('[aether] child cleanup rejected:', r.reason)
     }
   }
 }
@@ -335,7 +374,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
 
 
 // Week-1 behaviour per CLAUDE.md §11: closing the only window quits the app
-// on every platform. Once homeOS earns a "background mode" (substrate
+// on every platform. Once Aether earns a "background mode" (substrate
 // services running headless), this becomes platform-conditional.
 app.on('window-all-closed', () => {
   app.quit()

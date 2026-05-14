@@ -16,7 +16,7 @@ structured ``briefing`` list is also returned for any future renderer
 or follow-up question ("which headline was the second one"); Gemini
 should still lead with ``spoken``.
 
-The digest is the first multi-hop composer on the homeOS mesh — one
+The digest is the first multi-hop composer on the Aether mesh — one
 ``mesh_invoke`` here triggers ~3 invocations under the hood (news +
 finance + optionally finance.history). Upstream failures degrade
 gracefully on the node side; this tool surfaces ``mesh unavailable``

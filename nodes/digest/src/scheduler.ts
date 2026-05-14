@@ -1,4 +1,4 @@
-import type { MeshNode } from '@homeos/mesh-node-sdk'
+import type { MeshNode } from '@aether/mesh-node-sdk'
 import { composeBriefing } from './composer'
 import type { TimeOfDay } from './types'
 
@@ -23,7 +23,7 @@ import type { TimeOfDay } from './types'
 // "YYYY-MM-DD HH:00" stamp — already-fired stamps stay set in
 // process memory only, so a process restart at 07:30 would re-fire
 // the 7am briefing. Acceptable for v1; a future PR would persist the
-// last-fired stamp under HOMEOS_DATA_DIR/digest/.
+// last-fired stamp under AETHER_DATA_DIR/digest/.
 
 const CHECK_INTERVAL_MS = 60_000
 

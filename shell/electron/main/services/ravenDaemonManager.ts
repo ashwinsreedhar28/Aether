@@ -2,7 +2,7 @@
  * Raven Daemon Manager (shell side)
  *
  * Pattern lifted from _ingest/VIEWER/apps/viewer/electron/main/services/ravenDaemonManager.ts
- * (VIEWER SHA 9c58664), trimmed and adapted for homeOS:
+ * (VIEWER SHA 9c58664), trimmed and adapted for Aether:
  *
  *  - Daemon source lives at <repo>/daemons/raven-daemon (sibling to shell/).
  *  - Python child runs from <repo>/daemons/raven-core; the daemon itself

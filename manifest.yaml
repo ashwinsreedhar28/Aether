@@ -1,4 +1,4 @@
-# homeOS mesh manifest.
+# Aether mesh manifest.
 #
 # Loaded by `python3 -m core.core --manifest manifest.yaml` (run from the
 # vendored `core/` directory by the shell's coreManager). Format and
@@ -20,7 +20,7 @@ nodes:
     identity_secret: env:MESH_SHELL_SECRET
     metadata:
       description: |
-        homeOS Electron main process. Acts as a mesh client only — the shell
+        Aether Electron main process. Acts as a mesh client only — the shell
         does not yet expose any inbound surfaces. Surfaces will be added as
         renderer-facing capabilities (e.g. shell.toast, shell.focus_app)
         become useful for other nodes to invoke.
@@ -47,7 +47,7 @@ nodes:
       description: |
         Voice assistant daemon (Gemini Live). Outbound-only mesh client —
         registers with Core so its signed envelopes are recognised, but
-        exposes no inbound surfaces. Voice tools that touch homeOS data
+        exposes no inbound surfaces. Voice tools that touch Aether data
         or capabilities (e.g. notify) route through mesh.invoke instead
         of living in raven's internal Python tool registry.
     surfaces: []
@@ -60,8 +60,8 @@ nodes:
         RSS/Atom news aggregator. Polls a hardcoded list of feeds every
         15 minutes, dedupes by stable id, and exposes recent articles
         ordered by published_at desc. Local SQLite storage at
-        $HOMEOS_DATA_DIR/news_feeds/news.db. First real *data* node on
-        the homeOS mesh (host_notifications was the first action node).
+        $AETHER_DATA_DIR/news_feeds/news.db. First real *data* node on
+        the Aether mesh (host_notifications was the first action node).
     surfaces:
       - name: recent
         type: tool
@@ -119,7 +119,7 @@ nodes:
     identity_secret: env:MESH_DIGEST_SECRET
     metadata:
       description: |
-        Briefing composer. First multi-hop mesh node on homeOS: fans
+        Briefing composer. First multi-hop mesh node on Aether: fans
         out to news_feeds + finance on each invocation and synthesizes
         a morning or evening briefing. Two surfaces: morning() (top
         news + market snapshot) and evening() (top news + market

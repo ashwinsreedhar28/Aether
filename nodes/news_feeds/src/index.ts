@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { MeshNode, MeshDeny, type Envelope } from '@homeos/mesh-node-sdk'
+import { MeshNode, MeshDeny, type Envelope } from '@aether/mesh-node-sdk'
 import { FEEDS } from './feeds'
 import { FeedPoller } from './fetcher'
 import { ArticleStore } from './storage'
@@ -286,10 +286,10 @@ async function main(): Promise<void> {
     )
     process.exit(2)
   }
-  const dataDir = process.env.HOMEOS_DATA_DIR
+  const dataDir = process.env.AETHER_DATA_DIR
   if (!dataDir) {
     process.stderr.write(
-      `[${NODE_ID}] HOMEOS_DATA_DIR is required; refusing to start.\n`,
+      `[${NODE_ID}] AETHER_DATA_DIR is required; refusing to start.\n`,
     )
     process.exit(2)
   }

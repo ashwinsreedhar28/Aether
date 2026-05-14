@@ -1,6 +1,6 @@
 # daemons/
 
-Long-running, detached processes the homeOS shell spawns on boot and
+Long-running, detached processes the Aether shell spawns on boot and
 talks to over loopback HTTP/WebSocket. Each subdirectory is its own
 process, supervised by the shell's daemon-manager. Daemons survive a
 shell quit only when explicitly designed to — week-1 voice does not,
@@ -29,7 +29,7 @@ Provenance: copied from
 What was cut versus VIEWER's daemon:
 
 - `MemoryManager`, `ToolManager`, `ConfigManager` — removed. The
-  homeOS shell does not yet have UI for managing notes, tool
+  Aether shell does not yet have UI for managing notes, tool
   definitions, or daemon config; raven-core writes its memory
   store directly under `RAVEN_USER_DIR/memory.json`.
 - VisualMode routes and audio-device routes — always `--mode none`,

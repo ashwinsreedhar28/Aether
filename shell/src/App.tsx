@@ -41,12 +41,12 @@ export function App() {
   // Signal renderer-ready after first commit (not synchronously after
   // render()). The main process's splash → reveal sequence waits on this.
   useEffect(() => {
-    window.homeOS.signalReady()
+    window.aether.signalReady()
   }, [])
 
   useEffect(() => {
     let cancelled = false
-    void window.homeOS.getMetadata().then((m) => {
+    void window.aether.getMetadata().then((m) => {
       if (!cancelled) setPlatform(m.platform)
     })
     return () => {

@@ -22,7 +22,7 @@ export function Welcome() {
 
   useEffect(() => {
     let cancelled = false
-    void window.homeOS.getMetadata().then((m) => {
+    void window.aether.getMetadata().then((m) => {
       if (!cancelled) setMeta(m)
     })
     return () => {
@@ -52,7 +52,7 @@ export function Welcome() {
           className="text-5xl font-light tracking-[0.08em]"
           style={{ color: 'var(--holo-accent)' }}
         >
-          {meta?.name ?? 'homeOS'}
+          {meta?.name ?? 'Aether'}
         </div>
         <div
           className="text-sm italic"

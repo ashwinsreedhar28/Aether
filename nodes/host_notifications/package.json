@@ -1,5 +1,5 @@
 {
-  "name": "@homeos/host-notifications",
+  "name": "@aether/host-notifications",
   "version": "0.0.0",
   "private": true,
   "description": "Mesh node that fires native host-OS notifications. macOS-only in v0.1.0.",
@@ -12,7 +12,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@homeos/mesh-node-sdk": "workspace:*"
+    "@aether/mesh-node-sdk": "workspace:*"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

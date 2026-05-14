@@ -79,7 +79,7 @@ the interpreter where you installed the deps:
 
 ```bash
 MESH_PYTHON=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 \
-  pnpm --filter homeos-shell dev
+  pnpm --filter aether-shell dev
 ```
 
 Or persist the override per-machine by copying `.env.local.example` at
@@ -98,7 +98,7 @@ Core refuses to boot without these (see SPEC §5.1, §9):
 | `MESH_CORE_SECRET` | identity secret for the reserved `core` node. |
 
 Per-node identity secrets are resolved from `env:VAR_NAME` references in
-`manifest.yaml` (SPEC §8). For homeOS week-1 those are:
+`manifest.yaml` (SPEC §8). For Aether week-1 those are:
 
 | Variable | Node |
 | --- | --- |
@@ -122,7 +122,7 @@ A future PR will move these into the system keychain
    cp _ingest/RAVEN_MESH/mesh.toml.example core/mesh.toml.example
    ```
 3. Update the SHA at the top of this file.
-4. Re-run `pnpm --filter @homeos/mesh-node-sdk test` to verify the round-trip
+4. Re-run `pnpm --filter @aether/mesh-node-sdk test` to verify the round-trip
    still passes with the new Core.
 5. Land as a dedicated `chore(core): bump vendored RAVEN_MESH to <sha>` PR
    so the diff is reviewable in isolation.

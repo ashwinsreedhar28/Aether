@@ -1,8 +1,10 @@
-# homeOS — Master Synthesis
+# Aether — Master Synthesis
+
+> Written under the working name **homeOS** through v0.3.x; references to "homeOS" inside this document have been retargeted to "Aether" by the rename PR. Filesystem paths like `~/Aether/` reflect the renamed project's intended layout (the actual workspace directory under Director's home is a separate rename decision Director may make later — GitHub auto-redirect keeps the existing repo URL alive in the meantime).
 
 > **Purpose.** This document is a briefing for Claude Opus 4.7 — a downstream architect
 > with no access to the source repos or this conversation. Read it cold and you should
-> have enough to design the homeOS / "realistic Jarvis" core: an always-on personal OS
+> have enough to design the Aether / "realistic Jarvis" core: an always-on personal OS
 > whose modules are data-ingestion engines (investing, news, research, sports, …) and
 > whose surface is a desktop-class agentic workspace.
 >
@@ -84,10 +86,10 @@ morning_briefs, notification_log, …
 - No `backdrop-blur` on viewport-filling overlays (composition cost in packaged builds).
 - No perpetual CSS `animation: ... infinite` rules — use rAF-driven `scrollLeft` for marquees. Screen-sharing on macOS shows jitter otherwise.
 
-**Pulse's contribution to homeOS.** The *engine room*: polling primitives, schedulers
+**Pulse's contribution to Aether.** The *engine room*: polling primitives, schedulers
 that respect power/idle/market state, the typed-preload IPC pattern, the SQLite-as-
 source-of-truth discipline, and ~50 domain services we can lift one at a time
-(finance, news, sports, reels, …) as homeOS "tool-modules."
+(finance, news, sports, reels, …) as Aether "tool-modules."
 
 ---
 
@@ -135,7 +137,7 @@ Plus operator-only `/v0/healthz`, `/v0/introspect`, and (admin-token-gated) `/v0
 - No caveats / delegation / ephemeral tokens / capability introspection (each can be expressed with existing primitives + an approval/queue/cron node).
 - No Last-Event-ID resume (re-register on reconnect).
 
-**RAVEN_MESH's contribution to homeOS.** The *spine*: a small, disciplined, signed, audited substrate for **every** inter-module call — Pulse modules, agents, UI, voice — uniformly modeled as mesh nodes. Authorization-by-graph beats the per-route auth NEXUS currently lacks.
+**RAVEN_MESH's contribution to Aether.** The *spine*: a small, disciplined, signed, audited substrate for **every** inter-module call — Pulse modules, agents, UI, voice — uniformly modeled as mesh nodes. Authorization-by-graph beats the per-route auth NEXUS currently lacks.
 
 ---
 
@@ -188,7 +190,7 @@ Dashboard (React, 5173)
 7. Many orphan-container / consumer-leak / status-limbo races on delete/stop.
 8. No React Error Boundaries; symlink-following file API; YAML injection in skills.
 
-**NEXUS's contribution to homeOS.** Concepts to lift: **Ledger pattern** (identity + memory + skills + session, mounted volume so the agent can self-edit), **agent + team + mailbox + run** as first-class concepts, **MCP-callback** for in-agent tool calls back to the host, **cron + at + every** scheduling. Code to *reuse cautiously* (route handlers, Docker patterns) with the AUDIT.md fixes applied. Code to *not* carry forward as-is: queue consumer's poll-and-drain shape (replace with mesh edges and SSE delivery already in RAVEN_MESH).
+**NEXUS's contribution to Aether.** Concepts to lift: **Ledger pattern** (identity + memory + skills + session, mounted volume so the agent can self-edit), **agent + team + mailbox + run** as first-class concepts, **MCP-callback** for in-agent tool calls back to the host, **cron + at + every** scheduling. Code to *reuse cautiously* (route handlers, Docker patterns) with the AUDIT.md fixes applied. Code to *not* carry forward as-is: queue consumer's poll-and-drain shape (replace with mesh edges and SSE delivery already in RAVEN_MESH).
 
 ---
 
@@ -235,7 +237,7 @@ Both managers (`DaemonManager`, `RavenDaemonManager`) share an identical pattern
 
 **Holographic design system.** CSS vars: `--holo-bg`, `--holo-text`, `--holo-muted`, `--holo-accent`, `--holo-border`. Translucent panels (`bg-[rgba(15,15,25,0.5)]`), subtle glows, status pills (green/red/yellow/blue).
 
-**VIEWER's contribution to homeOS.** The *surface*: the modular app system, command palette (`Cmd+P`), file-as-source-of-truth doctrine, the daemon-manager pattern (detached background processes that survive UI restart), and the voice/agent integration shape. The 27 apps are largely portable — most are pure-renderer with `fileApi` access.
+**VIEWER's contribution to Aether.** The *surface*: the modular app system, command palette (`Cmd+P`), file-as-source-of-truth doctrine, the daemon-manager pattern (detached background processes that survive UI restart), and the voice/agent integration shape. The 27 apps are largely portable — most are pure-renderer with `fileApi` access.
 
 ---
 
@@ -275,7 +277,7 @@ This is the part Opus 4.7 most needs. For each pairing, the *seam* is the API or
 ### 3.1 Pulse polling → RAVEN_MESH nodes
 
 The Pulse main process today runs ~20 schedulers in a single Electron process. In
-homeOS each becomes a **mesh node** with the same shape:
+Aether each becomes a **mesh node** with the same shape:
 
 | Pulse module | Becomes mesh node | Surfaces |
 |---|---|---|
@@ -319,7 +321,7 @@ Replace NEXUS's per-agent HTTP+SSE consumer with the mesh:
 - **Auth shows up for free.** Today NEXUS has zero auth on `/api/*` and the cell engine. In the mesh, every call is HMAC-signed and edge-checked.
 
 **The MCP-callback story.** NEXUS today wraps its API in an MCP server so Claude
-Code *inside* a cell can call back. In homeOS that becomes: **MCP server is itself a
+Code *inside* a cell can call back. In Aether that becomes: **MCP server is itself a
 mesh node** (`mcp.{name}`), and Claude Code's `Use Tool` invokes mesh surfaces via the
 MCP bridge. One uniform call graph; mesh edges decide which agents can call which tools.
 
@@ -353,7 +355,7 @@ The point: every Pulse renderer component (most of `_ingest/Pulse/src/renderer/c
 
 ### 3.5 Cross-cutting: voice (Raven) as a mesh citizen
 
-VIEWER's raven-daemon today is HTTP+WS-talking-to-Python. In homeOS:
+VIEWER's raven-daemon today is HTTP+WS-talking-to-Python. In Aether:
 - `raven-daemon` registers as `voice.raven` mesh node.
 - Surfaces: `start_listening`, `stop`, `set_mode` (`camera | screen | none`), `transcript` (inbox), `function_call` (inbox).
 - Raven's "tools" (currently inlined Python functions) become edges into other mesh nodes: a `system_tool` call → `host.shell.exec`, `memory_tool` → `voice.memory.write`, `cerebras_tool` → `ai.cerebras.complete`.
@@ -372,7 +374,7 @@ choice; no fudge possible.
 - **RAVEN_MESH** uses signed envelopes over HTTP. Cross-process, auditable, edge-checked.
 - **NEXUS** uses HTTP+SSE between API and cells, plus HTTP+WS to dashboard. No auth, no audit.
 
-**Decision required.** Pick *one* canonical transport for homeOS:
+**Decision required.** Pick *one* canonical transport for Aether:
 - (a) **Mesh everywhere.** Renderer talks to the local Core via the same protocol. Heavy: every IPC call goes through HMAC + edge check. But uniform.
 - (b) **Mesh between processes, contextBridge inside Electron.** The renderer↔main bridge stays as Pulse/VIEWER do today (string channels, typed). Main process is a mesh node and brokers any cross-process calls. **Recommended** — keeps the hot path fast, only pays mesh overhead when crossing process lines.
 - (c) **Mesh between modules, plain HTTP inside.** Status quo NEXUS-style, doesn't solve auth.
@@ -384,11 +386,11 @@ choice; no fudge possible.
 - **VIEWER** = files-on-disk in the user's workspace folder.
 - **RAVEN_MESH** = `audit.log` JSONL + the manifest YAML; no other state.
 
-**Decision required.** homeOS picks:
-- SQLite (`~/Library/Application Support/homeOS/homeOS.db`) for **structured data** with relations: articles, tickers, financials, agents, runs, mailbox, boards, audit-derived indexes.
-- File tree (`~/homeOS/` workspace root) for **user-facing artifacts**: research briefs, kanban files, reels, agent ledger directories (per-agent: `~/homeOS/.agents/{id}/{identity.md, memory/, skills/, session_id}`).
-- Mesh audit log untouched at `~/homeOS/.mesh/audit.log`.
-- **Replace NEXUS's Docker named volumes with bind-mounted host directories** rooted under `~/homeOS/.agents/`. Loses some isolation; gains transparency, backup, and the ability to use VIEWER's existing file apps against the ledger directly.
+**Decision required.** Aether picks:
+- SQLite (`~/Library/Application Support/Aether/Aether.db`) for **structured data** with relations: articles, tickers, financials, agents, runs, mailbox, boards, audit-derived indexes.
+- File tree (`~/Aether/` workspace root) for **user-facing artifacts**: research briefs, kanban files, reels, agent ledger directories (per-agent: `~/Aether/.agents/{id}/{identity.md, memory/, skills/, session_id}`).
+- Mesh audit log untouched at `~/Aether/.mesh/audit.log`.
+- **Replace NEXUS's Docker named volumes with bind-mounted host directories** rooted under `~/Aether/.agents/`. Loses some isolation; gains transparency, backup, and the ability to use VIEWER's existing file apps against the ledger directly.
 
 ### 4.3 Agent isolation: Docker vs. process vs. in-Electron
 
@@ -410,7 +412,7 @@ before exposing the orchestrator to anything that talks to the network.
 **Decision required.** Adopt RAVEN_MESH's manifest as the system-of-record. Agent
 records (currently in `agents.json`) become entries in `manifest.yaml` under
 `nodes:`. The dashboard's "Create Agent" flow becomes `core.set_manifest` plus a
-spawn. **Edges become the homeOS permission model** — when a user says "let the
+spawn. **Edges become the Aether permission model** — when a user says "let the
 research agent read my brokerage statements," that's a new edge from
 `agent.research` to `finance.brokerage.read`.
 
@@ -444,12 +446,12 @@ already anticipated this.
 
 ---
 
-## 5. Proposed homeOS skeleton
+## 5. Proposed Aether skeleton
 
-Directory layout under `~/homeOS` / the source tree:
+Directory layout under `~/Aether` / the source tree:
 
 ```
-homeOS/
+Aether/
 ├── core/                       # RAVEN_MESH Core, vendored or git-submoduled
 │   ├── core/                   # core.py, supervisor.py, manifest_validator.py, config.py
 │   ├── node_sdk/               # Python SDK
@@ -483,7 +485,7 @@ homeOS/
 │   ├── electron/main/          # IPC handlers, daemon manager, mesh-client bridge
 │   ├── electron/preload/       # contextBridge — proxies to mesh via main
 │   └── src/
-│       ├── apps/               # 27 viewer apps + new homeOS apps
+│       ├── apps/               # 27 viewer apps + new Aether apps
 │       │   ├── news/           # NEW — consumes news_feeds mesh node
 │       │   ├── finance/        # NEW — consumes finance.* mesh nodes
 │       │   ├── sports/         # NEW
@@ -500,7 +502,7 @@ homeOS/
 │       └── session_id
 │
 ├── data/
-│   ├── homeOS.db               # SQLite (Pulse-style)
+│   ├── Aether.db               # SQLite (Pulse-style)
 │   ├── workspaces/             # User files
 │   └── .mesh/audit.log
 │
@@ -513,7 +515,7 @@ homeOS/
 **Process topology (running system).**
 
 ```
-Electron Shell (homeOS app)
+Electron Shell (Aether app)
   ├─ main process
   │   ├─ contextBridge handlers → forwards renderer calls to mesh
   │   ├─ DaemonManager → ensures Core + critical nodes are up
@@ -537,7 +539,7 @@ Mesh nodes (each its own process, registered to Core via /v0/register):
   - host_notifications, host_shell, scheduler_cron (Node.js)
 
 Agent subprocesses (spawned by agent_runtime, each registers as agent.{id}):
-  - Claude Agent SDK or Claude Code CLI per agent, ledger volume bind-mounted from ~/homeOS/agents/{id}/
+  - Claude Agent SDK or Claude Code CLI per agent, ledger volume bind-mounted from ~/Aether/agents/{id}/
 ```
 
 **Data flow (worked example — "morning brief").**
@@ -547,14 +549,14 @@ Agent subprocesses (spawned by agent_runtime, each registers as agent.{id}):
 3. Cell invokes `news_feeds.recent {since: yesterday, urgency_min: 3}` → returns articles.
 4. Cell invokes `finance_quotes.latest {symbols: <watchlist>}` → returns quotes.
 5. Cell invokes `ai_claude.complete {prompt: <summary template>, context: …}` → returns brief.
-6. Cell writes `~/homeOS/data/workspaces/briefs/2026-05-12.md` via filesystem.
+6. Cell writes `~/Aether/data/workspaces/briefs/2026-05-12.md` via filesystem.
 7. Cell invokes `host_notifications.notify_urgent {title: "Morning brief ready"}`.
 8. User opens VIEWER → `markdown-editor` app shows the brief; the `news` app already has the urgency-scored feed; the `finance` app shows pre-market quotes.
 
 **Extension points.**
 - *New tool-module* → new directory under `nodes/`, declared in `manifest.yaml`. No Core change.
 - *New UI* → new directory under `shell/src/apps/`, auto-discovered. Optionally consumes a mesh node.
-- *New agent skill* → file under `~/homeOS/agents/{id}/skills/{name}/SKILL.md`. Agent reads it dynamically.
+- *New agent skill* → file under `~/Aether/agents/{id}/skills/{name}/SKILL.md`. Agent reads it dynamically.
 - *Grant a permission* → add an edge to `manifest.yaml`. Reload via `core.reload_manifest`.
 
 ---
@@ -601,16 +603,16 @@ builder, signing, notarization). Auto-update.
 The decisions below depend on judgment or user input I don't have. Listed so the
 synthesis can be sharpened before code is written.
 
-1. **Process model for agents.** Docker (NEXUS shape, hardened) vs. `sandbox-exec` macOS native vs. plain subprocess. Trade-off: isolation strength vs. cold-start vs. file-tree transparency. Recommendation in §4.3 is native, but if homeOS will ever run untrusted agents, Docker may win back.
+1. **Process model for agents.** Docker (NEXUS shape, hardened) vs. `sandbox-exec` macOS native vs. plain subprocess. Trade-off: isolation strength vs. cold-start vs. file-tree transparency. Recommendation in §4.3 is native, but if Aether will ever run untrusted agents, Docker may win back.
 2. **Mesh-everywhere vs. mesh-between-processes.** §4.1's (a) vs. (b). The latter is recommended but adds a "render-side mesh client" question for apps that need direct mesh subscriptions.
 3. **Manifest authority.** YAML on disk (RAVEN_MESH today) vs. a SQLite-backed runtime manifest. YAML is the SPEC; SQLite would make user edits via UI cleaner. Resolution: keep YAML as canonical, generate from SQLite on `core.reload_manifest`.
 4. **Renderer SDK ergonomics.** Should the VIEWER app context expose `mesh.invoke('news_feeds.recent', …)` directly, or only domain wrappers (`news.recent(…)`)? Direct is simpler; wrappers give typed surfaces. Likely both, with wrappers code-generated from the manifest's JSON Schemas.
-5. **Where does the user identity live?** Today none of the four repos have one — all single-user. homeOS may stay single-user, or may want a "user" node so multi-machine sync (one day) is a mesh edge, not a rewrite.
+5. **Where does the user identity live?** Today none of the four repos have one — all single-user. Aether may stay single-user, or may want a "user" node so multi-machine sync (one day) is a mesh edge, not a rewrite.
 6. **Secret storage.** RAVEN_MESH uses env vars + manifest `env:VAR` indirection. macOS Keychain is the obvious upgrade — NEXUS partially does this for OAuth tokens (`oauthSync.ts`). Recommendation: every `identity_secret` resolves through Keychain by default, env-var as fallback.
-7. **Per-agent vs. global skill libraries.** NEXUS today gives each agent its own `skills/` dir. Pulse-style services don't have a skill concept. homeOS may want a *shared* skill store (read-only across agents) plus per-agent overrides.
+7. **Per-agent vs. global skill libraries.** NEXUS today gives each agent its own `skills/` dir. Pulse-style services don't have a skill concept. Aether may want a *shared* skill store (read-only across agents) plus per-agent overrides.
 8. **Pulse's Python workers (Kokoro TTS, SDXL reels).** Heavyweight optional features. Worth porting now (as nodes) or deferred to Phase 7+?
-9. **Backup / sync story.** Mesh is local-first by design. If/when the user wants iCloud-backed `~/homeOS/`, what's the boundary? `data/homeOS.db` and `agents/` are the load-bearing dirs; `.mesh/audit.log` rotates.
-10. **CLAUDE.md handoff.** The user mentioned an Opus-authored `CLAUDE.md` for the homeOS repo is coming. This document is the *substrate* — `CLAUDE.md` should be the *operating instructions* (how to run, how to add a node, where the splash is, what the holographic theme variables are, the four "don't do this" gotchas from §1.1).
+9. **Backup / sync story.** Mesh is local-first by design. If/when the user wants iCloud-backed `~/Aether/`, what's the boundary? `data/Aether.db` and `agents/` are the load-bearing dirs; `.mesh/audit.log` rotates.
+10. **CLAUDE.md handoff.** The user mentioned an Opus-authored `CLAUDE.md` for the Aether repo is coming. This document is the *substrate* — `CLAUDE.md` should be the *operating instructions* (how to run, how to add a node, where the splash is, what the holographic theme variables are, the four "don't do this" gotchas from §1.1).
 
 ---
 

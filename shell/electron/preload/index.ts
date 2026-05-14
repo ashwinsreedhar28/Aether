@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 // The single bridge surface for the renderer. Every channel here is part of
 // the renderer/main contract and should be considered API. Pattern lifted
-// from Pulse: typed `window.homeOS` via contextBridge, no direct
+// from Pulse: typed `window.aether` via contextBridge, no direct
 // `ipcRenderer` access in renderer components.
 
 // ---- Mesh types (kept in sync with core/node_sdk_ts) ------------------------
@@ -180,6 +180,6 @@ const api = {
   shell: shellApi,
 }
 
-contextBridge.exposeInMainWorld('homeOS', api)
+contextBridge.exposeInMainWorld('aether', api)
 
-export type HomeOSApi = typeof api
+export type AetherApi = typeof api

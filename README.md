@@ -1,13 +1,19 @@
-# homeOS
+<p align="center">
+  <img src="shell/assets/aether-icon.svg" width="128" height="128" alt="Aether icon" />
+</p>
+
+# Aether
 
 Personal-OS substrate. Holographic Electron shell on top of a signed mesh, with voice as a first-class participant.
 
 ![CI](https://github.com/ashwinsreedhar28/homeOS/actions/workflows/ci.yml/badge.svg)
 [![Release](https://img.shields.io/github/v/tag/ashwinsreedhar28/homeOS?label=release)](https://github.com/ashwinsreedhar28/homeOS/tags)
 
+> Project built under the working name **homeOS** through v0.3.x; renamed to **Aether** with the v0.4.0 line. The GitHub repository still lives at `ashwinsreedhar28/homeOS`; the rename to `aether` is a separate, later decision and GitHub's auto-redirect keeps existing URLs working.
+
 ## What this is
 
-homeOS is a personal operating environment — a single shell where the user's data, voice, agents, and eventually physical-world peripherals all live as nodes on a common mesh. Currently pre-1.0, macOS-only, single-developer.
+Aether is a personal operating environment — a single shell where the user's data, voice, agents, and eventually physical-world peripherals all live as nodes on a common mesh. Currently pre-1.0, macOS-only, single-developer.
 
 This repo is the workspace half (an Electron app on the developer's laptop). The eventual home-substrate half (an always-on box with peripherals as mesh nodes) shares the same codebase but deploys differently.
 
@@ -40,7 +46,7 @@ First boot takes ~30s for the Python venv bootstrap. Subsequent boots are near-i
 ```
 shell/                    Electron shell (holographic theme, app discovery)
 ├─ electron/main/         Process supervision, mesh + raven daemon managers
-├─ electron/preload/      window.homeOS bridge (mesh, files, voice)
+├─ electron/preload/      window.aether bridge (mesh, files, voice)
 └─ src/apps/              Content apps (welcome, news, markdown, voice-control, mesh-devtools)
 
 core/                     Vendored RAVEN_MESH (Python broker + SDKs)
@@ -65,7 +71,7 @@ The mesh is the load-bearing primitive. Every cross-system interaction — voice
 
 ## Governance
 
-homeOS is built collaboratively with Claude Code under an explicit 4-role model:
+Aether is built collaboratively with Claude Code under an explicit 4-role model:
 
 - **Director** (human, project owner): picks direction, visually verifies, authorizes merges.
 - **Architect** (LLM session, design): writes specs, reviews PRs.
@@ -79,7 +85,7 @@ See [CLAUDE.md](CLAUDE.md) for the full operating manual — branching, tagging,
 This repo synthesizes patterns from four earlier projects (vendored as `_ingest/*` submodules for reference):
 
 - **Pulse** — Electron menu-bar app with multi-service engines (news, finance, etc.)
-- **RAVEN_MESH** — the mesh broker, now the spine of homeOS
+- **RAVEN_MESH** — the mesh broker, now the spine of Aether
 - **NEXUS** — agent orchestration patterns and security lessons
 - **VIEWER** — modular desktop with daemon-supervised voice
 

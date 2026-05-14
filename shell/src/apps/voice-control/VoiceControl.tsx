@@ -162,10 +162,10 @@ export function VoiceControl(): ReactElement {
   useEffect(() => {
     let cancelled = false
 
-    void window.homeOS.voice.availability().then((a) => {
+    void window.aether.voice.availability().then((a) => {
       if (!cancelled) setAvailability(a)
     })
-    void window.homeOS.voice
+    void window.aether.voice
       .status()
       .then((s) => {
         if (cancelled) return
@@ -179,19 +179,19 @@ export function VoiceControl(): ReactElement {
       .catch(() => {
         // Daemon not reachable yet — availability event will fix this.
       })
-    void window.homeOS.voice.recentTranscripts(5).then(({ transcripts: t }) => {
+    void window.aether.voice.recentTranscripts(5).then(({ transcripts: t }) => {
       if (!cancelled) setTranscripts(t)
     })
-    void window.homeOS.voice.recentToolCalls(5).then(({ toolCalls: tc }) => {
+    void window.aether.voice.recentToolCalls(5).then(({ toolCalls: tc }) => {
       if (!cancelled) setToolCalls(tc)
     })
 
-    const unsubAvail = window.homeOS.voice.onAvailabilityChanged(setAvailability)
-    const unsubStatus = window.homeOS.voice.onStatusChanged(setRavenState)
-    const unsubTranscript = window.homeOS.voice.onTranscript((entry) => {
+    const unsubAvail = window.aether.voice.onAvailabilityChanged(setAvailability)
+    const unsubStatus = window.aether.voice.onStatusChanged(setRavenState)
+    const unsubTranscript = window.aether.voice.onTranscript((entry) => {
       setTranscripts((prev) => [...prev, entry].slice(-5))
     })
-    const unsubToolCall = window.homeOS.voice.onToolCall((entry) => {
+    const unsubToolCall = window.aether.voice.onToolCall((entry) => {
       setToolCalls((prev) => {
         // Update-in-place when a previously-pending call gets its result.
         const existing = prev.findIndex((e) => e.callId && e.callId === entry.callId)
@@ -217,7 +217,7 @@ export function VoiceControl(): ReactElement {
     if (pending) return
     setPending(true)
     try {
-      await window.homeOS.voice.start()
+      await window.aether.voice.start()
     } catch (e) {
       console.error('[voice-control] start failed', e)
     } finally {
@@ -229,7 +229,7 @@ export function VoiceControl(): ReactElement {
     if (pending) return
     setPending(true)
     try {
-      await window.homeOS.voice.stop()
+      await window.aether.voice.stop()
     } catch (e) {
       console.error('[voice-control] stop failed', e)
     } finally {

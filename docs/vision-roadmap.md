@@ -1,7 +1,6 @@
 # Vision Arc Roadmap
 
-Vision is a first-class interaction primitive for Aether (working
-name homeOS until the rename PR). This document captures the
+Vision is a first-class interaction primitive for Aether. This document captures the
 multi-PR sequence, gesture vocabulary, hardware constraints, and
 scope split between the current laptop dev surface and the eventual
 home substrate.

@@ -1,8 +1,43 @@
 # Changelog
 
-All notable changes to homeOS are documented here. Format follows
+All notable changes to Aether (working name homeOS through v0.3.x) are
+documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning per
-CLAUDE.md §6 (honest pre-1.0 scheme).
+CLAUDE.md §6 (honest pre-1.0 scheme). Entries dated before the rename PR
+refer to the project by its working name; they are preserved verbatim as
+historical record.
+
+## [Unreleased]
+
+### Changed
+- **Project renamed: homeOS → Aether.** Working name retired. Updated:
+  display name, app productName + bundle title, env vars
+  (`HOMEOS_DATA_DIR` → `AETHER_DATA_DIR`), workspace package scope
+  (`@homeos/*` → `@aether/*`), root npm package names
+  (`homeos-shell` → `aether-shell`, `@homeos/raven-daemon` →
+  `@aether/raven-daemon`), Electron bundle identifier
+  (`com.homeos.app` → `com.aether.app`), preload bridge global
+  (`window.homeOS` → `window.aether`), in-prose references throughout
+  README / CLAUDE.md / MASTER_SYNTHESIS.md / manifest / node READMEs /
+  voice system prompt. Historical DECISIONS.md ADRs and earlier
+  CHANGELOG entries left verbatim — they describe what was decided /
+  shipped under the working name. GitHub repository (`ashwinsreedhar28/homeOS`)
+  and Director's local workspace directory remain on the working name
+  until separately renamed; GitHub's auto-redirect keeps clone URLs
+  alive. See DECISIONS.md "Rename project homeOS → Aether (working
+  name retired)" for full rationale.
+- **App icon: aurora curtain.** New cosmic-navy app icon (Concept C —
+  dense diagonal aurora curtain, 11 sinuous lines with a bold center
+  ribbon at line #6). Replaces the placeholder tray-only icon.
+  Committed as SVG + generated PNG set + .icns bundle under
+  `shell/assets/`. Wired into electron-builder config (`mac.icon`),
+  Electron `BrowserWindow.icon`, and `app.setName('Aether')`.
+- **One-time data directory migration.** On macOS first boot of the
+  renamed app, the Electron main process renames the old userData root
+  (`~/Library/Application Support/homeOS/`) to the new one
+  (`~/Library/Application Support/Aether/`) before any node spawns —
+  preserves news / finance / memory state. Idempotent; no-op on fresh
+  installs.
 
 - **First composer node on the homeOS mesh: `digest`.** New Node.js
   mesh node at `nodes/digest/` that synthesizes briefings by composing

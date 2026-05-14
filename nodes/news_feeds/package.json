@@ -1,5 +1,5 @@
 {
-  "name": "@homeos/news-feeds",
+  "name": "@aether/news-feeds",
   "version": "0.0.0",
   "private": true,
   "description": "Mesh node that polls RSS/Atom feeds and exposes recent articles via the mesh.",
@@ -12,7 +12,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@homeos/mesh-node-sdk": "workspace:*",
+    "@aether/mesh-node-sdk": "workspace:*",
     "better-sqlite3": "^11.5.0",
     "compromise": "^14.15.0",
     "rss-parser": "^3.13.0"

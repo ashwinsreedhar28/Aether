@@ -1,4 +1,4 @@
-import { MeshNode, type Envelope } from '@homeos/mesh-node-sdk'
+import { MeshNode, type Envelope } from '@aether/mesh-node-sdk'
 import { CoreManager } from './coreManager'
 import { NodeManager } from './nodeManager'
 import { generateMeshSecrets, type MeshSecrets } from './secrets'

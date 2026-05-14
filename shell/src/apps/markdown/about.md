@@ -1,12 +1,12 @@
 # Markdown
 
-A holographic markdown viewer for **homeOS**. Open any `.md` or `.markdown`
+A holographic markdown viewer for **Aether**. Open any `.md` or `.markdown`
 file via the button above — the rendered output lands here.
 
 ## What this app does
 
 Read-only rendering, today. One file at a time. The first instance of the
-file-as-source-of-truth doctrine landing in homeOS — the same pattern future
+file-as-source-of-truth doctrine landing in Aether — the same pattern future
 content apps (JSON viewer, ticker CSVs, the morning brief output) will use.
 
 ## Supported features
@@ -24,13 +24,13 @@ content apps (JSON viewer, ticker CSVs, the morning brief output) will use.
 ## A small code block
 
 ```ts
-import { homeOS } from './shell'
+import { aether } from './shell'
 
-const path = await homeOS.files.openDialog({
+const path = await aether.files.openDialog({
   filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }]
 })
 if (path) {
-  const text = await homeOS.files.readText(path)
+  const text = await aether.files.readText(path)
   render(text)
 }
 ```

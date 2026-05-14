@@ -1,8 +1,8 @@
 {
-  "name": "@homeos/raven-daemon",
+  "name": "@aether/raven-daemon",
   "version": "0.0.1",
   "private": true,
-  "description": "HTTP+WS supervisor for the homeOS voice (raven-core Python child)",
+  "description": "HTTP+WS supervisor for the Aether voice (raven-core Python child)",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -1,7 +1,7 @@
-# @homeos/mesh-node-sdk
+# @aether/mesh-node-sdk
 
 TypeScript port of `_ingest/RAVEN_MESH/node_sdk/__init__.py`. Used by the
-homeOS Electron main process (`shell/electron/main/`) and by Node.js mesh
+Aether Electron main process (`shell/electron/main/`) and by Node.js mesh
 nodes under `nodes/*`.
 
 This SDK is RAVEN_MESH protocol-conformant: it implements `POST /v0/register`,
@@ -13,7 +13,7 @@ and proves the contract.
 ## Install (workspace local)
 
 ```bash
-pnpm --filter @homeos/mesh-node-sdk build
+pnpm --filter @aether/mesh-node-sdk build
 ```
 
 The package's `main`/`exports` resolve to `dist/`; consumers must run the
@@ -22,7 +22,7 @@ build before importing.
 ## Usage
 
 ```ts
-import { MeshNode, MeshDeny } from '@homeos/mesh-node-sdk'
+import { MeshNode, MeshDeny } from '@aether/mesh-node-sdk'
 
 const node = new MeshNode('host_notifications', process.env.MESH_HOST_NOTIFICATIONS_SECRET!, 'http://127.0.0.1:8000')
 
@@ -46,7 +46,7 @@ loop between two Node.js mesh nodes. Requires `python3` plus `aiohttp`,
 self-skips with a warning.
 
 ```bash
-pnpm --filter @homeos/mesh-node-sdk test
+pnpm --filter @aether/mesh-node-sdk test
 ```
 
 ## What was simplified vs. the Python SDK

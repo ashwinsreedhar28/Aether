@@ -1,8 +1,8 @@
 /**
- * Raven Daemon — homeOS build
+ * Raven Daemon — Aether build
  *
  * HTTP + WebSocket server in front of a Python raven-core child. The
- * homeOS shell spawns this daemon detached on boot and talks to it via
+ * Aether shell spawns this daemon detached on boot and talks to it via
  * 127.0.0.1:7433. Trimmed from VIEWER's daemon (SHA 9c58664): removed
  * memory/tools/config/audio CRUD routes and visual-mode plumbing.
  *

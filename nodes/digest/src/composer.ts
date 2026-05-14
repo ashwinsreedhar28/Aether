@@ -1,4 +1,4 @@
-import type { MeshNode, Envelope } from '@homeos/mesh-node-sdk'
+import type { MeshNode, Envelope } from '@aether/mesh-node-sdk'
 import type { BriefingResult, BriefingSection, TimeOfDay } from './types'
 
 // Upstream payload shapes (subset). Not imported from the upstream

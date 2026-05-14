@@ -1,8 +1,8 @@
 {
-  "name": "@homeos/mesh-node-sdk",
+  "name": "@aether/mesh-node-sdk",
   "version": "0.0.0",
   "private": true,
-  "description": "TypeScript SDK for RAVEN_MESH nodes (homeOS). Ports node_sdk/__init__.py.",
+  "description": "TypeScript SDK for RAVEN_MESH nodes (Aether). Ports node_sdk/__init__.py.",
   "license": "UNLICENSED",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

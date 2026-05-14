@@ -32,9 +32,9 @@ export function MarkdownViewer() {
     if (busy) return
     setBusy(true)
     try {
-      const path = await window.homeOS.files.openDialog({ filters: MARKDOWN_FILTERS })
+      const path = await window.aether.files.openDialog({ filters: MARKDOWN_FILTERS })
       if (!path) return
-      const text = await window.homeOS.files.readText(path)
+      const text = await window.aether.files.readText(path)
       setContent(text)
       setFilename(basename(path))
       setError(null)

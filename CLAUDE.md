@@ -1,4 +1,4 @@
-# CLAUDE.md — homeOS Operating Instructions
+# CLAUDE.md — Aether Operating Instructions
 
 > **Audience:** Claude Code Opus, the implementer for this repo.
 > **Authority:** This file is the operating manual. `MASTER_SYNTHESIS.md` is the architecture briefing. When they conflict, this file wins for *workflow*; `MASTER_SYNTHESIS.md` wins for *architecture intent*. When in doubt, ask the Architect (see Roles).
@@ -39,7 +39,7 @@ You still never push to main. The review *conversation* lives on the PR; chat be
 
 ## 2. Project Context (read once, then refer to `MASTER_SYNTHESIS.md`)
 
-homeOS is an always-on personal OS — "Jarvis from Iron Man, realistic."
+Aether (working name homeOS through v0.3.x — see DECISIONS.md "Rename project homeOS → Aether") is an always-on personal OS — "Jarvis from Iron Man, realistic."
 
 **Eventual scope** is ambient computing: mics, speakers, projectors, cameras, sensors, and actuators distributed through a home, with a software workspace as the *first surface*. Two halves:
 
@@ -80,7 +80,7 @@ Rationale: Director attention is the bottleneck, not Claude Code throughput. Plu
 ## 4. Repo Layout (target)
 
 ```
-homeOS/
+aether/                        ← repo dir (GitHub repo and local dir renames are separate, later decisions; current local path is still homeOS-*)
 ├── CLAUDE.md                  ← this file
 ├── MASTER_SYNTHESIS.md        ← architecture briefing
 ├── DECISIONS.md               ← append-only ADRs
@@ -121,7 +121,7 @@ homeOS/
 │   └── {agentId}/
 │
 └── data/                      ← runtime state (gitignored)
-    ├── homeOS.db
+    ├── aether.db
     ├── workspaces/
     └── .mesh/
         └── audit.log
@@ -426,8 +426,8 @@ When unsure, **ask Director in chat which of these it is.** Don't decide unilate
 
 ## 15. Glossary
 
-- **The mesh / the spine** — RAVEN_MESH's signed-envelope protocol. The eventual transport for inter-process communication in homeOS.
-- **The substrate** — the always-on home half of homeOS. Lives on a small machine in the home eventually.
+- **The mesh / the spine** — RAVEN_MESH's signed-envelope protocol. The eventual transport for inter-process communication in Aether.
+- **The substrate** — the always-on home half of Aether. Lives on a small machine in the home eventually.
 - **The workspace / the surface** — the Electron app the user interacts with. Lives on the user's laptop.
 - **A node** — a mesh participant. Has surfaces (typed entry points) and an HMAC identity.
 - **A surface** — (two meanings, both used) (1) a typed entry point on a mesh node; (2) a user-facing UI rendering (screen, projector, voice). Context disambiguates.

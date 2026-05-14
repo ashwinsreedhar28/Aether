@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { MeshNode } from '@homeos/mesh-node-sdk'
+import { MeshNode } from '@aether/mesh-node-sdk'
 import { composeBriefing } from './composer'
 import { BriefingScheduler, schedulerEnabled } from './scheduler'
 import type { TimeOfDay } from './types'
@@ -32,14 +32,14 @@ async function main(): Promise<void> {
     )
     process.exit(2)
   }
-  const dataDir = process.env.HOMEOS_DATA_DIR
+  const dataDir = process.env.AETHER_DATA_DIR
   if (!dataDir) {
     process.stderr.write(
-      `[${NODE_ID}] HOMEOS_DATA_DIR is required; refusing to start.\n`,
+      `[${NODE_ID}] AETHER_DATA_DIR is required; refusing to start.\n`,
     )
     process.exit(2)
   }
-  // Marker file under HOMEOS_DATA_DIR mirrors news_feeds / finance for
+  // Marker file under AETHER_DATA_DIR mirrors news_feeds / finance for
   // liveness consistency, even though digest has no DB or other
   // persisted state. Future PRs (last-fired briefing stamp) may use it.
   const nodeDir = join(dataDir, 'digest')

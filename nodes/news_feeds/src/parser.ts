@@ -27,7 +27,7 @@ const SUMMARY_MAX = 600
 const parser = new RSSParser({
   timeout: 15_000,
   headers: {
-    'User-Agent': 'homeOS-news-feeds/0.1 (+https://github.com/ashwinsreedhar/homeOS)',
+    'User-Agent': 'Aether-news-feeds/0.1 (+https://github.com/ashwinsreedhar/homeOS)',
   },
 })
 

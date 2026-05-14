@@ -113,7 +113,7 @@ function UrgencyBadge({ urgency }: { urgency: Urgency }) {
 
 function ArticleCard({ article }: { article: Article }) {
   const openInBrowser = useCallback(() => {
-    void window.homeOS.shell.openExternal(article.url)
+    void window.aether.shell.openExternal(article.url)
   }, [article.url])
 
   const categoryLabel = CATEGORY_LABELS[article.category]
@@ -393,7 +393,7 @@ export function News() {
     }
     let result: MeshInvokeResult
     try {
-      result = await window.homeOS.mesh.invoke('news_feeds.recent', payload)
+      result = await window.aether.mesh.invoke('news_feeds.recent', payload)
     } catch (e) {
       setState({ kind: 'error', message: (e as Error).message ?? 'IPC failed' })
       return

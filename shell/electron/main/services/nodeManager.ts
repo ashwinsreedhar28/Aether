@@ -36,7 +36,7 @@ interface NodeSpawnSpec {
 // node registers itself with Core on start — we don't health-check from
 // here. If a node fails to register, that's surfaced in its log file.
 // Nodes that publish their own liveness marker (news_feeds writes
-// $HOMEOS_DATA_DIR/news_feeds/running) are the canonical signal for
+// $AETHER_DATA_DIR/news_feeds/running) are the canonical signal for
 // "this node is signed in"; the shell does not poll those today.
 export class NodeManager {
   private readonly secrets: MeshSecrets
@@ -65,7 +65,7 @@ export class NodeManager {
     await this.spawnNode({
       id: 'host_notifications',
       entry: HOST_NOTIFICATIONS_ENTRY,
-      buildHint: '`pnpm --filter @homeos/host-notifications build`',
+      buildHint: '`pnpm --filter @aether/host-notifications build`',
       secretEnvName: 'MESH_HOST_NOTIFICATIONS_SECRET',
       secretValue: this.secrets.hostNotificationsSecret,
     })
@@ -77,29 +77,29 @@ export class NodeManager {
     await this.spawnNode({
       id: 'news_feeds',
       entry: NEWS_FEEDS_ENTRY,
-      buildHint: '`pnpm --filter @homeos/news-feeds build`',
+      buildHint: '`pnpm --filter @aether/news-feeds build`',
       secretEnvName: 'MESH_NEWS_FEEDS_SECRET',
       secretValue: this.secrets.newsFeedsSecret,
       // The node persists SQLite + the running marker under this root.
       // app.getPath is unreachable from the child, so we pass it in.
-      extraEnv: { HOMEOS_DATA_DIR: dataDir },
+      extraEnv: { AETHER_DATA_DIR: dataDir },
     })
   }
 
   private async spawnDigest(): Promise<void> {
     // First composer node — fans out to news_feeds + finance and back
     // into host_notifications for scheduled briefings. No DB; the
-    // marker file under HOMEOS_DATA_DIR matches the data-node pattern
+    // marker file under AETHER_DATA_DIR matches the data-node pattern
     // for liveness consistency.
     const dataDir = nodeDataDir()
     mkdirSync(dataDir, { recursive: true })
     await this.spawnNode({
       id: 'digest',
       entry: DIGEST_ENTRY,
-      buildHint: '`pnpm --filter @homeos/digest build`',
+      buildHint: '`pnpm --filter @aether/digest build`',
       secretEnvName: 'MESH_DIGEST_SECRET',
       secretValue: this.secrets.digestSecret,
-      extraEnv: { HOMEOS_DATA_DIR: dataDir },
+      extraEnv: { AETHER_DATA_DIR: dataDir },
     })
   }
 
@@ -111,13 +111,13 @@ export class NodeManager {
     await this.spawnNode({
       id: 'finance',
       entry: FINANCE_ENTRY,
-      buildHint: '`pnpm --filter @homeos/finance build`',
+      buildHint: '`pnpm --filter @aether/finance build`',
       secretEnvName: 'MESH_FINANCE_SECRET',
       secretValue: this.secrets.financeSecret,
-      // HOMEOS_DATA_DIR is the writable root for the running marker (no
+      // AETHER_DATA_DIR is the writable root for the running marker (no
       // SQLite — quotes live in-memory).
       extraEnv: {
-        HOMEOS_DATA_DIR: dataDir,
+        AETHER_DATA_DIR: dataDir,
       },
     })
   }

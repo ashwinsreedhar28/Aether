@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { MeshNode, MeshDeny, type Envelope } from '@homeos/mesh-node-sdk'
+import { MeshNode, MeshDeny, type Envelope } from '@aether/mesh-node-sdk'
 import { QuoteClient, QuoteClientError } from './client'
 import { QuoteStore } from './storage'
 import { QuoteHistory } from './history'
@@ -143,14 +143,14 @@ async function main(): Promise<void> {
     )
     process.exit(2)
   }
-  const dataDir = process.env.HOMEOS_DATA_DIR
+  const dataDir = process.env.AETHER_DATA_DIR
   if (!dataDir) {
     process.stderr.write(
-      `[${NODE_ID}] HOMEOS_DATA_DIR is required; refusing to start.\n`,
+      `[${NODE_ID}] AETHER_DATA_DIR is required; refusing to start.\n`,
     )
     process.exit(2)
   }
-  // The marker file under HOMEOS_DATA_DIR is the node's own liveness
+  // The marker file under AETHER_DATA_DIR is the node's own liveness
   // signal (matches the news_feeds pattern). The directory now ALSO
   // hosts history.db — the in-memory current-quote cache is still
   // in-memory (storage.ts), but the historical time series is

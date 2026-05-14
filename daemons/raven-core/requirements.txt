@@ -1,4 +1,4 @@
-# homeOS-voice raven-core runtime deps. Vendored from VIEWER and trimmed:
+# Aether-voice raven-core runtime deps. Vendored from VIEWER and trimmed:
 #   - flask, flask-cors, cerebras-cloud-sdk dropped (only the disabled
 #     cerebras_tool / cerebra.py sidecar needed them; cerebra.py was
 #     deleted in this PR).

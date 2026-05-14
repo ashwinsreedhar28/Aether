@@ -1,9 +1,10 @@
 """Finance Tool - Stock quote readbacks via the mesh.
 
-Two tools, both routed through ``mesh_invoke`` to the finance node:
+Three tools, all routed through ``mesh_invoke`` to the finance node:
 
   - ``finance_quote(symbol)``           → ``finance.quote(symbol)``
   - ``finance_market_summary()``        → ``finance.market_summary()``
+  - ``finance_history(symbol, period?)`` → ``finance.history(...)``
 
 The pattern matches news_tool / notify_tool: declare the function for
 Gemini, implement as a thin ``await mesh_invoke(...)``, add edges in
@@ -16,6 +17,13 @@ Rate-limit responses (``finance_rate_limited``) are returned with a
 ``spoken`` hint so Gemini reads a natural "throttled, try again in a
 minute" line rather than the generic mesh-unavailable copy. All other
 errors share the generic shape.
+
+``finance_history`` SUMMARISES rather than dumping points. Gemini
+doesn't need the full time series — it needs spoken-ready numbers
+(range low/high, week-over-week change, sample count). The summary is
+computed locally from the points the mesh returns; the ``spoken`` field
+carries a pre-shaped line so Gemini reads it verbatim, the structured
+fields are there for follow-ups ("what was the low again").
 """
 from __future__ import annotations
 
@@ -25,7 +33,32 @@ from google.genai import types
 
 from ..mesh_client import MeshUnavailable, mesh_invoke
 
-FUNCTIONS = ["finance_quote", "finance_market_summary"]
+FUNCTIONS = ["finance_quote", "finance_market_summary", "finance_history"]
+
+# Valid period values for finance_history. Mirrors VALID_PERIODS in
+# nodes/finance/src/index.ts and the history.json enum. Same order
+# (shortest → longest) so the schema, this list, and the prompt examples
+# read in one sequence.
+HISTORY_PERIODS: tuple[str, ...] = ("1d", "1w", "1m", "all")
+DEFAULT_HISTORY_PERIOD = "1w"
+
+# Spoken labels per period. Kept in this module rather than the prompt
+# so the model gets fully-formed lines and doesn't have to compose
+# them from a label dictionary. "today" reads better than "1d" aloud
+# but maps to the same underlying window.
+_PERIOD_LABELS: dict[str, str] = {
+    "1d": "today",
+    "1w": "this past week",
+    "1m": "this past month",
+    "all": "over the retained window",
+}
+
+# Minimum sample count to summarise. Below this we read
+# "insufficient history" — two points are the absolute floor needed to
+# express a range AND a change; three would be safer but a fresh
+# install will hit 2 within ~10 min of first launch and the user
+# expects an answer sooner than ~30 min.
+_MIN_HISTORY_POINTS = 2
 
 
 def _strip_quote(raw: Any) -> dict[str, Any] | None:
@@ -80,6 +113,97 @@ async def _finance_quote(symbol: str) -> dict[str, Any]:
     return {"quote": quote}
 
 
+def _normalise_period(value: Any) -> str:
+    """Pin to the enum or fall back to default. Same shape as
+    news_tool._normalise_category — Gemini occasionally emits trailing
+    whitespace or a slightly-wrong value; coerce to default rather than
+    handing the mesh something it'll reject."""
+    if not isinstance(value, str):
+        return DEFAULT_HISTORY_PERIOD
+    cleaned = value.strip().lower()
+    if cleaned in HISTORY_PERIODS:
+        return cleaned
+    return DEFAULT_HISTORY_PERIOD
+
+
+def _summarise_history(
+    symbol: str, period: str, points: list[Any]
+) -> dict[str, Any]:
+    """Reduce a points list into a spoken-ready summary.
+
+    Insufficient-history responses ship a structured shape too so a
+    "low/high" follow-up doesn't blow up — the fields just stay None.
+    """
+    label = _PERIOD_LABELS.get(period, "over that period")
+    prices: list[float] = []
+    for p in points:
+        if not isinstance(p, dict):
+            continue
+        price = p.get("price")
+        if isinstance(price, (int, float)) and price > 0:
+            prices.append(float(price))
+
+    if len(prices) < _MIN_HISTORY_POINTS:
+        return {
+            "symbol": symbol,
+            "period": period,
+            "samples": len(prices),
+            "spoken": (
+                f"I don't have enough history for {symbol} yet, sir — "
+                "the finance node has been collecting since launch; "
+                "check back in a few hours."
+            ),
+        }
+
+    low = min(prices)
+    high = max(prices)
+    first = prices[0]
+    last = prices[-1]
+    # Pct change first → last, signed. first > 0 guard above means the
+    # divisor is always positive.
+    pct = ((last - first) / first) * 100.0
+    direction = "up" if pct >= 0 else "down"
+    spoken = (
+        f"{symbol} {label}: ranged ${low:.2f} to ${high:.2f}, "
+        f"currently {direction} {abs(pct):.1f} percent."
+    )
+    return {
+        "symbol": symbol,
+        "period": period,
+        "samples": len(prices),
+        "low": round(low, 2),
+        "high": round(high, 2),
+        "first": round(first, 2),
+        "last": round(last, 2),
+        "change_percent": round(pct, 2),
+        "spoken": spoken,
+    }
+
+
+async def _finance_history(symbol: str, period: str) -> dict[str, Any]:
+    upper = symbol.strip().upper()
+    if not upper:
+        return {"error": "bad symbol", "detail": "symbol is required"}
+    norm_period = _normalise_period(period)
+    try:
+        response = await mesh_invoke(
+            "finance.history", {"symbol": upper, "period": norm_period}
+        )
+    except MeshUnavailable as e:
+        # Post-PR-#21 the upstream finance node has no rate-limit path
+        # (Yahoo + Stooq are anonymous), so finance_rate_limited is
+        # unreachable for history reads too — they hit local SQLite
+        # only. The sibling tools keep their rate_limited check as
+        # defined-but-unreachable parity; this newer function doesn't
+        # need to inherit that dead branch.
+        return {"error": "mesh unavailable", "detail": str(e)}
+
+    raw_points = response.get("points") if isinstance(response, dict) else None
+    if not isinstance(raw_points, list):
+        return {"error": "malformed response", "detail": "missing points list"}
+    return _summarise_history(upper, norm_period, raw_points)
+
+
 async def _finance_market_summary() -> dict[str, Any]:
     try:
         response = await mesh_invoke("finance.market_summary", {})
@@ -101,7 +225,7 @@ async def _finance_market_summary() -> dict[str, Any]:
 
 
 def get_tools() -> list[types.Tool]:
-    """Return Gemini function declarations for both finance tools."""
+    """Return Gemini function declarations for all finance tools."""
     quote_func = types.FunctionDeclaration(
         name="finance_quote",
         description=(
@@ -148,7 +272,55 @@ def get_tools() -> list[types.Tool]:
             properties={},
         ),
     )
-    return [types.Tool(function_declarations=[quote_func, summary_func])]
+    history_func = types.FunctionDeclaration(
+        name="finance_history",
+        description=(
+            "Get a SUMMARISED historical view for a single tracked stock "
+            "symbol over a recent window. Use when the user asks how a "
+            "stock has done over a period ('AAPL last week', 'how's "
+            "Tesla doing this month', 'AAPL today'). The finance node "
+            "passively accumulates polled samples — there is no upstream "
+            "historical fetch, and on a fresh install the node has "
+            "little to no history yet. The tool already SUMMARISES "
+            "(low / high / change-over-window) and returns a spoken "
+            "field; read that verbatim. If the spoken field says "
+            "'insufficient history', say so plainly — do NOT substitute "
+            "prices from your training data. Symbol must be in the "
+            "tracked list (AAPL, MSFT, GOOGL, AMZN, NVDA, TSLA, META, "
+            "SPY, QQQ, DIA)."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "symbol": types.Schema(
+                    type=types.Type.STRING,
+                    description=(
+                        "US ticker symbol (e.g. AAPL for Apple). "
+                        "Case-insensitive."
+                    ),
+                ),
+                "period": types.Schema(
+                    type=types.Type.STRING,
+                    enum=list(HISTORY_PERIODS),
+                    description=(
+                        "Optional lookback window. Valid values: 1d "
+                        "(today / past 24 hours), 1w (past week), 1m "
+                        "(past 30 days), all (full retained window, up "
+                        "to 90 days). Default 1w. Map natural phrasing: "
+                        "'today' → 1d, 'this week' / 'past week' → 1w, "
+                        "'this month' / 'past month' → 1m, 'all' / "
+                        "'everything' → all."
+                    ),
+                ),
+            },
+            required=["symbol"],
+        ),
+    )
+    return [
+        types.Tool(
+            function_declarations=[quote_func, summary_func, history_func]
+        )
+    ]
 
 
 async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
@@ -157,4 +329,9 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
         return await _finance_quote(symbol=str(args.get("symbol", "")))
     if name == "finance_market_summary":
         return await _finance_market_summary()
+    if name == "finance_history":
+        return await _finance_history(
+            symbol=str(args.get("symbol", "")),
+            period=str(args.get("period", DEFAULT_HISTORY_PERIOD)),
+        )
     return None

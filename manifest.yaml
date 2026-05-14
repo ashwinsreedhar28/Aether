@@ -76,11 +76,18 @@ nodes:
         Stock-quote aggregator. Polls Yahoo Finance every 5 minutes for
         a hardcoded list of US tickers (one symbol every 30s within a
         cycle), with a Stooq CSV fallback when Yahoo flakes. No API
-        key — both providers are anonymous. Quotes cached in-memory —
-        NOT SQLite, see DECISIONS.md "Second data node: finance".
-        Exposes per-symbol `quote` and full-grid `market_summary`.
-        Second real *data* node — proves the template established by
-        news_feeds carries to API-shaped sources, not just RSS.
+        key — both providers are anonymous. Current-quote cache stays
+        in-memory — NOT SQLite, see DECISIONS.md "Second data node:
+        finance". Each poll ALSO appends a row to a SEPARATE 90-day
+        SQLite time series (history.db) backing the `history` surface;
+        the two stores are split deliberately — current-quote
+        in-memory so stale-after-restart can't mislead, historical
+        on-disk so the time series accumulates. See DECISIONS.md
+        "Finance historical quotes via passive accumulation". Exposes
+        per-symbol `quote`, full-grid `market_summary`, and
+        accumulated `history`. Second real *data* node — proves the
+        template established by news_feeds carries to API-shaped
+        sources, not just RSS.
     surfaces:
       - name: quote
         type: tool
@@ -90,6 +97,10 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/finance/schemas/market_summary.json
+      - name: history
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/finance/schemas/history.json
 
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
@@ -113,15 +124,21 @@ relationships:
 
   # The Finance app (renderer-side) reads the cached ticker grid via the
   # market_summary surface, and the per-symbol quote surface backs any
-  # future single-symbol click-through.
+  # future single-symbol click-through. The history surface backs the
+  # in-card sparkline (last 24h per QuoteCard).
   - from: shell
     to: finance.market_summary
   - from: shell
     to: finance.quote
+  - from: shell
+    to: finance.history
 
   # Voice tools: finance_market_summary ("how's the market today") +
-  # finance_quote ("what's AAPL at"). Both route through mesh.invoke.
+  # finance_quote ("what's AAPL at") + finance_history ("AAPL last
+  # week"). All route through mesh.invoke.
   - from: raven
     to: finance.market_summary
   - from: raven
     to: finance.quote
+  - from: raven
+    to: finance.history

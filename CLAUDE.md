@@ -321,6 +321,10 @@ These are scars. Internalize them before they happen again.
 
 - **Stdout pollution breaks JSON-RPC daemons.** Any subprocess speaking a structured-text protocol over stdout (JSON-RPC, JSON-lines, NDJSON, etc.) must NEVER share that stream with human-facing output (prompts, debug logs, progress messages). Human output goes to stderr or a separate log file. The "message > " bug in PR #9 was an interactive CLI prompt — written without a newline — gluing itself to subsequent JSON status events on stdout and breaking JSON.parse on the daemon side. State transitions were silently dropped. Source: PR #9 commit `9b6bd6a`.
 
+### Schema migrations
+
+- **Schema migrations: column-dependent indexes must live in the migration step, not the initial CREATE block.** `CREATE INDEX IF NOT EXISTS` still fails when the column doesn't exist yet on a pre-migration database. Apply ALTER TABLE first inside the migration step, then CREATE INDEX inside the same migration step. Source: PR #16's mid-implementation catch — first draft put the `idx_articles_category_published_at` index alongside the initial `CREATE TABLE` block; failed on pre-migration DBs because the `category` column didn't exist yet. Caught by smoke-testing the migration against a real v0.3.0 DB before commit. Commit ref: `8cb3aad` (PR #16).
+
 ### Voice / audio
 
 - **Mic-during-playback creates acoustic echo loops.** Voice AI listening continuously while the speaker plays will hear its own output, treat it as user speech, fire false interruptions (cutting itself off mid-sentence), and generate responses to its own echo — producing a cycling loop. Until proper AEC is wired up (Apple's `voiceProcessingIO` on macOS is the canonical answer), gate the mic during playback via a monotonic "playback-until" timestamp. Trade-off: no barge-in. Source: PR #9 commit `06963f5`; barge-in fix queued as `fix/voice-barge-in` follow-up.

@@ -4,7 +4,7 @@ import { MeshNode, MeshDeny, type Envelope } from '@homeos/mesh-node-sdk'
 import { FEEDS } from './feeds'
 import { FeedPoller } from './fetcher'
 import { ArticleStore } from './storage'
-import { isCategory, type Category } from './types'
+import { isCategory, isUrgency, type Category, type Urgency } from './types'
 
 const NODE_ID = 'news_feeds'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
@@ -18,17 +18,29 @@ const MAX_LIMIT = 100
 const SEARCH_DEFAULT_LIMIT = 20
 const SEARCH_MAX_LIMIT = 50
 const QUERY_MAX_LEN = 200
+// Breaking surface caps. Default 10 — a short, spoken-friendly batch of
+// the most urgent items. Max 50 matches the search surface's ceiling so
+// a renderer-side "breaking" list page can request a meaningful slice
+// without round-tripping a paginator that doesn't exist yet.
+const BREAKING_DEFAULT_LIMIT = 10
+const BREAKING_MAX_LIMIT = 50
 
 interface RecentArgs {
   limit?: number
   since?: string
   category?: string | string[]
+  urgency?: string | string[]
 }
 
 interface SearchArgs {
   query?: unknown
   limit?: number
   category?: string | string[]
+  urgency?: string | string[]
+}
+
+interface BreakingArgs {
+  limit?: number
 }
 
 // Normalise the schema-validated category field into a Category[] (or
@@ -58,6 +70,32 @@ function normaliseCategory(value: unknown): Category[] | undefined {
   throw new MeshDeny('news_feeds_bad_category', { category: value })
 }
 
+// Same shape as normaliseCategory, restricted to the three urgency
+// buckets. The JSON Schema enum-validates upstream; this is the
+// belt-and-suspenders mirror so a misconfigured Core ever stopping
+// validation can't leak unvetted strings into the SQL IN clause.
+function normaliseUrgency(value: unknown): Urgency[] | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string') {
+    if (!isUrgency(value)) {
+      throw new MeshDeny('news_feeds_bad_urgency', { urgency: value })
+    }
+    return [value]
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return undefined
+    const out: Urgency[] = []
+    for (const v of value) {
+      if (!isUrgency(v)) {
+        throw new MeshDeny('news_feeds_bad_urgency', { urgency: v })
+      }
+      if (!out.includes(v)) out.push(v)
+    }
+    return out
+  }
+  throw new MeshDeny('news_feeds_bad_urgency', { urgency: value })
+}
+
 function log(msg: string): void {
   // Mesh nodes don't share stdout with anyone speaking a structured
   // protocol — Core consumes the HTTP/SSE stream over loopback, not
@@ -79,6 +117,14 @@ function clampSearchLimit(value: unknown): number {
   const n = Math.floor(value)
   if (n < 1) return 1
   if (n > SEARCH_MAX_LIMIT) return SEARCH_MAX_LIMIT
+  return n
+}
+
+function clampBreakingLimit(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return BREAKING_DEFAULT_LIMIT
+  const n = Math.floor(value)
+  if (n < 1) return 1
+  if (n > BREAKING_MAX_LIMIT) return BREAKING_MAX_LIMIT
   return n
 }
 
@@ -136,7 +182,8 @@ function makeSearchHandler(store: ArticleStore) {
     }
     const limit = clampSearchLimit(payload?.limit ?? SEARCH_DEFAULT_LIMIT)
     const categories = normaliseCategory(payload?.category)
-    const articles = store.search({ match, limit, categories })
+    const urgencies = normaliseUrgency(payload?.urgency)
+    const articles = store.search({ match, limit, categories, urgencies })
     return { articles }
   }
 }
@@ -155,7 +202,17 @@ function makeRecentHandler(store: ArticleStore) {
       }
     }
     const categories = normaliseCategory(payload?.category)
-    const articles = store.recent({ limit, since, categories })
+    const urgencies = normaliseUrgency(payload?.urgency)
+    const articles = store.recent({ limit, since, categories, urgencies })
+    return { articles }
+  }
+}
+
+function makeBreakingHandler(store: ArticleStore) {
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
+    const payload = env.payload as BreakingArgs
+    const limit = clampBreakingLimit(payload?.limit ?? BREAKING_DEFAULT_LIMIT)
+    const articles = store.breaking({ limit })
     return { articles }
   }
 }
@@ -187,6 +244,7 @@ async function main(): Promise<void> {
   const node = new MeshNode(NODE_ID, secret, CORE_URL)
   node.on('recent', makeRecentHandler(store))
   node.on('search', makeSearchHandler(store))
+  node.on('breaking', makeBreakingHandler(store))
   await node.start()
   log(`registered with core at ${CORE_URL}`)
 

@@ -71,6 +71,10 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/news_feeds/schemas/search.json
+      - name: breaking
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/news_feeds/schemas/breaking.json
 
   - id: finance
     runtime: local-process
@@ -134,6 +138,17 @@ relationships:
     to: news_feeds.search
   - from: raven
     to: news_feeds.search
+
+  # News breaking — high-urgency-only shortcut. Shell edge is reserved
+  # for a future "breaking" view inside the News app (the v0.3.6 UI
+  # uses the Urgent chip to filter via news_feeds.recent with
+  # urgency='high', so the breaking surface itself is not consumed
+  # renderer-side in this PR). Raven consumes immediately via the
+  # news_breaking voice tool — "what's breaking", "anything urgent".
+  - from: shell
+    to: news_feeds.breaking
+  - from: raven
+    to: news_feeds.breaking
 
   # The Finance app (renderer-side) reads the cached ticker grid via the
   # market_summary surface, and the per-symbol quote surface backs any

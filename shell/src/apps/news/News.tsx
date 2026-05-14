@@ -7,6 +7,7 @@ import type { MeshInvokeResult } from '../../../electron/preload'
 // into a workspace package because the renderer bundle should not
 // depend on Node-only mesh-node-sdk code paths.
 type Category = 'world' | 'us' | 'tech' | 'business' | 'sports' | 'science' | 'local'
+type Urgency = 'low' | 'medium' | 'high'
 
 // Order mirrors nodes/news_feeds/src/types.ts CATEGORIES — broad scope
 // → specific. The chip row, the JSON Schema enum, and the voice prompt
@@ -35,6 +36,7 @@ interface Article {
   id: string
   feed: string
   category: Category
+  urgency: Urgency
   title: string
   summary: string
   url: string
@@ -42,10 +44,12 @@ interface Article {
   fetched_at: string
 }
 
-// 'all' is a UI-only sentinel meaning "no category filter — call
-// news_feeds.recent without a category field". It is never sent to the
-// mesh; the handler treats absent and 'all' identically.
-type Filter = Category | 'all'
+// 'all' is a UI-only sentinel meaning "no filter — call recent without
+// any category/urgency field". 'urgent' is the urgency='high' shortcut
+// (no category filter, urgency='high'). Both are mutually exclusive
+// with picking a single Category — selecting any category clears the
+// urgent filter and vice versa.
+type Filter = Category | 'all' | 'urgent'
 
 type LoadState =
   | { kind: 'loading' }
@@ -70,6 +74,41 @@ function relativeTime(iso: string): string {
   if (days === 1) return 'yesterday'
   if (days < 7) return `${days}d ago`
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+// Urgency badges are visible for medium and high; low is intentionally
+// suppressed (per the task spec — visual quiet for the routine case).
+// Red for high, amber for medium; both use the holographic-translucent
+// background pattern from the feed / category badges so the cards stay
+// visually coherent.
+function UrgencyBadge({ urgency }: { urgency: Urgency }) {
+  if (urgency === 'low') return null
+  const palette =
+    urgency === 'high'
+      ? {
+          color: 'rgb(255, 138, 138)',
+          borderColor: 'rgba(255,105,105,0.55)',
+          background: 'rgba(255,105,105,0.12)',
+          label: 'Breaking'
+        }
+      : {
+          color: 'rgb(255, 196, 120)',
+          borderColor: 'rgba(255,176,80,0.50)',
+          background: 'rgba(255,176,80,0.10)',
+          label: 'Major'
+        }
+  return (
+    <span
+      className="text-[10px] uppercase tracking-[0.18em] font-medium px-1.5 py-0.5 rounded border"
+      style={{
+        color: palette.color,
+        borderColor: palette.borderColor,
+        background: palette.background
+      }}
+    >
+      {palette.label}
+    </span>
+  )
 }
 
 function ArticleCard({ article }: { article: Article }) {
@@ -98,6 +137,7 @@ function ArticleCard({ article }: { article: Article }) {
     >
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 flex-wrap">
+          <UrgencyBadge urgency={article.urgency} />
           <span
             className="text-[10px] uppercase tracking-[0.18em] font-medium px-2 py-0.5 rounded border"
             style={{
@@ -205,7 +245,23 @@ function EmptyState({
   filter: Filter
   onRetry: () => void
 }) {
-  const filtered = filter !== 'all'
+  // Three empty-state copies: no filter (first-poll), urgent (nothing
+  // currently breaking), and category (no recent articles in <category>).
+  let headline: string
+  let detail: string
+  if (filter === 'all') {
+    headline = 'Headlines refreshing — give it a moment.'
+    detail =
+      'The news_feeds node polls every 15 minutes. The first poll completes a few seconds after the shell starts.'
+  } else if (filter === 'urgent') {
+    headline = 'Nothing breaking in the feed pool right now.'
+    detail =
+      'No articles currently cleared the high-urgency threshold. The scorer recomputes on every 15-minute poll.'
+  } else {
+    headline = `No recent articles in ${CATEGORY_LABELS[filter]}.`
+    detail =
+      'Try another category, or wait for the next poll. The news_feeds node polls every 15 minutes.'
+  }
   return (
     <div
       className="holo-card rounded-2xl border px-5 py-4 flex flex-col gap-3"
@@ -215,14 +271,10 @@ function EmptyState({
       }}
     >
       <div className="text-sm" style={{ color: 'var(--holo-muted)' }}>
-        {filtered
-          ? `No recent articles in ${CATEGORY_LABELS[filter]}.`
-          : 'Headlines refreshing — give it a moment.'}
+        {headline}
       </div>
       <div className="text-[11px]" style={{ color: 'var(--holo-muted)' }}>
-        {filtered
-          ? 'Try another category, or wait for the next poll. The news_feeds node polls every 15 minutes.'
-          : 'The news_feeds node polls every 15 minutes. The first poll completes a few seconds after the shell starts.'}
+        {detail}
       </div>
       <button
         type="button"
@@ -240,40 +292,63 @@ function EmptyState({
   )
 }
 
-function CategoryChip({
+// `tone` lets the Urgent chip render with the same breaking-red palette
+// as the high-urgency badge, so the relationship between the filter and
+// the badges is visually obvious. Default tone is the standard accent
+// blue used by the All / category chips.
+function FilterChip({
   label,
   selected,
-  onClick
+  onClick,
+  tone = 'accent'
 }: {
   label: string
   selected: boolean
   onClick: () => void
+  tone?: 'accent' | 'breaking'
 }) {
+  const selectedStyle =
+    tone === 'breaking'
+      ? {
+          color: 'rgb(255, 138, 138)',
+          borderColor: 'rgba(255,105,105,0.65)',
+          background: 'rgba(255,105,105,0.14)'
+        }
+      : {
+          color: 'var(--holo-accent)',
+          borderColor: 'rgba(74,158,255,0.65)',
+          background: 'rgba(74,158,255,0.14)'
+        }
+  const unselectedStyle =
+    tone === 'breaking'
+      ? {
+          color: 'rgba(255,138,138,0.78)',
+          borderColor: 'rgba(255,105,105,0.30)',
+          background: 'rgba(15,15,25,0.5)'
+        }
+      : {
+          color: 'var(--holo-muted)',
+          borderColor: 'var(--holo-border)',
+          background: 'rgba(15,15,25,0.5)'
+        }
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={selected}
       className="text-xs px-3 py-1.5 rounded-full border transition-colors"
-      style={
-        selected
-          ? {
-              color: 'var(--holo-accent)',
-              borderColor: 'rgba(74,158,255,0.65)',
-              background: 'rgba(74,158,255,0.14)'
-            }
-          : {
-              color: 'var(--holo-muted)',
-              borderColor: 'var(--holo-border)',
-              background: 'rgba(15,15,25,0.5)'
-            }
-      }
+      style={selected ? selectedStyle : unselectedStyle}
     >
       {label}
     </button>
   )
 }
 
+// Chip row order: All → Urgent → categories (broad → specific). All
+// and Urgent are the two cross-category filters and sit at the front;
+// category chips follow in their canonical broad-→-specific sequence.
+// Picking a category clears the urgent filter and vice versa — the
+// chips are mutually exclusive views of the same article pool.
 function CategoryRow({
   filter,
   onChange
@@ -283,9 +358,15 @@ function CategoryRow({
 }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <CategoryChip label="All" selected={filter === 'all'} onClick={() => onChange('all')} />
+      <FilterChip label="All" selected={filter === 'all'} onClick={() => onChange('all')} />
+      <FilterChip
+        label="Urgent"
+        tone="breaking"
+        selected={filter === 'urgent'}
+        onClick={() => onChange('urgent')}
+      />
       {CATEGORIES.map((c) => (
-        <CategoryChip
+        <FilterChip
           key={c}
           label={CATEGORY_LABELS[c]}
           selected={filter === c}
@@ -302,8 +383,14 @@ export function News() {
 
   const load = useCallback(async (current: Filter): Promise<void> => {
     setState({ kind: 'loading' })
-    const payload: { limit: number; category?: Category } = { limit: RECENT_LIMIT }
-    if (current !== 'all') payload.category = current
+    const payload: { limit: number; category?: Category; urgency?: Urgency } = {
+      limit: RECENT_LIMIT
+    }
+    if (current === 'urgent') {
+      payload.urgency = 'high'
+    } else if (current !== 'all') {
+      payload.category = current
+    }
     let result: MeshInvokeResult
     try {
       result = await window.homeOS.mesh.invoke('news_feeds.recent', payload)

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import type { Article } from './parser'
-import type { Category } from './types'
+import type { Category, Urgency } from './types'
 
 export interface RecentQuery {
   limit: number
@@ -9,6 +9,11 @@ export interface RecentQuery {
    * list are returned. The handler normalises single-string callers to
    * a one-element array before reaching this layer. */
   categories?: Category[]
+  /** If present and non-empty, only articles whose urgency bucket is
+   * in the list are returned. Same one-element-array normalisation as
+   * categories. AND-combines with categories — e.g. tech + high
+   * narrows to tech articles that also scored into the high bucket. */
+  urgencies?: Urgency[]
 }
 
 export interface SearchQuery {
@@ -21,13 +26,20 @@ export interface SearchQuery {
    * filter; otherwise restrict to articles whose category is in the
    * list. */
   categories?: Category[]
+  /** Same shape as RecentQuery.urgencies; AND-combines with categories
+   * and the FTS5 match clause. */
+  urgencies?: Urgency[]
+}
+
+export interface BreakingQuery {
+  limit: number
 }
 
 // Bump this when the schema changes. The constructor checks PRAGMA
 // user_version against this constant and applies forward-only migrations
 // when stored < current. No down-migration; we never need to roll a
 // node-local DB back to an older schema in this codebase.
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 // Thin wrapper around better-sqlite3. Writes are synchronous (sqlite is a
 // process-local file), batched in a single transaction per poll. Reads
@@ -170,6 +182,38 @@ export class ArticleStore {
       v = 2
     }
 
+    if (v < 3) {
+      // v3 — urgency scoring. New column on `articles`, compound index
+      // on (urgency, published_at DESC) for the breaking() / urgency-
+      // filtered recent() paths. CLAUDE.md §10 schema-migrations gotcha
+      // again: ALTER + CREATE INDEX both live inside this migrate()
+      // step, not the initial CREATE block — the index references a
+      // column that doesn't exist on a pre-migration DB.
+      //
+      // Default 'low' for pre-existing rows is a one-time inaccuracy:
+      // within 15 min of the next poll, each row UPSERTs against its
+      // freshly-computed urgency (the ON CONFLICT clause in upsertMany
+      // overwrites urgency the same way it overwrites category). Rows
+      // for feeds that have stopped emitting will remain 'low' until
+      // they're either re-emitted or pruned by a future retention pass.
+      const cols = this.db.prepare("PRAGMA table_info('articles')").all() as Array<{
+        name: string
+      }>
+      const hasUrgency = cols.some((c) => c.name === 'urgency')
+      const apply = this.db.transaction(() => {
+        if (!hasUrgency) {
+          this.db.exec("ALTER TABLE articles ADD COLUMN urgency TEXT NOT NULL DEFAULT 'low'")
+        }
+        this.db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_articles_urgency_published_at
+            ON articles(urgency, published_at DESC)
+        `)
+        this.db.pragma(`user_version = 3`)
+      })
+      apply()
+      v = 3
+    }
+
     if (v !== DB_VERSION) {
       // Defensive: if a future bump lands and someone forgets to add a
       // step, fail loud rather than silently running with an out-of-date
@@ -184,20 +228,25 @@ export class ArticleStore {
   upsertMany(articles: Article[]): { inserted: number; updated: number } {
     if (articles.length === 0) return { inserted: 0, updated: 0 }
     // ON CONFLICT(id): a re-fetch of the same article (stable id from
-    // feed+guid) refreshes the summary/title/category/fetched_at but
-    // does NOT change published_at — feeds occasionally re-emit older
-    // posts with a fresh pubDate, which would shuffle them to the top
-    // spuriously. Category IS overwritten so a feed re-categorised in
-    // feeds.ts (or a pre-migration 'world' default row) gets corrected
-    // on the next poll.
+    // feed+guid) refreshes the summary/title/category/urgency/fetched_at
+    // but does NOT change published_at — feeds occasionally re-emit
+    // older posts with a fresh pubDate, which would shuffle them to the
+    // top spuriously. Category IS overwritten so a feed re-categorised
+    // in feeds.ts (or a pre-migration 'world' default row) gets
+    // corrected on the next poll. Urgency is overwritten too: scoring
+    // is recomputed per fetch, so an article that crossed the medium /
+    // high threshold since the last poll (recency component cooling)
+    // gets the new bucket — pre-migration rows on the 'low' default
+    // are re-scored within 15 min of next poll.
     const stmt = this.db.prepare(`
-      INSERT INTO articles (id, feed, category, title, summary, url, published_at, fetched_at)
-      VALUES (@id, @feed, @category, @title, @summary, @url, @published_at, @fetched_at)
+      INSERT INTO articles (id, feed, category, urgency, title, summary, url, published_at, fetched_at)
+      VALUES (@id, @feed, @category, @urgency, @title, @summary, @url, @published_at, @fetched_at)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         summary = excluded.summary,
         url = excluded.url,
         category = excluded.category,
+        urgency = excluded.urgency,
         fetched_at = excluded.fetched_at
     `)
     let inserted = 0
@@ -215,10 +264,11 @@ export class ArticleStore {
   }
 
   recent(q: RecentQuery): Article[] {
-    // Build the WHERE clause dynamically. Category and since are
-    // independently optional. better-sqlite3 doesn't natively parameterise
-    // IN (?, ?, ?) lists, so we splice placeholders inline — values still
-    // bind via positional parameters, so there's no injection surface.
+    // Build the WHERE clause dynamically. Category, urgency, and since
+    // are independently optional. better-sqlite3 doesn't natively
+    // parameterise IN (?, ?, ?) lists, so we splice placeholders inline
+    // — values still bind via positional parameters, so there's no
+    // injection surface.
     const whereParts: string[] = []
     const positional: unknown[] = []
     if (q.since) {
@@ -230,9 +280,14 @@ export class ArticleStore {
       whereParts.push(`category IN (${placeholders})`)
       positional.push(...q.categories)
     }
+    if (q.urgencies && q.urgencies.length > 0) {
+      const placeholders = q.urgencies.map(() => '?').join(', ')
+      whereParts.push(`urgency IN (${placeholders})`)
+      positional.push(...q.urgencies)
+    }
     const where = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : ''
     const sql = `
-      SELECT id, feed, category, title, summary, url, published_at, fetched_at
+      SELECT id, feed, category, urgency, title, summary, url, published_at, fetched_at
       FROM articles
       ${where}
       ORDER BY published_at DESC
@@ -255,8 +310,13 @@ export class ArticleStore {
       whereParts.push(`a.category IN (${placeholders})`)
       positional.push(...q.categories)
     }
+    if (q.urgencies && q.urgencies.length > 0) {
+      const placeholders = q.urgencies.map(() => '?').join(', ')
+      whereParts.push(`a.urgency IN (${placeholders})`)
+      positional.push(...q.urgencies)
+    }
     const sql = `
-      SELECT a.id, a.feed, a.category, a.title, a.summary, a.url,
+      SELECT a.id, a.feed, a.category, a.urgency, a.title, a.summary, a.url,
              a.published_at, a.fetched_at
       FROM articles_fts
       JOIN articles a ON a.rowid = articles_fts.rowid
@@ -266,6 +326,23 @@ export class ArticleStore {
     `
     positional.push(q.limit)
     return this.db.prepare(sql).all(...positional) as Article[]
+  }
+
+  // Convenience read for "what's breaking" — equivalent to recent() with
+  // urgencies=['high'] but named explicitly because the voice tool and
+  // the prompts surface it as a distinct capability. Sorted newest-first
+  // among the high bucket, capped at `limit`. Uses the
+  // (urgency, published_at DESC) compound index added in the v3
+  // migration; reads stay sub-ms on the curated pool size.
+  breaking(q: BreakingQuery): Article[] {
+    const sql = `
+      SELECT id, feed, category, urgency, title, summary, url, published_at, fetched_at
+      FROM articles
+      WHERE urgency = 'high'
+      ORDER BY published_at DESC
+      LIMIT ?
+    `
+    return this.db.prepare(sql).all(q.limit) as Article[]
   }
 
   count(): number {

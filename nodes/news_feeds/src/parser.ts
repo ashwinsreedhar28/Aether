@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import RSSParser from 'rss-parser'
 import type { FeedSource } from './feeds'
-import type { Category } from './types'
+import { scoreUrgency } from './scorer'
+import type { Category, Urgency } from './types'
 
 // rss-parser is permissive — both Atom and RSS shapes flow through with most
 // fields optional. We normalise here so storage + the recent surface see a
@@ -10,6 +11,7 @@ export interface Article {
   id: string
   feed: string
   category: Category
+  urgency: Urgency
   title: string
   summary: string
   url: string
@@ -95,19 +97,32 @@ export async function fetchFeed(source: FeedSource): Promise<Article[]> {
   const parsed = await parser.parseURL(source.url)
   const items = (parsed.items ?? []) as Record<string, unknown>[]
   const fetchedAt = new Date().toISOString()
+  // Use a single `now` value across the whole batch so two articles
+  // from the same poll on either side of a minute boundary don't get
+  // different recency scores.
+  const scoredAt = Date.parse(fetchedAt)
   const articles: Article[] = []
   for (const item of items) {
     const title = typeof item.title === 'string' ? item.title.trim() : ''
     const url = typeof item.link === 'string' ? item.link : ''
     if (!title || !url) continue
+    const finalTitle = truncate(title, 300)
+    const summary = pickSummary(item)
+    const publishedAt = pickPublished(item)
+    const { bucket } = scoreUrgency(
+      { title: finalTitle, summary, published_at: publishedAt },
+      source,
+      scoredAt,
+    )
     articles.push({
       id: stableId(source.name, item),
       feed: source.name,
       category: source.category,
-      title: truncate(title, 300),
-      summary: pickSummary(item),
+      urgency: bucket,
+      title: finalTitle,
+      summary,
       url,
-      published_at: pickPublished(item),
+      published_at: publishedAt,
       fetched_at: fetchedAt,
     })
   }

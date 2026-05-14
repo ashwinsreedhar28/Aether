@@ -92,7 +92,7 @@ export class VisionDaemonManager extends EventEmitter {
           console.log('[visionDaemonManager] venv already bootstrapped')
           return
         }
-      } catch (_e) {
+      } catch {
         // Fall through to reinstall
       }
     }

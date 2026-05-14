@@ -40,12 +40,6 @@ function makeQuoteHandler(store: QuoteStore, poller: QuotePoller) {
       return { quote: fresh }
     }
 
-    if (poller.isRateLimited()) {
-      throw new MeshDeny('finance_rate_limited', {
-        symbol,
-        reason: 'upstream_throttled',
-      })
-    }
     try {
       await poller.fetchOnce(symbol)
     } catch (e) {
@@ -92,16 +86,6 @@ async function main(): Promise<void> {
     )
     process.exit(2)
   }
-  const apiKey = process.env.FINNHUB_API_KEY
-  if (!apiKey) {
-    process.stderr.write(
-      `[${NODE_ID}] FINNHUB_API_KEY is required; refusing to start. ` +
-        `Get a free key at https://finnhub.io/register and export ` +
-        `FINNHUB_API_KEY=... before launching the shell.\n`,
-    )
-    process.exit(2)
-  }
-
   // The marker file under HOMEOS_DATA_DIR is the node's own liveness
   // signal (matches the news_feeds pattern). No SQLite here — all state
   // lives in-process — so the directory exists only to host the marker.
@@ -109,7 +93,7 @@ async function main(): Promise<void> {
   mkdirSync(nodeDir, { recursive: true })
   const markerPath = join(nodeDir, 'running')
 
-  const client = new QuoteClient({ apiKey })
+  const client = new QuoteClient({ log })
   const store = new QuoteStore()
   const node = new MeshNode(NODE_ID, secret, CORE_URL)
 

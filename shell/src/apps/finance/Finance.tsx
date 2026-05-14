@@ -10,6 +10,7 @@ interface Quote {
   price: number
   change: number
   change_percent: number
+  volume: number
   latest_trading_day: string
   fetched_at: string
 }
@@ -45,6 +46,17 @@ function formatChangePercent(n: number): string {
   if (!Number.isFinite(n)) return '—'
   const sign = n > 0 ? '+' : ''
   return `${sign}${n.toFixed(2)}%`
+}
+
+// Compact share-count rendering — 12.3M / 1.2B beats "12,348,201" in a
+// dense card. Zero (the no-volume sentinel from the upstream) collapses
+// to "—" rather than "0" so it reads as missing data, not a flatline.
+function formatVolume(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—'
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return n.toString()
 }
 
 function QuoteCard({ quote }: { quote: Quote }) {
@@ -94,6 +106,13 @@ function QuoteCard({ quote }: { quote: Quote }) {
           ({positive ? '+' : ''}
           {formatPrice(quote.change)})
         </span>
+      </div>
+      <div
+        className="flex items-center justify-between text-[10px] uppercase tracking-[0.18em]"
+        style={{ color: 'var(--holo-muted)' }}
+      >
+        <span>Volume</span>
+        <span className="tabular-nums">{formatVolume(quote.volume)}</span>
       </div>
     </div>
   )

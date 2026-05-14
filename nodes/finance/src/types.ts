@@ -4,17 +4,18 @@
 // renderer and voice consumers in step). Numeric fields are pre-parsed
 // from the upstream API so consumers don't reparse strings every render.
 //
-// Volume is intentionally not part of v1. Finnhub's /quote endpoint
-// (the upstream we use) does not return volume; fetching it requires a
-// separate /stock/metric call that would double request volume against
-// the rate limit. Re-add when there's a use case worth the extra hop —
-// see DECISIONS.md "Second data node: finance via Finnhub" for the
-// trade-off.
+// Volume is back in v0.3.x: Yahoo Finance returns it on the same /quote
+// call as price + change. Stooq returns it too (fallback path). The
+// voice tool's _strip_quote intentionally drops volume from spoken
+// readbacks — "Apple is at 189, down a percent, on 40 million shares"
+// is noise — but the renderer's QuoteCard shows it.
 export interface Quote {
   symbol: string
   price: number
   change: number
   change_percent: number
+  /** Day volume in shares. 0 when the upstream omitted it (rare). */
+  volume: number
   /** ISO date (YYYY-MM-DD) derived from the upstream timestamp. */
   latest_trading_day: string
   /** Full ISO 8601 timestamp at which this node last fetched the quote. */

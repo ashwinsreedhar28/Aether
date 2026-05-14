@@ -1,9 +1,11 @@
 # finance
 
-Mesh node that polls stock quotes via Finnhub's `/quote` endpoint and
-exposes two surfaces — `quote` for per-symbol lookups, `market_summary`
-for the full tracked grid. Second *data* node on the homeOS mesh
-(news_feeds was the first, host_notifications the first *action* node).
+Mesh node that polls US stock quotes — Yahoo Finance primary (via the
+`yahoo-finance2` npm), Stooq CSV fallback when Yahoo flakes — and
+exposes two surfaces: `quote` for per-symbol lookups, `market_summary`
+for the full tracked grid. No API key. Second *data* node on the
+homeOS mesh (news_feeds was the first, host_notifications the first
+*action* node).
 
 ## Surfaces
 
@@ -29,6 +31,7 @@ in the node's tracked list — symbols outside the list return
     "price": 189.84,
     "change": 1.23,
     "change_percent": 0.6521,
+    "volume": 40123456,
     "latest_trading_day": "2026-05-13",
     "fetched_at": "2026-05-13T17:23:01.482Z"
   }
@@ -66,14 +69,15 @@ reads the cache as-is (no on-demand refresh).
 5-minute cycle. Each cycle iterates the tracked list, fetching one
 symbol every 30 seconds. With ten tickers the cycle takes exactly five
 minutes, so cycles run back-to-back without idle gaps. Two requests
-per minute averaged — well under Finnhub's free-tier 60-req/min
-ceiling (no daily cap on the free tier). The stagger is kept rather
-than burst-fetching, as belt-and-braces against future upstream-limit
-tightening and to spread fetch latency across the cycle.
+per minute averaged — comfortably below the "be polite to anonymous
+endpoints" threshold for either provider.
 
-A 60-second cooldown is set whenever the upstream API returns HTTP 429.
-During the cooldown the on-demand `finance.quote` fetch path returns
-`MeshDeny: finance_rate_limited` rather than retrying immediately.
+Each fetch tries Yahoo Finance first. If Yahoo errors or returns
+malformed data, the client falls back to Stooq's CSV endpoint
+(`https://stooq.com/q/l/?s=<sym>.us&f=sd2t2ohlcv&h&e=csv`). A symbol
+that both providers reject surfaces as `MeshDeny:
+finance_unknown_symbol`; both providers erroring on a known symbol
+surfaces as `MeshDeny: finance_provider_error`.
 
 ## Tracked symbols
 
@@ -96,13 +100,9 @@ Settings app (future PR).
 
 ## What v1 does not include
 
-- **Volume.** Finnhub's `/quote` endpoint does not return volume;
-  fetching it requires a separate `/stock/metric` call that would
-  double the request count against the rate limit for marginal user
-  value. Re-add when there's a clear use case. See DECISIONS.md
-  "Second data node: finance via Finnhub" for the trade-off.
 - **Forex / crypto / commodities.** Stocks only.
-- **Historical charts.** Day change only.
+- **Historical charts.** Day change only. (See the parallel
+  `feat/finance-history` lane.)
 - **Alerts.** No "notify me when AAPL hits 200" — composing this
   node's `quote` surface with `host_notifications.notify` is a future
   PR.
@@ -118,12 +118,12 @@ unlinked on graceful shutdown.
 
 | Var | Source | Notes |
 |---|---|---|
-| `FINNHUB_API_KEY` | user-supplied | Free key at https://finnhub.io/register |
 | `MESH_FINANCE_SECRET` | shell secrets bag | hex-32 per cold start |
 | `MESH_CORE_URL` | shell coreManager | defaults to `http://127.0.0.1:8000` |
 | `HOMEOS_DATA_DIR` | shell nodeManager | writable root for the liveness marker |
 
-The node refuses to start without `FINNHUB_API_KEY`,
-`MESH_FINANCE_SECRET`, or `HOMEOS_DATA_DIR`. `MESH_CORE_URL` falls back
-to localhost for convenience when running the node by hand outside the
-shell.
+The node refuses to start without `MESH_FINANCE_SECRET` or
+`HOMEOS_DATA_DIR`. `MESH_CORE_URL` falls back to localhost for
+convenience when running the node by hand outside the shell. No
+upstream API key is required — Yahoo Finance and Stooq are both
+anonymous endpoints.

@@ -261,6 +261,20 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Changed
 
+- **Finance node drops the API key — Yahoo Finance + Stooq.** The
+  finance node now fetches via `yahoo-finance2` (primary) with a Stooq
+  CSV fallback when Yahoo errors. No `FINNHUB_API_KEY` required;
+  `.env.local.example` and the nodeManager spawn env updated
+  accordingly. `pnpm dev` boots without any provider env var set.
+  Quote shape gains `volume` (Yahoo + Stooq both return it on the
+  single quote call); the renderer's QuoteCard shows a Volume row
+  (formatted 12.3M / 1.2B / —). Voice tool's `_strip_quote` continues
+  to drop volume from spoken readbacks. `QuoteClientError` gains
+  `provider_error` for the both-providers-failed case;
+  `finance_rate_limited` MeshDeny is no longer reachable (the voice
+  tool's `_throttled_response` and the renderer's `ThrottledState`
+  stay defined as dead branches for reuse). See DECISIONS.md "Second
+  data node: finance" → Update.
 - **`MeshUnavailable` (Python, `raven_core/mesh_client.py`) gains an
   optional `reason` attribute.** Set to the MeshDeny reason from the
   remote node when the failure path was a `kind=error` response;

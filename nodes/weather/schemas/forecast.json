@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "weather.forecast",
+  "description": "Get N-day forecast for the configured location (AETHER_WEATHER_LAT/LON/LABEL env vars). Returns array of daily forecasts each with date, high/low temperatures in °F, plain-English conditions, precipitation probability %, and the underlying WMO weather code. Polled from Open-Meteo every 15 minutes (same fetch as weather.current); this surface returns the cached forecast slice. When env vars are unset, returns { available: false, reason: 'no_config' } rather than throwing — node operates in graceful-degradation mode consistent with auxiliary-writes-isolation (CLAUDE.md §11.8).",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "days": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 7,
+      "description": "Number of forecast days to return (1-7). Default 3 if omitted; clamped to 7."
+    }
+  }
+}

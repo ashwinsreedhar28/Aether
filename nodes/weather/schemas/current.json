@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "weather.current",
+  "description": "Get current weather conditions for the configured location (AETHER_WEATHER_LAT/LON/LABEL env vars). Returns temperature in both °F and °C, humidity %, wind speed in mph, plain-English conditions string (e.g. 'Partly cloudy', 'Light rain'), the underlying WMO weather code, feels-like temperature, and a fetch timestamp. Polled from Open-Meteo every 15 minutes; this surface returns the most recently cached reading. When env vars are unset, returns { available: false, reason: 'no_config' } rather than throwing — node operates in graceful-degradation mode consistent with auxiliary-writes-isolation (CLAUDE.md §11.8).",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

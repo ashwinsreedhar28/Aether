@@ -10,6 +10,11 @@ historical record.
 ## [Unreleased]
 
 ### Changed
+- CLAUDE.md §10 gains a Gemini Live system_instruction gotcha entry
+  capturing PR #25's finding that the API field is set-once per
+  session and cannot be hot-swapped per turn. Documents the
+  FunctionResponse-body workaround pattern for per-turn context
+  injection.
 - **Project renamed: homeOS → Aether.** Working name retired. Updated:
   display name, app productName + bundle title, env vars
   (`HOMEOS_DATA_DIR` → `AETHER_DATA_DIR`), workspace package scope

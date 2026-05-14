@@ -163,6 +163,25 @@ nodes:
         invocation_mode: request_response
         schema: nodes/digest/schemas/evening.json
 
+  - id: vision
+    runtime: local-process
+    identity_secret: env:MESH_VISION_SECRET
+    metadata:
+      description: |
+        Vision capture node. Real-time camera frame access via
+        AVFoundation on macOS. Piece 1 of the vision arc (see
+        MASTER_SYNTHESIS.md §11.6). Implements 10fps capture with
+        5-second idle timeout for battery efficiency. Future surfaces
+        (pieces 2/3/4): vision.gestures() for hand gesture
+        recognition via MediaPipe, vision.pointing_target() to map
+        index finger pointing to on-screen UI elements. macOS only in
+        v0.1.x — no AVFoundation equivalent on other platforms yet.
+    surfaces:
+      - name: frame
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/vision/schema/frame_response.json
+
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
   - from: shell
@@ -281,3 +300,12 @@ relationships:
     to: digest.morning
   - from: raven
     to: digest.evening
+
+  # Vision capture: raven reads camera frames via vision.frame(). First
+  # consumer is piece 2 (gesture detection): raven calls vision.frame()
+  # in a loop during gesture-mode, passes frames to MediaPipe, and
+  # interprets hand gestures as voice-session controls. Shell edge is
+  # reserved for future renderer-side visual features (e.g. a camera
+  # preview widget, visual context debugging).
+  - from: raven
+    to: vision.frame

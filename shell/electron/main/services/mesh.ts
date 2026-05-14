@@ -122,6 +122,12 @@ export function getRavenMeshConfig(): { ravenSecret: string; coreUrl: string } |
   return { ravenSecret: secrets.ravenSecret, coreUrl: coreManager.url }
 }
 
+// Identity bundle for the vision daemon. Same pattern as getRavenMeshConfig.
+export function getVisionMeshConfig(): { visionSecret: string; coreUrl: string } | null {
+  if (meshState !== 'ready' || !secrets || !coreManager) return null
+  return { visionSecret: secrets.visionSecret, coreUrl: coreManager.url }
+}
+
 // Wait up to `timeoutMs` for mesh to reach `ready`. Returns false on
 // timeout OR if mesh entered `failed` (no point waiting longer).
 export async function waitForMeshReady(timeoutMs: number): Promise<boolean> {

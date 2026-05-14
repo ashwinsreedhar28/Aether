@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VisionFrameResponse",
+  "description": "Response schema for vision.frame() surface - returns camera frame or unavailable status",
+  "oneOf": [
+    {
+      "type": "object",
+      "description": "Successful frame capture",
+      "properties": {
+        "available": {
+          "type": "boolean",
+          "const": true
+        },
+        "frame_b64": {
+          "type": "string",
+          "description": "Base64-encoded JPEG image"
+        },
+        "format": {
+          "type": "string",
+          "const": "jpeg"
+        },
+        "quality": {
+          "type": "integer",
+          "description": "JPEG quality setting (1-100)",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "width": {
+          "type": "integer",
+          "description": "Frame width in pixels",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "description": "Frame height in pixels",
+          "minimum": 1
+        },
+        "timestamp": {
+          "type": "integer",
+          "description": "Capture timestamp in milliseconds since epoch"
+        }
+      },
+      "required": ["available", "frame_b64", "format", "quality", "width", "height", "timestamp"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "description": "Camera unavailable",
+      "properties": {
+        "available": {
+          "type": "boolean",
+          "const": false
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["warming_up", "permission_denied", "no_config"],
+          "description": "Reason camera is unavailable"
+        }
+      },
+      "required": ["available", "reason"],
+      "additionalProperties": false
+    }
+  ]
+}

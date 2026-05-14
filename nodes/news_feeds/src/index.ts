@@ -11,10 +11,23 @@ const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
 
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 100
+// Search results are read aloud by Gemini or rendered in a (future) UI
+// list; capping at 50 keeps the response payload bounded and matches the
+// schema's maximum. 20 is the default — same as recent — so a bare
+// search({query:'X'}) call returns a comparable handful of headlines.
+const SEARCH_DEFAULT_LIMIT = 20
+const SEARCH_MAX_LIMIT = 50
+const QUERY_MAX_LEN = 200
 
 interface RecentArgs {
   limit?: number
   since?: string
+  category?: string | string[]
+}
+
+interface SearchArgs {
+  query?: unknown
+  limit?: number
   category?: string | string[]
 }
 
@@ -59,6 +72,73 @@ function clampLimit(value: unknown): number {
   if (n < 1) return 1
   if (n > MAX_LIMIT) return MAX_LIMIT
   return n
+}
+
+function clampSearchLimit(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return SEARCH_DEFAULT_LIMIT
+  const n = Math.floor(value)
+  if (n < 1) return 1
+  if (n > SEARCH_MAX_LIMIT) return SEARCH_MAX_LIMIT
+  return n
+}
+
+// FTS5 MATCH strings have their own grammar (column filters, NEAR,
+// quoted phrases, * suffix). Letting user input through raw means a
+// stray quote or parenthesis throws a sqlite syntax error rather than
+// returning the obvious "no results"; worse, an unintended `*` or
+// `NEAR` token alters the search semantics. We tokenise into bare
+// alphanumeric runs, quote each as a literal phrase, and AND them
+// together. Stemming still applies inside a quoted single token
+// (FTS5 runs the tokenizer over the quoted text), so "wildfires"
+// continues to match "wildfire".
+//
+// Returns null when sanitisation strips every character — handler
+// surfaces that as MeshDeny so Gemini speaks a clean "no useful
+// query" line rather than a sqlite error.
+function sanitiseFtsQuery(raw: string): string | null {
+  // Split on anything that isn't a letter, digit, or apostrophe.
+  // Apostrophes inside words ("trump's") survive the split. The
+  // resulting tokens are wrapped in double quotes so FTS5 treats each
+  // as a literal — any leftover punctuation inside the token (which
+  // shouldn't happen after the split, but defensively) gets escaped
+  // by doubling internal double quotes.
+  const tokens = raw
+    .split(/[^\p{L}\p{N}']+/u)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+    .map((t) => `"${t.replace(/"/g, '""')}"`)
+  if (tokens.length === 0) return null
+  return tokens.join(' ')
+}
+
+function makeSearchHandler(store: ArticleStore) {
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
+    const payload = env.payload as SearchArgs
+    const rawQuery = payload?.query
+    if (typeof rawQuery !== 'string') {
+      throw new MeshDeny('news_feeds_bad_query', { reason: 'query must be a string' })
+    }
+    const trimmed = rawQuery.trim()
+    if (trimmed.length === 0) {
+      throw new MeshDeny('news_feeds_bad_query', { reason: 'query is empty' })
+    }
+    if (trimmed.length > QUERY_MAX_LEN) {
+      throw new MeshDeny('news_feeds_bad_query', {
+        reason: `query exceeds ${QUERY_MAX_LEN} chars`,
+      })
+    }
+    const match = sanitiseFtsQuery(trimmed)
+    if (match === null) {
+      // Caller sent only punctuation. Treat as "no useful query" — the
+      // tool wrapper turns this into an empty articles list so Gemini
+      // says "no headlines" rather than reading an error stack.
+      return { articles: [] }
+    }
+    const limit = clampSearchLimit(payload?.limit ?? SEARCH_DEFAULT_LIMIT)
+    const categories = normaliseCategory(payload?.category)
+    const articles = store.search({ match, limit, categories })
+    return { articles }
+  }
 }
 
 function makeRecentHandler(store: ArticleStore) {
@@ -106,6 +186,7 @@ async function main(): Promise<void> {
 
   const node = new MeshNode(NODE_ID, secret, CORE_URL)
   node.on('recent', makeRecentHandler(store))
+  node.on('search', makeSearchHandler(store))
   await node.start()
   log(`registered with core at ${CORE_URL}`)
 

@@ -5,6 +5,79 @@ Never edit a past entry — supersede with a new one.
 
 ---
 
+## [2026-05-13] News search via SQLite FTS5
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** With ~33 feeds polling every 15 minutes, the curated article
+pool routinely holds 800–2,000 rows. The `news_feeds.recent` surface
+returns the top of the chronological feed; it can't answer "what's the
+latest on Iran" without the caller scanning everything. Voice users
+ask topic-shaped questions ("any news on wildfires", "anything on the
+Lakers") often enough that the missing capability shows up as Gemini
+hallucinating headlines from training data — the exact failure mode the
+news-tool prompt was added to prevent. We need a keyword surface
+backed by the same curated pool the rest of the news stack already
+trusts.
+**Decision:** Keyword search powered by SQLite **FTS5** (porter
+tokenizer) over the existing `articles` table. New surface
+`news_feeds.search({query, limit?, category?})` returns articles
+matching the FTS5 query, ranked by bm25 with `published_at` as
+tiebreaker. The renderer-side News app gets the edge but does not yet
+consume it (UI search bar is a follow-up); the voice tool `news_search`
+consumes it immediately and the system prompt nudges Gemini toward it
+for any topic-specific question.
+
+FTS5 is wired as a contentless external-content virtual table
+(`content='articles', content_rowid='rowid'`) with three sync triggers
+keeping it in lockstep with `articles`. Backfill from existing rows
+runs once inside the v1→v2 migration step (CLAUDE.md §10
+schema-migrations gotcha — virtual table + triggers + backfill all
+live inside `migrate()`, not the initial CREATE block).
+
+User input is **sanitised before reaching FTS5 MATCH** — tokenised into
+bare alphanumeric runs and wrapped as literal phrases so stray
+punctuation or accidental FTS5 syntax (`*`, `NEAR`, unbalanced quotes)
+can't break the query. Stemming still applies inside the quoted
+single-token form.
+**Consequences:**
+- Searches are bounded to the polled feed pool. Topics outside the
+  curated feeds return empty — the system prompt explicitly tells
+  Gemini to say "no coverage in the feed pool yet, sir" rather than
+  substitute remembered headlines (an anti-hallucination guardrail
+  extending the news-recent / finance-quote pattern).
+- Porter stemming matches plurals and common verb forms ("wildfire"
+  → "wildfires", "report" → "reporting"). It does NOT bridge word
+  families: "iran" ≠ "iranian", "obama" ≠ "obamas's". Accepted.
+- Schema bumps to `user_version=2`. The migration is forward-only and
+  idempotent: a v1 install gets the virtual table + triggers + backfill
+  in one transaction; a v2 install (or fresh) is a no-op for the v1
+  branch and just sets up FTS5. Smoke-tested against the v0.3.1 DB
+  with 822 existing articles before commit.
+- Establishes a "search" surface name on data nodes. If finance ever
+  grows a search-by-name capability, the same surface name + sanitiser
+  pattern applies.
+**Alternatives considered:**
+- *Live Bing / Google web search via MCP* — rejected for week 1. Open-
+  web search belongs in MCP territory (future Phase 3 work in
+  MASTER_SYNTHESIS §6) and would change the anti-hallucination
+  contract: results wouldn't share the curated-feed provenance the
+  user already trusts. Revisit when MCP lands.
+- *Semantic / vector search (embeddings, ANN index)* — rejected as
+  premature. Adds a model dependency, a separate index store, and
+  re-embedding on every poll. Keyword search via FTS5 satisfies the
+  voice use case ("latest on X") at zero new dependencies. Revisit
+  when keyword recall is provably the bottleneck.
+- *LLM entity extraction at index time* (tag each article with
+  entities/topics before storing, then query the tag set) — rejected
+  as future enrichment work, not a v1 prerequisite. Belongs alongside
+  the broader article-enrichment story (full-text scraping, summary
+  rewriting, sentiment tags).
+- *LIKE-based substring search* — rejected; no stemming, no ranking,
+  and slower at scale than FTS5 on the same row count.
+
+---
+
 ## [2026-05-12] Top-down build strategy in week 1
 
 **Status:** accepted

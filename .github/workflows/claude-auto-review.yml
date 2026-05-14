@@ -20,7 +20,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           model: claude-sonnet-4-5-20250929
-          prompt: |
+          direct_prompt: |
             You are running mechanical, low-judgment review checks on this PR. Do not
             re-architect. Do not propose alternative implementations. Do not score
             quality. The Architect (a separate session) does the substantive review.

@@ -5,6 +5,134 @@ Never edit a past entry — supersede with a new one.
 
 ---
 
+## [2026-05-13] News entity extraction via compromise
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director) — implementer deviated
+on library choice during implementation; see Alternatives.
+**Context:** Keyword search via FTS5 (DECISIONS.md "News search via
+SQLite FTS5" below) gives a strong baseline for topic-shaped questions
+("any news about wildfires") but misses the second-most-common voice
+query shape: proper-noun lookups for a named person, place, or
+organization ("what's the latest on Tim Cook", "any news about Apple",
+"what's happening in Ukraine"). FTS5 keyword matching only hits if
+those exact strings appear verbatim in title / summary / feed — it
+can't group "Apple's CEO", "Tim Cook", and "Cook said today" as
+references to the same entity, and porter stemming doesn't bridge
+proper-noun families. Voice users phrase a meaningful share of their
+news asks this way; without an entity dimension Gemini falls back to
+keyword search (which the prompt nudges toward `news_search`), and
+either returns weak matches or misses entirely on entities that don't
+surface in titles.
+**Decision:** Lightweight NER at fetch time, stored in a JOIN table,
+exposed via a new mesh surface alongside `news_feeds.search` /
+`news_feeds.breaking`. Each polled article runs through compromise's
+`.people()` / `.places()` / `.organizations()` matchers in the poller
+(after the article upsert); extracted entities land in
+`article_entities (article_id, entity_name, entity_kind, mentions)`
+with PRIMARY KEY `(article_id, entity_name)`. New surface
+`news_feeds.search_by_entity({entity, kind?, limit?})` returns
+articles ranked by `mentions DESC, published_at DESC`, with case-
+insensitive name match (`LOWER(entity_name) = LOWER(?)`). Voice tool
+`news_search_by_entity` and four new few-shot examples in the system
+prompt steer Gemini toward entity search for proper-noun queries and
+keyword search for topical phrases. Orthogonal to the v3 urgency
+column added by the news_urgency ADR below — `article_entities` joins
+`articles` on `id`, not on any urgency-related path; the two
+features layer cleanly.
+**Consequences:**
+- Re-extracting on every poll (idempotent — extractor is pure,
+  `replaceArticleEntities` is atomic delete-then-insert) keeps the
+  entity set in sync with re-titled / re-categorised articles. Cost
+  is ~10ms per article × ~300 articles per cycle = ~3s added to a
+  15-min poll. Acceptable.
+- Schema bumps to `user_version=4` (the v3→v4 step, layered on top
+  of the v2→v3 urgency column). CLAUDE.md §10 schema-migrations
+  gotcha applied — `CREATE TABLE article_entities` + index live
+  inside `migrate()`, not the initial CREATE block. Migration is
+  monotonic: v0→v1 (category) → v1→v2 (FTS5) → v2→v3 (urgency) →
+  v3→v4 (entities).
+- Extraction quality is limited by the library: English-only, misses
+  informal references and pronouns, occasionally mis-tags (compromise
+  uses a regex + lexicon approach, not a neural model). Acceptable
+  v1 — far better than nothing for entity-aware queries; the prompt
+  guardrails empty results so Gemini never invents headlines.
+- Existing articles polled before this migration have no entities
+  until their next poll cycle re-extracts. The first poll after a
+  fresh deploy backfills incrementally per-feed (15-min default
+  cycle). Same posture as the urgency migration. Documented in the
+  PR; a one-shot backfill job is deferred to a follow-up if the
+  empty-result rate proves bothersome.
+- PRIMARY KEY (article_id, entity_name) — the same surface form can
+  only carry one kind per article. The extractor collapses cross-
+  kind duplicates by ingestion order (person → place → organization;
+  first kind wins, later occurrences only increment `mentions`).
+  Within-article ambiguity ("Cook" the chef vs. Tim Cook the CEO)
+  is NOT resolved here — different articles can tag the same name
+  differently; voice / future UI must handle disambiguation if it
+  matters.
+- Voice tool count grows to 13 (was 12 in main after PR #24 added
+  `news_breaking` to function_descriptions and dispatch; the inline
+  numbered tool list in the system prompt had not been updated to
+  include `news_breaking`, so the rebase also fixes that omission
+  by re-numbering 1..13 with `news_breaking` at #9 and
+  `news_search_by_entity` at #10).
+- Conversation-context wiring (PR #25's `_session_context`) currently
+  populates `last_entity` only from `news_search` queries. Extending
+  it to also capture `news_search_by_entity` calls is a follow-up;
+  documented as a known limitation. Doesn't block this PR — the
+  immediate value is the entity surface itself.
+- Establishes a Pulse-style "analytical lift" pattern alongside FTS5
+  keyword search and urgency scoring: enrich at fetch time, store in
+  a JOIN table (or column), expose via a typed surface. Third
+  instance of this pattern now landed; future enrichments (sentiment,
+  topic clusters) should follow the same shape per CLAUDE.md §14.
+**Alternatives considered:**
+- *wink-nlp (originally specified)* — the task spec named wink-nlp +
+  `wink-eng-lite-web-model`. Verified during implementation that
+  wink-nlp's built-in NER only ships DATE / TIME / DURATION / MONEY /
+  PERCENT / EMAIL / URL / etc. — there is NO PERSON / ORG / LOC
+  output. The wink-eng-lite-web-model README confirms this: PERSON-
+  like coverage requires wink-nlp's *custom entities* mechanism,
+  which would have us re-implement what compromise gives for free.
+  Switched to compromise rather than build a custom lexicon. Spec
+  deviation flagged in the PR.
+- *LLM-based NER per article* — too slow (~33 feeds × 4 polls/hour
+  on a populated DB means thousands of LLM round-trips/day), too
+  expensive, and adds an external dependency. Revisit only if
+  compromise's recall is provably the bottleneck and the cost
+  trade-off shifts.
+- *Cloud NER (Google Cloud Natural Language, AWS Comprehend)* —
+  rejected for the same external-API cost / dependency concerns and
+  because it adds a new authentication surface (API keys,
+  rate-limits). Self-hosted libraries match the rest of the news
+  stack's data-locality contract.
+- *spaCy via a Python sidecar* — strongest accuracy of the
+  offline-capable options, but introduces a cross-language IPC seam
+  inside the node, doubles the runtime footprint, and increases the
+  surface area we'd have to ship and supervise. Held back; the
+  compromise → spaCy upgrade is a future PR if precision is the
+  binding constraint.
+- *LIKE-pattern matching on raw title/summary text* — rejected as a
+  search-by-entity backend; falls down on word-boundary issues
+  ("Apple" matches "pineapple") and gives no kind classification.
+  FTS5 keyword search already covers the loose-match case.
+- *Backfill existing articles on migration* — rejected for v1.
+  Running compromise across a populated DB inside the migration
+  transaction would block node startup; safer to backfill lazily
+  on the next poll cycle (same posture as the urgency migration in
+  the ADR below). Follow-up PR can add a one-shot job if empty-
+  result rate proves high.
+- *Fold entity extraction into the urgency scorer (single fetch-time
+  enrichment pass)* — considered briefly after PR #24 landed.
+  Rejected: the two enrichments are conceptually independent
+  (urgency answers "how newsworthy is this", entities answer "what
+  is this about"), share no state, and bundling them into one
+  module would coupling them artificially. Pattern is "many
+  independent fetch-time enrichments", not "one big enrichment".
+
+---
+
 ## [2026-05-13] News urgency scoring via heuristic
 
 **Status:** accepted

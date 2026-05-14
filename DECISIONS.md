@@ -781,3 +781,80 @@ its hardcoded `articles.ts` entirely and consumes the mesh surface.
   notification when articles update.* Rejected. The renderer wants
   fresh data on app open, not a push subscription; request/response
   is the simpler shape and matches how the user thinks about news.
+
+
+---
+
+## [2026-05-13] Feed categorization: hardcoded per-feed taxonomy
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** v0.3.0 shipped the news_feeds node with four feeds and a
+single undifferentiated stream. Director's actual usage surfaced two
+gaps within hours: not enough sources (four feeds = small daily
+volume), and no way to ask the voice assistant for a specific *kind*
+of news ("what's the latest tech news", "any local headlines"). Both
+gaps could be solved together by widening the feed list and adding a
+category dimension to the existing `news_feeds.recent` surface. The
+mesh and voice transport already work — this is purely data + parameter
+plumbing on top of the v0.3.0 substrate.
+
+**Decision:** Hardcoded seven-category taxonomy declared in
+`nodes/news_feeds/src/types.ts`: `world`, `us`, `tech`, `business`,
+`sports`, `science`, `local`. Each feed in `feeds.ts` declares
+*exactly one* category. Articles inherit their feed's category at
+fetch time — no inference, no dynamic tagging, no per-article
+overrides. The `news_feeds.recent` surface gains an optional
+`category` parameter accepting either a single category string or a
+1–7-element string array; JSON Schema enum-validates against the
+seven known values, so unknown categories return a clean MeshDeny
+from Core (not the node). The voice tool gains a matching `category`
+parameter; the system prompt enumerates the seven values and includes
+four few-shot examples for natural-language → category mapping. The
+News app gains a chip row at the top — "All" plus the seven
+categories, ordered identically to the type definition and the prompt
+enumeration (broad → specific). Selecting a chip re-invokes
+`news_feeds.recent` with the new category.
+
+**Consequences:**
+- Adding a feed = picking its category (one line in `feeds.ts`).
+- Adding a new category = code change in `types.ts` + JSON Schema
+  enum update + voice prompt update + UI chip auto-discovers from the
+  list. Three places, all in this repo. Intentional friction — the
+  category set shouldn't proliferate.
+- A schema migration is required for installs that ran v0.3.0
+  (`ALTER TABLE add column category`, plus a compound
+  `(category, published_at DESC)` index). Existing rows get the
+  'world' default at migration time; the next poll's UPSERT
+  overwrites that with each row's actual feed category. One-time
+  inaccuracy of ≤15 min.
+- Bay Area is the de-facto "local" locale in v1 — KQED, SFGate Bay
+  Area, Mercury News, SFist. User-configurable locale is deferred to
+  a future PR that introduces a Settings surface.
+- Multi-consumer parity holds: the same surface drives the News app
+  *and* the voice tool. Adding a category dimension once propagates
+  to both, which is the architecturally interesting test.
+
+**Alternatives considered:**
+- *ML / heuristic article-level categorization.* Rejected. Opaque to
+  the user, slow to compute, and the false-positive rate on borderline
+  stories (tech vs business; sports vs us) would be visibly bad.
+  Per-feed categorization is editorial and deterministic.
+- *Multi-category per feed.* Rejected. Hacker News *is* tech;
+  TechCrunch *is* tech. Allowing N categories per feed complicates
+  queries (set semantics, dedup) without solving a real ambiguity.
+  Re-evaluate if a feed legitimately straddles two scopes.
+- *User-configurable categories.* Rejected. No Settings app exists in
+  v0.3.x. The category set is small enough that hardcoding for v1 is
+  not the bottleneck; reconsider when Settings ships.
+- *Free-text category.* Rejected. Defeats schema validation, fragments
+  the taxonomy across installs, and Gemini will happily invent
+  "celebrities" or "AI" as a category if not constrained.
+- *Sports-team subcategory in this PR* (e.g. "Lakers news"). Deferred.
+  Likely requires team-specific feeds or an external search surface;
+  separate design problem.
+- *Single category string only, no array.* Rejected at the schema
+  level — the array shape costs almost nothing now (`oneOf` in the
+  JSON Schema, dynamic IN-clause in storage) and unlocks `["us",
+  "world"]` queries that future UI work might want without another
+  schema migration.

@@ -8,6 +8,49 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- **News feeds gain a seven-category taxonomy** (`world`, `us`, `tech`,
+  `business`, `sports`, `science`, `local`). The catalog in
+  `nodes/news_feeds/src/feeds.ts` expands from 4 → ~33 feeds across
+  the seven categories; each feed declares exactly one category and
+  every article inherits it at fetch time. New shared
+  `nodes/news_feeds/src/types.ts` exports the `Category` union and the
+  ordered `CATEGORIES` list — same ordering (broad → specific) is
+  reused in the JSON Schema enum, the voice prompt, and the UI chip
+  row. `_ingest/Pulse` is empty in this checkout, so feeds were
+  reconstructed from well-known public RSS endpoints rather than
+  lifted directly. See DECISIONS.md 2026-05-13.
+- **`news_feeds.recent` accepts an optional `category` parameter** —
+  either a single category string or a 1–7-element unique array.
+  JSON Schema enum-validates against the seven known values, so an
+  unknown category returns a Core-level `denied_schema_invalid` before
+  the handler runs. Empty / missing category preserves v0.3.0
+  behaviour (across all categories). Storage gains a compound
+  `(category, published_at DESC)` index so filtered reads stay
+  sub-ms even as the corpus grows.
+- **Forward-only SQLite migration** in `nodes/news_feeds/src/storage.ts`:
+  `DB_VERSION = 1`, `PRAGMA user_version` gates a transactional
+  ALTER TABLE that adds `category TEXT NOT NULL DEFAULT 'world'`
+  for v0.3.0 installs. Existing rows carry the 'world' default until
+  the next poll's UPSERT re-categorises them (the UPSERT now updates
+  the category column on conflict; dedup key `sha1(feed::guid)`
+  unchanged). One-time inaccuracy of ≤15 min; fresh installs are
+  correct from row 1.
+- **Voice tool `news_recent` gains a `category` parameter.** Gemini
+  function declaration carries the category enum; system prompt
+  enumerates the seven categories with one-line semantics, adds
+  natural-language mapping rules, and includes four new few-shot
+  examples ("what's the latest tech news" → `category='tech'`,
+  "any local headlines" → `category='local'`, "what's happening in
+  the world" → `category='world'`, "give me top news" → no category).
+  Anti-hallucination guardrail from PR #14 preserved.
+- **News app gains a category filter row.** Chip row at the top of
+  `shell/src/apps/news/News.tsx`: "All" plus the seven categories,
+  ordered identically to `types.ts` and the voice prompt. Selecting
+  a chip re-invokes `news_feeds.recent` with the new category and
+  re-renders. Article cards show the feed name and a category badge
+  below it. Empty-state copy is context-aware: "No recent articles
+  in Tech." when a category filter is active vs. the generic
+  "Headlines refreshing" when "All" is selected.
 - `README.md` at repo root: project description, current state,
   quickstart, architecture overview, governance model summary,
   project context. First public-facing documentation surface.

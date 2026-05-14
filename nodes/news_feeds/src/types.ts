@@ -58,3 +58,34 @@ const URGENCY_SET: ReadonlySet<string> = new Set(URGENCIES)
 export function isUrgency(value: unknown): value is Urgency {
   return typeof value === 'string' && URGENCY_SET.has(value)
 }
+
+// Entity kinds extracted from article title + summary by the NER pass
+// in extractor.ts. Person / place / organization is the same three-way
+// split compromise's chainable matchers (.people / .places /
+// .organizations) expose — narrower than the full OntoNotes set but
+// good enough for "what's the latest on X" voice queries.
+//
+// Ordering mirrors the broad → specific spectrum used by Category:
+// people first (most specific referents), then places, then
+// organizations. The same order is reused by the JSON Schema enum,
+// the SQL CHECK constraint, and the voice prompt enumeration so any
+// reader sees a consistent sequence.
+export type EntityKind = 'person' | 'place' | 'organization'
+
+export const ENTITY_KINDS: readonly EntityKind[] = ['person', 'place', 'organization'] as const
+
+export const isEntityKind = (s: string): s is EntityKind =>
+  ENTITY_KINDS.includes(s as EntityKind)
+
+export interface Entity {
+  /** Canonical surface form as it appeared in the article, with
+   * trailing punctuation / possessive 's stripped. Stored case-
+   * preserved; searches LOWER() both sides for case-insensitive
+   * match. */
+  name: string
+  kind: EntityKind
+  /** Number of times this name surfaced across title + summary for
+   * the article. Re-running extraction over the same text is
+   * deterministic, so this is stable per (article, name). */
+  mentions: number
+}

@@ -1,6 +1,7 @@
 import { fetchFeed } from './parser'
 import type { FeedSource } from './feeds'
 import type { ArticleStore } from './storage'
+import { extractEntities } from './extractor'
 
 // 15 minutes. Most of the feeds in feeds.ts publish many times an hour at
 // peak (HN, BBC), but cumulative bandwidth + parse cost is what we're
@@ -81,6 +82,8 @@ export class FeedPoller {
     )
     let totalInserted = 0
     let totalUpdated = 0
+    let totalEntities = 0
+    let entityFailures = 0
     let okFeeds = 0
     for (let i = 0; i < results.length; i += 1) {
       const r = results[i]
@@ -91,6 +94,28 @@ export class FeedPoller {
         totalInserted += inserted
         totalUpdated += updated
         okFeeds += 1
+        // Entity pass: extract + replace per article. Re-extracting on
+        // every poll (even for unchanged articles) is intentional — the
+        // extractor is pure and replaceArticleEntities is idempotent,
+        // so a re-poll of the same article writes the same rows. That
+        // also handles backfill on the first poll after the v2→v3
+        // migration: existing articles have zero entity rows until the
+        // poller re-visits them. Failures are per-article and never
+        // break ingestion — the article + its category / FTS index are
+        // already committed by the upsert above.
+        for (const article of r.value.articles) {
+          try {
+            const entities = extractEntities(article.title, article.summary)
+            this.opts.store.replaceArticleEntities(article.id, entities)
+            totalEntities += entities.length
+          } catch (e) {
+            entityFailures += 1
+            const msg = e instanceof Error ? e.message : String(e)
+            this.opts.log(
+              `entity extraction failed for ${article.id} (${feed.name}): ${msg}`,
+            )
+          }
+        }
       } else {
         const reason = r.reason as Error | string | undefined
         const msg =
@@ -103,9 +128,11 @@ export class FeedPoller {
       }
     }
     const elapsed = Date.now() - startedAt
+    const entitySuffix =
+      entityFailures > 0 ? ` entities=${totalEntities} (failures=${entityFailures})` : ` entities=${totalEntities}`
     this.opts.log(
       `poll done: ${okFeeds}/${this.opts.feeds.length} feeds ok, ` +
-        `inserted=${totalInserted} updated=${totalUpdated} in ${elapsed}ms`,
+        `inserted=${totalInserted} updated=${totalUpdated}${entitySuffix} in ${elapsed}ms`,
     )
   }
 }

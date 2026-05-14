@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "news_feeds.search_by_entity",
+  "description": "Entity-aware search over the node's curated article pool. Returns articles where the named entity (person, place, or organization extracted at fetch time) was recognised in the title or summary, sorted by mention count desc, then published_at desc as tiebreaker. Compared case-insensitively against the stored entity surface form — 'tim cook', 'Tim Cook', and 'TIM COOK' match the same rows. Search scope is the polled feed pool only; off-feed entities and articles polled before the entity-extraction migration (v3) return an empty list rather than reaching out to the open web.",
+  "type": "object",
+  "required": ["entity"],
+  "additionalProperties": true,
+  "properties": {
+    "entity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Surface form of the entity to look up — e.g. 'Tim Cook', 'Apple', 'Ukraine'. Compared case-insensitively against stored entity_name; pass the most natural phrasing of the entity rather than trying to match capitalisation."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["person", "place", "organization"],
+      "description": "Optional entity-kind filter. Disambiguates collisions where a surface form spans multiple kinds — 'Apple' filtered to organization excludes any (unlikely) place-tagged or person-tagged 'Apple' rows. Omit to match across all three kinds."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "description": "Maximum number of articles to return. Default 20 if omitted; clamped to 50."
+    }
+  }
+}

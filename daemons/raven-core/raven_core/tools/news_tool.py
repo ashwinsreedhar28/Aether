@@ -1,12 +1,13 @@
-"""News Tool - Read recent headlines, keyword-search, and surface
-breaking-urgency items via the mesh.
+"""News Tool - Read recent headlines, keyword-search, surface
+breaking-urgency items, and look up entities via the mesh.
 
-Three voice tools, all routed through ``mesh_invoke`` to the news_feeds
+Four voice tools, all routed through ``mesh_invoke`` to the news_feeds
 node:
 
-  - ``news_recent(limit?, category?, urgency?)``  → ``news_feeds.recent``
-  - ``news_search(query, category?, urgency?)``   → ``news_feeds.search``
-  - ``news_breaking(limit?)``                      → ``news_feeds.breaking``
+  - ``news_recent(limit?, category?, urgency?)``         → ``news_feeds.recent``
+  - ``news_search(query, category?, urgency?)``          → ``news_feeds.search``
+  - ``news_breaking(limit?)``                            → ``news_feeds.breaking``
+  - ``news_search_by_entity(entity, kind?)``             → ``news_feeds.search_by_entity``
 
 Same pattern as notify_tool / finance_tool: declare the function for
 Gemini, implement as a thin ``await mesh_invoke(...)``, add the edge in
@@ -30,8 +31,19 @@ treat "what's breaking" / "anything urgent" / "any major news" as a
 single dedicated call. Urgency is computed deterministically by the
 node's scorer at fetch time (heuristic-only, no LLM).
 
-Search scope: news_search hits the user's curated feed pool only (FTS5
-over the polled articles table) — NOT the open web. The system prompt
+Keyword vs entity search: the prompt steers Gemini between
+``news_search`` and ``news_search_by_entity`` based on whether the
+user named a *proper noun* (a person, place, or organization —
+entity search) or a *topic / theme* (a common noun phrase — keyword
+search). "Tim Cook" / "Apple" / "Ukraine" → entity. "wildfires" /
+"elections" / "AI safety" → keyword. The two surfaces overlap on
+some prompts; preferring entity search for proper nouns gives higher
+precision (LOWER(name) = LOWER(?) against entities extracted at
+fetch time, instead of porter-stemmed bm25 over title + summary +
+feed).
+
+Search scope: news_search and news_search_by_entity both hit the
+user's curated feed pool only — NOT the open web. The system prompt
 makes that scope explicit so Gemini doesn't promise the user a
 google-style search.
 """
@@ -43,7 +55,12 @@ from google.genai import types
 
 from ..mesh_client import MeshUnavailable, mesh_invoke
 
-FUNCTIONS = ["news_recent", "news_search", "news_breaking"]
+FUNCTIONS = [
+    "news_recent",
+    "news_search",
+    "news_breaking",
+    "news_search_by_entity",
+]
 
 # Gemini Live reads results aloud. Five articles is ~30s of speech for
 # title+source — about as much as a user wants in a single hit. Cap at
@@ -85,6 +102,15 @@ _URGENCY_SET = frozenset(URGENCIES)
 BREAKING_DEFAULT_LIMIT = 5
 BREAKING_MAX_LIMIT = 10
 
+# Mirrors nodes/news_feeds/src/types.ts ENTITY_KINDS. Three-way split
+# narrower than the full OntoNotes set but matches compromise's
+# .people / .places / .organizations matchers. Order is preserved
+# across this tuple, the JSON Schema enum, the SQL CHECK constraint,
+# and the system prompt enumeration.
+ENTITY_KINDS: tuple[str, ...] = ("person", "place", "organization")
+_ENTITY_KIND_SET = frozenset(ENTITY_KINDS)
+ENTITY_MAX_LEN = 100
+
 
 def _clamp_limit(value: Any, *, default: int = DEFAULT_LIMIT, ceiling: int = MAX_LIMIT) -> int:
     try:
@@ -123,6 +149,18 @@ def _normalise_urgency(value: Any) -> str | None:
         return None
     cleaned = value.strip().lower()
     if cleaned in _URGENCY_SET:
+        return cleaned
+    return None
+
+
+def _normalise_entity_kind(value: Any) -> str | None:
+    """Mirror of _normalise_category for the entity-kind enum. Unknown
+    values silently fall back to None ("no kind filter") so the mesh
+    call still runs without the filter rather than rejecting outright."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().lower()
+    if cleaned in _ENTITY_KIND_SET:
         return cleaned
     return None
 
@@ -228,9 +266,47 @@ async def _news_breaking(limit: int) -> dict[str, Any]:
     return {"articles": articles, "count": len(articles)}
 
 
+async def _news_search_by_entity(entity: str, kind: str | None) -> dict[str, Any]:
+    """Entity-aware search — exact case-insensitive name match.
+
+    No limit param exposed to Gemini for now: the spoken-bandwidth
+    ceiling (SEARCH_MAX_LIMIT = 10) is what we'd cap to anyway, and
+    Gemini doesn't add value tuning the number. The mesh schema allows
+    1–50; we always send the default-equivalent SEARCH_DEFAULT_LIMIT (5)
+    here so a single voice query returns a digestible handful.
+    """
+    payload: dict[str, Any] = {"entity": entity, "limit": SEARCH_DEFAULT_LIMIT}
+    if kind is not None:
+        payload["kind"] = kind
+    try:
+        response = await mesh_invoke("news_feeds.search_by_entity", payload)
+    except MeshUnavailable as e:
+        # news_feeds_bad_entity is the empty/oversize-string MeshDeny
+        # from the node; news_feeds_bad_entity_kind is the (already
+        # client-side filtered) catch for an unknown kind value. Both
+        # surface as structured `bad entity` errors so Gemini speaks a
+        # clean "didn't catch the entity, sir" line rather than reading
+        # an error stack.
+        if e.reason in ("news_feeds_bad_entity", "news_feeds_bad_entity_kind"):
+            return {"error": "bad entity", "detail": str(e)}
+        return {"error": "mesh unavailable", "detail": str(e)}
+
+    raw_articles = response.get("articles") if isinstance(response, dict) else None
+    if not isinstance(raw_articles, list):
+        return {"error": "malformed response", "detail": "missing articles list"}
+
+    articles = [a for a in (_strip_article(r) for r in raw_articles) if a is not None]
+    return {
+        "articles": articles,
+        "count": len(articles),
+        "entity": entity,
+        "filtered_kind": kind,
+    }
+
+
 def get_tools() -> list[types.Tool]:
     """Return Gemini function declarations for news_recent + news_search
-    + news_breaking."""
+    + news_breaking + news_search_by_entity."""
     recent_func = types.FunctionDeclaration(
         name="news_recent",
         description=(
@@ -240,13 +316,15 @@ def get_tools() -> list[types.Tool]:
             "articles with title, source, category, urgency, and a "
             "brief summary. Read the titles and sources aloud; use the "
             "summary for context if the user asks for more detail on a "
-            "specific story. For topic-specific questions ('what's the "
-            "latest on X', 'any news about Y') prefer news_search. For "
-            "'what's breaking', 'anything urgent', 'any major news' "
-            "without a specific topic prefer news_breaking. To narrow "
-            "recent results to high-urgency items within a category "
-            "('what's important in tech'), pass urgency='high' alongside "
-            "the category."
+            "specific story. For topic-specific questions naming a "
+            "PROPER NOUN (a person, place, or organization) prefer "
+            "news_search_by_entity. For topic-specific questions naming "
+            "a COMMON-NOUN TOPIC ('wildfires', 'elections') prefer "
+            "news_search. For 'what's breaking', 'anything urgent', "
+            "'any major news' without a specific topic prefer "
+            "news_breaking. To narrow recent results to high-urgency "
+            "items within a category ('what's important in tech'), pass "
+            "urgency='high' alongside the category."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
@@ -293,20 +371,19 @@ def get_tools() -> list[types.Tool]:
     search_func = types.FunctionDeclaration(
         name="news_search",
         description=(
-            "Keyword-search the user's curated news feeds for a specific "
-            "topic, person, place, or event. Use whenever the user names "
-            "a subject — 'what's the latest on Iran', 'any news about "
-            "wildfires', 'anything on the Lakers'. Returns articles whose "
-            "title, summary, or source matches the query (porter "
-            "stemming, so 'wildfire' matches 'wildfires'). Search scope "
-            "is the polled feed pool ONLY — this is not an open-web "
-            "search; topics outside the curated feeds return an empty "
-            "list. An empty result means no matching coverage in the "
-            "current feed pool, not 'nothing is happening' — say so "
-            "plainly. Prefer this tool over news_recent whenever the "
-            "user mentions a specific topic. To narrow further to "
-            "high-urgency items only ('any urgent news on Iran'), pass "
-            "urgency='high'."
+            "Keyword-search the user's curated news feeds for a "
+            "COMMON-NOUN TOPIC or theme — wildfires, elections, AI "
+            "safety, earnings reports, climate. Porter-stemmed bm25 "
+            "over title + summary + feed (so 'wildfire' matches "
+            "'wildfires'). For PROPER-NOUN subjects (a specific named "
+            "person, place, or organization) prefer "
+            "news_search_by_entity — it's higher precision. Search "
+            "scope is the polled feed pool ONLY — this is not an "
+            "open-web search; topics outside the curated feeds return "
+            "an empty list. An empty result means no matching coverage "
+            "in the current feed pool, not 'nothing is happening' — "
+            "say so plainly. To narrow further to high-urgency items "
+            "only ('any urgent news on wildfires'), pass urgency='high'."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
@@ -314,12 +391,12 @@ def get_tools() -> list[types.Tool]:
                 "query": types.Schema(
                     type=types.Type.STRING,
                     description=(
-                        "Keyword query — the topic, person, place, or "
-                        "event the user named. Plain words; the node "
-                        "tokenises and AND-combines them. Example: user "
-                        "asks 'what's the latest on Iran' → pass "
-                        "'Iran'. User asks 'any news about OpenAI and "
-                        "Microsoft' → pass 'OpenAI Microsoft'."
+                        "Keyword query — the topic the user named. "
+                        "Plain words; the node tokenises and AND-"
+                        "combines them. Example: user asks 'any news "
+                        "on wildfires' → pass 'wildfires'. User asks "
+                        "'what's happening with AI safety' → pass "
+                        "'AI safety'."
                     ),
                 ),
                 "category": types.Schema(
@@ -329,9 +406,8 @@ def get_tools() -> list[types.Tool]:
                         "Optional. Same seven-category enum as "
                         "news_recent. Pass when the user's phrasing "
                         "narrows the search to one category — 'tech "
-                        "news about OpenAI' → tech, 'sports news on "
-                        "the Lakers' → sports. Omit for cross-category "
-                        "search."
+                        "news about earnings' → tech. Omit for cross-"
+                        "category search."
                     ),
                 ),
                 "urgency": types.Schema(
@@ -379,9 +455,68 @@ def get_tools() -> list[types.Tool]:
             },
         ),
     )
+    search_by_entity_func = types.FunctionDeclaration(
+        name="news_search_by_entity",
+        description=(
+            "Entity-aware search over the user's curated news feeds. "
+            "Use whenever the user names a SPECIFIC PROPER NOUN — a "
+            "person ('Tim Cook', 'Sam Altman'), a place ('Ukraine', "
+            "'Cupertino'), or an organization ('Apple', 'OpenAI', "
+            "'the Lakers'). Returns articles where that entity was "
+            "recognised in the title or summary at fetch time, sorted "
+            "by how central the mention is. Case-insensitive — pass "
+            "the most natural phrasing. Prefer this over news_search "
+            "for proper-noun queries; news_search remains the right "
+            "tool for topical phrases ('wildfires', 'elections', "
+            "'AI safety', 'earnings'). Scope is the polled feed pool "
+            "ONLY — not open-web search. An empty result means no "
+            "current coverage of that entity in the curated feeds, "
+            "NOT 'nothing is happening'. Articles polled before the "
+            "entity-extraction migration may not appear yet; coverage "
+            "backfills automatically on the next poll cycle of each "
+            "feed."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "entity": types.Schema(
+                    type=types.Type.STRING,
+                    description=(
+                        "Surface form of the entity — e.g. 'Tim Cook', "
+                        "'Apple', 'Ukraine'. Pass the proper noun the "
+                        "user named, not a paraphrase. User asks "
+                        "'what's the latest on Tim Cook' → pass 'Tim "
+                        "Cook'. User asks 'any news about Apple' → "
+                        "pass 'Apple'. User asks 'what's happening in "
+                        "Ukraine' → pass 'Ukraine'."
+                    ),
+                ),
+                "kind": types.Schema(
+                    type=types.Type.STRING,
+                    enum=list(ENTITY_KINDS),
+                    description=(
+                        "Optional entity-kind filter. Pass when the "
+                        "user's phrasing makes the kind explicit "
+                        "('the CEO Tim Cook' → person, 'the company "
+                        "Apple' → organization, 'the country Ukraine' "
+                        "→ place). Omit when the kind is ambiguous or "
+                        "obvious from the entity itself — kind filter "
+                        "is a precision knob, not a requirement. Valid "
+                        "values: person, place, organization."
+                    ),
+                ),
+            },
+            required=["entity"],
+        ),
+    )
     return [
         types.Tool(
-            function_declarations=[recent_func, search_func, breaking_func]
+            function_declarations=[
+                recent_func,
+                search_func,
+                breaking_func,
+                search_by_entity_func,
+            ]
         )
     ]
 
@@ -418,5 +553,16 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
                 default=BREAKING_DEFAULT_LIMIT,
                 ceiling=BREAKING_MAX_LIMIT,
             ),
+        )
+    if name == "news_search_by_entity":
+        raw_entity = args.get("entity", "")
+        if not isinstance(raw_entity, str):
+            return {"error": "bad entity", "detail": "entity must be a string"}
+        entity = raw_entity.strip()[:ENTITY_MAX_LEN]
+        if not entity:
+            return {"error": "bad entity", "detail": "entity is empty"}
+        return await _news_search_by_entity(
+            entity=entity,
+            kind=_normalise_entity_kind(args.get("kind")),
         )
     return None

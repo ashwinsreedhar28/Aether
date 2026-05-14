@@ -75,6 +75,10 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/news_feeds/schemas/breaking.json
+      - name: search_by_entity
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/news_feeds/schemas/search_by_entity.json
 
   - id: finance
     runtime: local-process
@@ -149,6 +153,18 @@ relationships:
     to: news_feeds.breaking
   - from: raven
     to: news_feeds.breaking
+
+  # News entity-aware search. Same multi-consumer-on-one-surface pattern
+  # as recent / search / breaking. Shell edge is reserved for a future
+  # "tap an entity chip" UI affordance (not consumed in the PR that
+  # introduces the surface). Raven consumes immediately via the
+  # news_search_by_entity voice tool — "what's the latest on Tim Cook"
+  # → exact-match lookup over compromise-extracted persons / places /
+  # organizations stored alongside the polled articles.
+  - from: shell
+    to: news_feeds.search_by_entity
+  - from: raven
+    to: news_feeds.search_by_entity
 
   # The Finance app (renderer-side) reads the cached ticker grid via the
   # market_summary surface, and the per-symbol quote surface backs any

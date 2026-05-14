@@ -4,9 +4,66 @@ All notable changes to homeOS are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning per
 CLAUDE.md §6 (honest pre-1.0 scheme).
 
-## [Unreleased]
-
-### Added
+- **Entity extraction on news articles.** Each article now runs through
+  a lightweight NER pass (compromise's `.people()` / `.places()` /
+  `.organizations()` matchers) in the poller after the article upsert.
+  Extracted entities land in a new JOIN table
+  `article_entities (article_id, entity_name, entity_kind, mentions)`
+  with PRIMARY KEY `(article_id, entity_name)`. New mesh surface
+  `news_feeds.search_by_entity({entity, kind?, limit?})` returns
+  articles ranked by `mentions DESC, published_at DESC` for an exact
+  case-insensitive entity-name match (`LOWER()` on both sides), with
+  an optional `kind` filter (`person` / `place` / `organization`). DB
+  schema bumps to `user_version=4`; the v3→v4 migration creates the
+  JOIN table + index inside a single transaction (CLAUDE.md §10
+  schema-migrations gotcha applied — column-dependent objects live in
+  `migrate()`, not the initial CREATE block). Orthogonal to the v3
+  urgency column: `article_entities` joins on `articles.id`, not on
+  any urgency-related path. MeshDeny on empty / oversize entity
+  strings (`news_feeds_bad_entity`) and on unknown kinds
+  (`news_feeds_bad_entity_kind`). Spec named wink-nlp; verified during
+  implementation that wink-nlp's built-in NER only handles DATE /
+  TIME / MONEY / etc., not PERSON / PLACE / ORG — switched to
+  compromise. See DECISIONS.md "News entity extraction via
+  compromise". Existing articles backfill incrementally on each
+  feed's next poll cycle (the extractor is pure and
+  `replaceArticleEntities` is atomic delete-then-insert, so re-polls
+  are idempotent).
+- **New voice tool `news_search_by_entity(entity, kind?)`.** Thin
+  `mesh_invoke` wrapper around `news_feeds.search_by_entity`. Same
+  Article stripping as `news_recent` / `news_search` / `news_breaking`
+  (urgency carries through to the response payload, same shape across
+  all four read paths). Surfaces `news_feeds_bad_entity` and
+  `news_feeds_bad_entity_kind` MeshDeny reasons as a structured
+  `bad entity` error so Gemini speaks a clean "didn't catch the
+  entity, sir" line. Prompt updates: tool count bumped to 13 (the
+  in-prompt numbered tool list now also includes `news_breaking`,
+  which PR #24 had added to function_descriptions and dispatch but
+  not to the inline enumeration); new `news_search_by_entity` listed
+  at position 10 between `news_breaking` and the finance triplet;
+  explicit rule that PROPER NOUNS go to `news_search_by_entity` and
+  COMMON-NOUN TOPICAL PHRASES go to `news_search`; four new few-shot
+  examples ("what's the latest on Tim Cook" → person, "any news
+  about Apple" → organization, "what's happening in Ukraine" →
+  place, "any news about AI safety" → keyword); existing "what's
+  the latest on Iran" / "tech news about OpenAI" / "anything on the
+  Lakers" examples re-routed to the entity tool now that proper-noun
+  precision is available; anti-hallucination guardrail extended to
+  empty entity-search results ("no coverage on that in the feed
+  pool yet, sir"). PR #25's Conversation Context block and
+  follow-up reference examples preserved intact. See DECISIONS.md
+  2026-05-13 "News entity extraction via compromise".
+- **Two new manifest edges:** `shell → news_feeds.search_by_entity`
+  (reserved for a future "tap an entity chip" UI affordance inside
+  the News app — not consumed in this PR) and
+  `raven → news_feeds.search_by_entity` (consumed immediately by
+  the `news_search_by_entity` voice tool). Same multi-consumer-on-
+  one-surface pattern established by `news_feeds.recent` /
+  `news_feeds.search` / `news_feeds.breaking`.
+- `nodes/news_feeds/schemas/search_by_entity.json` — JSON Schema
+  validated by Core on every invocation. `entity` is required
+  (1–100 chars); `kind` enum-validates against `person` / `place` /
+  `organization`; `limit` defaults to 20, max 50.
 
 - **News urgency scoring (heuristic).** Every article now gets a
   deterministic `urgency` bucket — `low` / `medium` / `high` — scored
@@ -51,10 +108,9 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
   urgency='high')`, and "any urgent news on Iran" → `news_search`
   with `urgency='high'`. Anti-hallucination guardrail extended:
   empty `news_breaking` → "Nothing breaking in the feed pool right
-  now, sir" — never substitute remembered headlines. Tool count
-  bumps to 12. `news_recent` and `news_search` voice tools also
-  accept the optional `urgency` filter for category- /
-  topic-bounded urgency queries.
+  now, sir" — never substitute remembered headlines. `news_recent`
+  and `news_search` voice tools also accept the optional `urgency`
+  filter for category- / topic-bounded urgency queries.
 - **Two new manifest edges** mirroring the existing `recent` /
   `search` pattern: `shell → news_feeds.breaking` (reserved for a
   future renderer-side breaking view — the v0.3.6 News app

@@ -4,7 +4,14 @@ import { MeshNode, MeshDeny, type Envelope } from '@homeos/mesh-node-sdk'
 import { FEEDS } from './feeds'
 import { FeedPoller } from './fetcher'
 import { ArticleStore } from './storage'
-import { isCategory, isUrgency, type Category, type Urgency } from './types'
+import {
+  isCategory,
+  isEntityKind,
+  isUrgency,
+  type Category,
+  type EntityKind,
+  type Urgency,
+} from './types'
 
 const NODE_ID = 'news_feeds'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
@@ -25,6 +32,16 @@ const QUERY_MAX_LEN = 200
 const BREAKING_DEFAULT_LIMIT = 10
 const BREAKING_MAX_LIMIT = 50
 
+// search_by_entity uses tighter bounds — entity surfaces are exact-
+// match lookups not phrase searches, so the cap of 50 from FTS5 search
+// also applies here. Entity strings themselves are capped well below
+// the FTS5 200-char ceiling: real-world entity surface forms top out
+// around 60–80 chars (long org names, hyphenated places); 100 leaves
+// headroom without inviting MeshDeny.
+const ENTITY_DEFAULT_LIMIT = 20
+const ENTITY_MAX_LIMIT = 50
+const ENTITY_MAX_LEN = 100
+
 interface RecentArgs {
   limit?: number
   since?: string
@@ -40,6 +57,12 @@ interface SearchArgs {
 }
 
 interface BreakingArgs {
+  limit?: number
+}
+
+interface SearchByEntityArgs {
+  entity?: unknown
+  kind?: unknown
   limit?: number
 }
 
@@ -128,6 +151,14 @@ function clampBreakingLimit(value: unknown): number {
   return n
 }
 
+function clampEntityLimit(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return ENTITY_DEFAULT_LIMIT
+  const n = Math.floor(value)
+  if (n < 1) return 1
+  if (n > ENTITY_MAX_LIMIT) return ENTITY_MAX_LIMIT
+  return n
+}
+
 // FTS5 MATCH strings have their own grammar (column filters, NEAR,
 // quoted phrases, * suffix). Letting user input through raw means a
 // stray quote or parenthesis throws a sqlite syntax error rather than
@@ -188,6 +219,36 @@ function makeSearchHandler(store: ArticleStore) {
   }
 }
 
+function makeSearchByEntityHandler(store: ArticleStore) {
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
+    const payload = env.payload as SearchByEntityArgs
+    const rawEntity = payload?.entity
+    if (typeof rawEntity !== 'string') {
+      throw new MeshDeny('news_feeds_bad_entity', { reason: 'entity must be a string' })
+    }
+    const trimmed = rawEntity.trim()
+    if (trimmed.length === 0) {
+      throw new MeshDeny('news_feeds_bad_entity', { reason: 'entity is empty' })
+    }
+    if (trimmed.length > ENTITY_MAX_LEN) {
+      throw new MeshDeny('news_feeds_bad_entity', {
+        reason: `entity exceeds ${ENTITY_MAX_LEN} chars`,
+      })
+    }
+    let kind: EntityKind | undefined
+    const rawKind = payload?.kind
+    if (rawKind !== undefined && rawKind !== null) {
+      if (typeof rawKind !== 'string' || !isEntityKind(rawKind)) {
+        throw new MeshDeny('news_feeds_bad_entity_kind', { kind: rawKind })
+      }
+      kind = rawKind
+    }
+    const limit = clampEntityLimit(payload?.limit ?? ENTITY_DEFAULT_LIMIT)
+    const articles = store.searchByEntity({ entity: trimmed, kind, limit })
+    return { articles }
+  }
+}
+
 function makeRecentHandler(store: ArticleStore) {
   return async (env: Envelope): Promise<Record<string, unknown>> => {
     const payload = env.payload as RecentArgs
@@ -239,12 +300,16 @@ async function main(): Promise<void> {
   const markerPath = join(nodeDir, 'running')
 
   const store = new ArticleStore(dbPath)
-  log(`storage opened at ${dbPath} (existing rows=${store.count()})`)
+  log(
+    `storage opened at ${dbPath} (existing rows=${store.count()}, ` +
+      `entity rows=${store.entityCount()})`,
+  )
 
   const node = new MeshNode(NODE_ID, secret, CORE_URL)
   node.on('recent', makeRecentHandler(store))
   node.on('search', makeSearchHandler(store))
   node.on('breaking', makeBreakingHandler(store))
+  node.on('search_by_entity', makeSearchByEntityHandler(store))
   await node.start()
   log(`registered with core at ${CORE_URL}`)
 

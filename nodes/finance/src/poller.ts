@@ -7,10 +7,11 @@ import type { TickerSource } from './tickers'
 // One symbol per stagger slot. With 10 tickers × 30s stagger = exactly
 // 5 minutes, so the next cycle begins immediately after the previous
 // finishes — effectively continuous polling, but never more than ~2
-// requests/min averaged across the cycle. Well under Alpha Vantage's
-// historical 5/min rolling limit. NB: this still exceeds AV's current
-// 25/day free-tier cap; the cap is surfaced in DECISIONS.md and the PR
-// description rather than worked around silently.
+// requests/min averaged across the cycle. Finnhub's free tier allows
+// 60 req/min with no daily cap, so we're at ~3% of the per-minute
+// limit. The stagger is kept (vs. burst fetching) as belt-and-braces
+// in case the upstream limit tightens, and to spread fetch latency
+// across the cycle rather than spiking at the start.
 const POLL_CYCLE_MS = 5 * 60_000
 const STAGGER_MS = 30_000
 

@@ -1,20 +1,22 @@
 import type { Quote } from './types'
 
-// Thin Alpha Vantage GLOBAL_QUOTE client. Free-tier endpoint documented at
-// https://www.alphavantage.co/documentation/#latestprice. We do not use the
-// TIME_SERIES_INTRADAY endpoint — GLOBAL_QUOTE gives price/change/volume in
-// a single request, which is what the renderer's grid and the voice
-// readbacks need.
+// Thin Finnhub /quote client. Endpoint documented at
+// https://finnhub.io/docs/api/quote. We use this single endpoint —
+// not the /stock/profile2 or /stock/metric endpoints — because
+// /quote returns price + change + percent_change in one call, which
+// is exactly what the renderer's grid and the voice readbacks need.
+// Volume is intentionally not fetched (see types.ts).
 //
 // Failure taxonomy:
 //   - missing API key       → throw QuoteClientError('no_api_key')
 //   - HTTP non-200          → throw QuoteClientError('http_error', { status })
-//   - rate limited          → throw QuoteClientError('rate_limited')
+//   - rate limited (429)    → throw QuoteClientError('rate_limited')
 //   - malformed response    → throw QuoteClientError('malformed', { reason })
 //   - unknown symbol        → throw QuoteClientError('unknown_symbol')
-// The handler / poller map these to MeshDeny reasons or log lines.
+// The handler / poller map these to MeshDeny reasons (finance_<reason>)
+// or log lines.
 
-const BASE_URL = 'https://www.alphavantage.co/query'
+const BASE_URL = 'https://finnhub.io/api/v1/quote'
 const FETCH_TIMEOUT_MS = 15_000
 
 export type QuoteClientReason =
@@ -34,18 +36,25 @@ export class QuoteClientError extends Error {
   }
 }
 
-interface GlobalQuoteEnvelope {
-  'Global Quote'?: {
-    '01. symbol'?: string
-    '05. price'?: string
-    '06. volume'?: string
-    '07. latest trading day'?: string
-    '09. change'?: string
-    '10. change percent'?: string
-  }
-  Note?: string
-  Information?: string
-  'Error Message'?: string
+// Finnhub's /quote response. Fields documented at
+// https://finnhub.io/docs/api/quote — c = current, d = change,
+// dp = change percent, h/l/o = high/low/open (unused),
+// pc = previous close (unused), t = unix-seconds timestamp.
+//
+// Error responses are signalled either by HTTP status (4xx/429) or by
+// an "error" string in the body (e.g. invalid API key returns 401 +
+// {"error": "Invalid API key"}). An unknown but well-formed symbol
+// returns HTTP 200 with all numeric fields set to 0.
+interface FinnhubQuote {
+  c?: number
+  d?: number | null
+  dp?: number | null
+  h?: number
+  l?: number
+  o?: number
+  pc?: number
+  t?: number
+  error?: string
 }
 
 export interface QuoteClientOptions {
@@ -69,9 +78,8 @@ export class QuoteClient {
   async fetchQuote(symbol: string): Promise<Quote> {
     const upper = symbol.toUpperCase()
     const url =
-      `${BASE_URL}?function=GLOBAL_QUOTE` +
-      `&symbol=${encodeURIComponent(upper)}` +
-      `&apikey=${encodeURIComponent(this.apiKey)}`
+      `${BASE_URL}?symbol=${encodeURIComponent(upper)}` +
+      `&token=${encodeURIComponent(this.apiKey)}`
 
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
@@ -85,73 +93,63 @@ export class QuoteClient {
       throw new QuoteClientError('rate_limited', { status: 429 })
     }
     if (res.status !== 200) {
-      throw new QuoteClientError('http_error', { status: res.status })
+      // Surface the body for 4xx so an invalid API key shows up in the
+      // log file as something more actionable than "http_error: 401".
+      let bodyHint: unknown
+      try {
+        bodyHint = await res.json()
+      } catch {
+        /* ignore */
+      }
+      throw new QuoteClientError('http_error', { status: res.status, body: bodyHint })
     }
-    let data: GlobalQuoteEnvelope
+    let data: FinnhubQuote
     try {
-      data = (await res.json()) as GlobalQuoteEnvelope
+      data = (await res.json()) as FinnhubQuote
     } catch (e) {
       throw new QuoteClientError('malformed', { reason: (e as Error).message })
     }
 
-    // Alpha Vantage signals rate-limit and informational responses with
-    // 200 + a Note / Information field instead of an HTTP error. The
-    // free-tier daily cap surfaces here as Information; the per-minute
-    // throttle surfaces here as Note. Treat both as rate_limited.
-    if (typeof data.Note === 'string' || typeof data.Information === 'string') {
-      throw new QuoteClientError('rate_limited', {
-        note: data.Note,
-        info: data.Information,
-      })
-    }
-    if (typeof data['Error Message'] === 'string') {
-      throw new QuoteClientError('unknown_symbol', {
-        symbol: upper,
-        upstream: data['Error Message'],
-      })
+    if (typeof data.error === 'string' && data.error.length > 0) {
+      throw new QuoteClientError('http_error', { upstream: data.error })
     }
 
-    const gq = data['Global Quote']
-    // An empty `Global Quote: {}` is what Alpha Vantage returns for a
-    // valid-looking-but-unknown symbol (e.g. typo). Treat as unknown.
-    if (!gq || typeof gq['05. price'] !== 'string') {
-      throw new QuoteClientError('unknown_symbol', { symbol: upper })
+    // Finnhub returns all-zeros (and pc=0) for unknown-but-well-formed
+    // symbols — the API has no separate 404 path. Treat as unknown_symbol
+    // so the handler can map it to MeshDeny rather than a confusing
+    // "AAPL is at $0.00" quote.
+    if (typeof data.c !== 'number' || data.c === 0) {
+      throw new QuoteClientError('unknown_symbol', { symbol: upper, body: data })
     }
-
-    const price = parseNumeric(gq['05. price'])
-    const change = parseNumeric(gq['09. change'])
-    const changePercent = parsePercent(gq['10. change percent'])
-    const volume = parseNumeric(gq['06. volume'])
-    const latestDay = typeof gq['07. latest trading day'] === 'string' ? gq['07. latest trading day'] : ''
-    const reportedSymbol = typeof gq['01. symbol'] === 'string' ? gq['01. symbol'] : upper
-    if (price === null || change === null || changePercent === null) {
-      throw new QuoteClientError('malformed', { reason: 'unparsable numeric', upstream: gq })
+    if (typeof data.d !== 'number' || typeof data.dp !== 'number') {
+      // Some symbols (ETFs at session start, halted stocks) come back
+      // with c set but d/dp null. Treat as malformed for v1 — the
+      // renderer's empty/error state handles the upstream's gaps better
+      // than a "change: null" surface payload would.
+      throw new QuoteClientError('malformed', { reason: 'change_fields_null', body: data })
     }
 
     return {
-      symbol: reportedSymbol.toUpperCase(),
-      price,
-      change,
-      change_percent: changePercent,
-      volume: volume ?? 0,
-      latest_trading_day: latestDay,
+      symbol: upper,
+      price: data.c,
+      change: data.d,
+      change_percent: data.dp,
+      latest_trading_day: unixToTradingDay(data.t),
       fetched_at: new Date().toISOString(),
     }
   }
 }
 
-function parseNumeric(v: unknown): number | null {
-  if (typeof v !== 'string') return null
-  const n = Number(v)
-  return Number.isFinite(n) ? n : null
-}
-
-// Alpha Vantage returns the change percent as a string with a trailing
-// '%' (e.g. "1.2345%"). Strip and parse; absent → null so the caller can
-// surface a malformed-response error rather than silently treating it as 0.
-function parsePercent(v: unknown): number | null {
-  if (typeof v !== 'string') return null
-  const stripped = v.endsWith('%') ? v.slice(0, -1) : v
-  const n = Number(stripped)
-  return Number.isFinite(n) ? n : null
+// Finnhub timestamps are unix seconds. We want a YYYY-MM-DD string in
+// UTC so cards display a stable trading-day label across timezones.
+// A zero / missing timestamp falls back to today's date — the upstream
+// gap is preferable to an empty cell, and the price itself is the
+// load-bearing data.
+function unixToTradingDay(t: number | undefined): string {
+  const seconds = typeof t === 'number' && t > 0 ? t : Math.floor(Date.now() / 1000)
+  const d = new Date(seconds * 1000)
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }

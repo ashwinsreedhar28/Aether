@@ -73,12 +73,12 @@ nodes:
     identity_secret: env:MESH_FINANCE_SECRET
     metadata:
       description: |
-        Stock-quote aggregator. Polls Alpha Vantage GLOBAL_QUOTE every
-        5 minutes for a hardcoded list of US tickers (one symbol every
-        30s within a cycle) and caches quotes in-memory — NOT SQLite,
-        see DECISIONS.md "Second data node: finance via Alpha Vantage".
-        Exposes per-symbol `quote` and full-grid `market_summary`. Second
-        real *data* node — proves the template established by news_feeds
+        Stock-quote aggregator. Polls Finnhub /quote every 5 minutes
+        for a hardcoded list of US tickers (one symbol every 30s
+        within a cycle) and caches quotes in-memory — NOT SQLite, see
+        DECISIONS.md "Second data node: finance via Finnhub". Exposes
+        per-symbol `quote` and full-grid `market_summary`. Second real
+        *data* node — proves the template established by news_feeds
         carries to API-shaped sources, not just RSS.
     surfaces:
       - name: quote

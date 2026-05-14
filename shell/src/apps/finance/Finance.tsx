@@ -10,7 +10,6 @@ interface Quote {
   price: number
   change: number
   change_percent: number
-  volume: number
   latest_trading_day: string
   fetched_at: string
 }
@@ -18,6 +17,12 @@ interface Quote {
 type LoadState =
   | { kind: 'loading' }
   | { kind: 'ok'; quotes: Quote[]; fetchedAt: string }
+  // 'throttled' is the special-case rate_limited reason — surfaced with
+  // a "temporarily throttled, retry shortly" copy instead of "finance
+  // unavailable". A confused-by-rare-event user reads the throttled
+  // message as "this will sort itself out" rather than "something is
+  // broken". Everything else collapses into the generic error path.
+  | { kind: 'throttled' }
   | { kind: 'error'; message: string }
 
 // 60s. Most ticks hit the node's in-memory cache (poller refreshes every
@@ -40,14 +45,6 @@ function formatChangePercent(n: number): string {
   if (!Number.isFinite(n)) return '—'
   const sign = n > 0 ? '+' : ''
   return `${sign}${n.toFixed(2)}%`
-}
-
-function formatVolume(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return ''
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
 }
 
 function QuoteCard({ quote }: { quote: Quote }) {
@@ -98,14 +95,6 @@ function QuoteCard({ quote }: { quote: Quote }) {
           {formatPrice(quote.change)})
         </span>
       </div>
-      {formatVolume(quote.volume) && (
-        <div
-          className="text-[11px] tabular-nums"
-          style={{ color: 'var(--holo-muted)' }}
-        >
-          Vol {formatVolume(quote.volume)}
-        </div>
-      )}
     </div>
   )
 }
@@ -124,6 +113,45 @@ function LoadingState() {
       <div className="text-sm" style={{ color: 'var(--holo-muted)' }}>
         Fetching quotes…
       </div>
+    </div>
+  )
+}
+
+function ThrottledState({ onRetry }: { onRetry: () => void }) {
+  // Holographic-amber treatment to distinguish "temporary, will recover"
+  // from "something is broken" (which gets the red ErrorState below).
+  // No mono error text — the throttle is the message, no upstream detail
+  // would help the user.
+  return (
+    <div
+      className="holo-card rounded-2xl border px-5 py-4 flex flex-col gap-3"
+      style={{
+        background: 'rgba(40,28,12,0.55)',
+        borderColor: 'rgba(255,200,105,0.45)',
+      }}
+    >
+      <div className="text-sm" style={{ color: 'rgb(255, 210, 138)' }}>
+        Finance temporarily throttled — quotes refreshing later.
+      </div>
+      <div
+        className="text-[11px] leading-relaxed"
+        style={{ color: 'rgba(255,210,138,0.75)' }}
+      >
+        The upstream API is over its rate limit. The finance node will
+        retry on its next 5-minute cycle; press Retry to try sooner.
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="self-start text-xs px-3 py-1.5 rounded-md border transition-colors"
+        style={{
+          color: 'var(--holo-accent)',
+          borderColor: 'rgba(74,158,255,0.45)',
+          background: 'rgba(74,158,255,0.10)',
+        }}
+      >
+        Retry
+      </button>
     </div>
   )
 }
@@ -211,6 +239,15 @@ export function Finance() {
       return
     }
     if (!result.ok || !result.envelope) {
+      // Rate-limit is the one case worth distinguishing: it is temporary
+      // and the user shouldn't read it as "finance is broken." Reason
+      // comes through as the message field (MeshDeny reason mapped by
+      // shell/electron/main/services/mesh.ts). Everything else collapses
+      // into the generic error path.
+      if (result.error?.message === 'finance_rate_limited') {
+        setState({ kind: 'throttled' })
+        return
+      }
       setState({
         kind: 'error',
         message: result.error?.message ?? 'mesh invoke returned no envelope',
@@ -238,6 +275,7 @@ export function Finance() {
     <div className="h-full w-full overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8 flex flex-col gap-4">
         {state.kind === 'loading' && <LoadingState />}
+        {state.kind === 'throttled' && <ThrottledState onRetry={() => void load()} />}
         {state.kind === 'error' && (
           <ErrorState message={state.message} onRetry={() => void load()} />
         )}

@@ -2,7 +2,7 @@
   "name": "@homeos/finance",
   "version": "0.0.0",
   "private": true,
-  "description": "Mesh node that polls stock quotes via Alpha Vantage and exposes per-symbol + market-summary surfaces.",
+  "description": "Mesh node that polls stock quotes via Finnhub and exposes per-symbol + market-summary surfaces.",
   "license": "UNLICENSED",
   "main": "./dist/index.js",
   "scripts": {

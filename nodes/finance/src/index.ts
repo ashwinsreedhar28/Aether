@@ -92,12 +92,12 @@ async function main(): Promise<void> {
     )
     process.exit(2)
   }
-  const apiKey = process.env.ALPHA_VANTAGE_API_KEY
+  const apiKey = process.env.FINNHUB_API_KEY
   if (!apiKey) {
     process.stderr.write(
-      `[${NODE_ID}] ALPHA_VANTAGE_API_KEY is required; refusing to start. ` +
-        `Get a free key at https://www.alphavantage.co/support/#api-key and export ` +
-        `ALPHA_VANTAGE_API_KEY=... before launching the shell.\n`,
+      `[${NODE_ID}] FINNHUB_API_KEY is required; refusing to start. ` +
+        `Get a free key at https://finnhub.io/register and export ` +
+        `FINNHUB_API_KEY=... before launching the shell.\n`,
     )
     process.exit(2)
   }

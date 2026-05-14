@@ -4,15 +4,12 @@
 // doesn't pile up stale entries.
 //
 // Selection criteria: liquid US equities + the headline broad-market
-// ETFs (SPY/QQQ/DIA). Ten symbols is the upper bound that fits a 3-col
-// grid in 4 rows on the renderer without scroll, and matches the daily-
-// quota planning in DECISIONS.md (a 5-minute poll cadence with this many
-// symbols sits well under the rolling 5-requests/minute Alpha Vantage
-// rate limit if it applies, though it does exceed the current free-tier
-// 25-requests/day cap — surfaced in the PR).
+// ETFs (SPY/QQQ/DIA). Ten symbols fits a 3-col grid in ~4 rows on the
+// renderer without scroll, and at the 5-min × 30-s stagger cadence
+// uses ~2 req/min — well under Finnhub's free-tier 60-req/min ceiling.
 export interface TickerSource {
-  /** US ticker symbol. UPPERCASE; the Alpha Vantage API echoes whatever
-   *  case is sent, but Quote.symbol is normalised to upper here. */
+  /** US ticker symbol. UPPERCASE; the client normalises before
+   *  request and the Quote.symbol is always upper. */
   symbol: string
   /** Display name used for voice readbacks ("Apple is up two percent"). */
   name: string

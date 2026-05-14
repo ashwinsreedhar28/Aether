@@ -11,6 +11,11 @@ manifest.yaml. Same anti-hallucination guardrail as news: training data
 contains historical stock prices and the model will happily quote them
 if not blocked. The system prompt + this docstring exist to make sure
 Gemini calls the tool rather than recalling a 2024 close.
+
+Rate-limit responses (``finance_rate_limited``) are returned with a
+``spoken`` hint so Gemini reads a natural "throttled, try again in a
+minute" line rather than the generic mesh-unavailable copy. All other
+errors share the generic shape.
 """
 from __future__ import annotations
 
@@ -25,9 +30,9 @@ FUNCTIONS = ["finance_quote", "finance_market_summary"]
 
 def _strip_quote(raw: Any) -> dict[str, Any] | None:
     """Reduce a Quote envelope to the spoken-readable fields. Drops
-    volume + latest_trading_day + fetched_at — Gemini doesn't need them
-    to say the price aloud, and keeping the response narrow stops the
-    model from reciting "fetched at 2026-05-13T17:23:01Z" by accident."""
+    latest_trading_day + fetched_at — Gemini doesn't need them to say
+    the price aloud, and keeping the response narrow stops the model
+    from reciting "fetched at 2026-05-13T17:23:01Z" by accident."""
     if not isinstance(raw, dict):
         return None
     symbol = raw.get("symbol", "")
@@ -41,6 +46,18 @@ def _strip_quote(raw: Any) -> dict[str, Any] | None:
     }
 
 
+def _throttled_response() -> dict[str, Any]:
+    """Spoken-hint response for the rate_limited case. Architect spec
+    Q3: the throttle is a temporary, expected state with a clear
+    remediation — collapsing it into "unavailable" misleads the user
+    into thinking finance is broken. Gemini reads ``spoken`` aloud
+    verbatim when present."""
+    return {
+        "error": "rate_limited",
+        "spoken": "Stock quotes are temporarily throttled, sir; try again in a minute.",
+    }
+
+
 async def _finance_quote(symbol: str) -> dict[str, Any]:
     upper = symbol.strip().upper()
     if not upper:
@@ -48,10 +65,12 @@ async def _finance_quote(symbol: str) -> dict[str, Any]:
     try:
         response = await mesh_invoke("finance.quote", {"symbol": upper})
     except MeshUnavailable as e:
-        # Either the mesh client isn't up, or the node returned MeshDeny
-        # (untracked symbol, rate-limited, upstream malformed, …). All
-        # surface here as a single MeshUnavailable. The detail string
-        # carries the reason for Gemini to surface plainly.
+        # MeshUnavailable.reason carries the MeshDeny reason from the
+        # remote node (set by mesh_client when the response envelope's
+        # kind is "error"). None when the failure is setup-time
+        # (env unset / SDK import failed / register failed).
+        if e.reason == "finance_rate_limited":
+            return _throttled_response()
         return {"error": "mesh unavailable", "detail": str(e)}
 
     raw_quote = response.get("quote") if isinstance(response, dict) else None
@@ -65,6 +84,8 @@ async def _finance_market_summary() -> dict[str, Any]:
     try:
         response = await mesh_invoke("finance.market_summary", {})
     except MeshUnavailable as e:
+        if e.reason == "finance_rate_limited":
+            return _throttled_response()
         return {"error": "mesh unavailable", "detail": str(e)}
 
     raw_quotes = response.get("quotes") if isinstance(response, dict) else None

@@ -233,6 +233,10 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
   Electron, stdout-pollution breaking JSON-RPC daemons, mic-during-
   playback acoustic echo loop. Each scar names its source commit so
   future readers can audit the original failure.
+- CLAUDE.md §10 gains a "Schema migrations" subsection capturing
+  the migration-order gotcha from PR #16 (column-dependent indexes
+  must be created inside the migration step, not the initial
+  CREATE block).
 
 ### Fixed
 

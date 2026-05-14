@@ -10,6 +10,15 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- **`nodes/weather/`** — new TypeScript mesh node polling Open-Meteo
+  every 15 minutes. Two surfaces: `weather.current` (current conditions:
+  temperature, humidity, wind, conditions string) and `weather.forecast`
+  (1–7 day forecast, default 3, with daily highs/lows/conditions/precip).
+  No-auth API. Graceful degradation when `AETHER_WEATHER_LAT/LON/LABEL`
+  env vars missing. Polls in-memory; no persistent history. Voice tools
+  `weather_current()` and `weather_forecast(days=3)` registered in
+  raven-core (tool count 13 → 15). Weather section added to morning
+  digest. `MESH_WEATHER_SECRET` wired into `secrets.ts` + `coreManager.ts`.
 - **`docs/voice-extensibility-roadmap.md`** captures the five-piece
   design for organising Aether's voice tool substrate as the tool
   count grows past 13. Encodes the five tensions the arc resolves

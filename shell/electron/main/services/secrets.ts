@@ -12,6 +12,7 @@ export interface MeshSecrets {
   newsFeedsSecret: string
   financeSecret: string
   digestSecret: string
+  weatherSecret: string
 }
 
 function hex32(): string {
@@ -28,5 +29,6 @@ export function generateMeshSecrets(): MeshSecrets {
     newsFeedsSecret: hex32(),
     financeSecret: hex32(),
     digestSecret: hex32(),
+    weatherSecret: hex32(),
   }
 }

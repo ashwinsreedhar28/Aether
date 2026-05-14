@@ -96,6 +96,11 @@ export class CoreManager {
       // as the data nodes — Core resolves env:MESH_DIGEST_SECRET at
       // manifest load.
       MESH_DIGEST_SECRET: this.secrets.digestSecret,
+      // Weather is the second data node (provides current conditions +
+      // forecast). Same env contract — Core resolves env:MESH_WEATHER_SECRET
+      // at manifest load so nodeManager can inject the same value into the
+      // weather child's env.
+      MESH_WEATHER_SECRET: this.secrets.weatherSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

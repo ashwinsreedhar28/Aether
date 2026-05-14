@@ -33,6 +33,7 @@ from . import notify_tool
 from . import news_tool
 from . import finance_tool
 from . import digest_tool
+from . import weather_tool
 
 # Disabled until mesh integration:
 # from . import cerebras_tool   # second-LLM HTML generator, needs Flask sidecar
@@ -46,6 +47,7 @@ _TOOL_MODULES = [
     news_tool,
     finance_tool,
     digest_tool,
+    weather_tool,
 ]
 
 
@@ -188,6 +190,27 @@ def _summarise_finance_history(args: dict, result: dict) -> str:
     )
 
 
+def _summarise_weather_current(result: dict) -> str:
+    if "error" in result:
+        return f"weather_current error: {result.get('error')}"
+    if not result.get("available"):
+        return "weather_current: not configured"
+    location = result.get("location", "?")
+    temp_f = result.get("temperature_f")
+    conditions = result.get("conditions", "?")
+    return f"weather_current({location}): {temp_f}°F, {conditions}"
+
+
+def _summarise_weather_forecast(args: dict, result: dict) -> str:
+    if "error" in result:
+        return f"weather_forecast error: {result.get('error')}"
+    if not result.get("available"):
+        return "weather_forecast: not configured"
+    location = result.get("location", "?")
+    days = result.get("days") or args.get("days", 3)
+    return f"weather_forecast({location}): {days} day(s)"
+
+
 def _summarise_generic(name: str, result: dict) -> str:
     if isinstance(result, dict) and "error" in result:
         return f"{name} error: {result.get('error')}"
@@ -231,6 +254,10 @@ def update_session_context(name: str, args: dict, result: Any) -> None:
             if symbol:
                 ctx.set_ticker(str(symbol))
             summary = _summarise_finance_history(args, result_dict)
+        elif name == "weather_current":
+            summary = _summarise_weather_current(result_dict)
+        elif name == "weather_forecast":
+            summary = _summarise_weather_forecast(args, result_dict)
         else:
             # time, notify, memory tools: just record the call. They
             # don't carry conversational state ("go back to that

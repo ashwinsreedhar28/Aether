@@ -86,6 +86,11 @@ export class CoreManager {
       // resolves env:MESH_NEWS_FEEDS_SECRET against the same value at
       // manifest load.
       MESH_NEWS_FEEDS_SECRET: this.secrets.newsFeedsSecret,
+      // And the same for finance — Core needs the secret in its
+      // environment at manifest-load so the env:MESH_FINANCE_SECRET
+      // reference resolves to the same hex-32 that nodeManager will
+      // inject into the finance child's env.
+      MESH_FINANCE_SECRET: this.secrets.financeSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

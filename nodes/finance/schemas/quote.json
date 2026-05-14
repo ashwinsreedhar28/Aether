@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "finance.quote",
+  "description": "Get the latest cached quote for a tracked stock symbol. If the cached quote is older than 5 minutes the node triggers a fresh fetch before returning. Symbols outside the hardcoded tracked list return MeshDeny: finance_untracked_symbol.",
+  "type": "object",
+  "required": ["symbol"],
+  "additionalProperties": true,
+  "properties": {
+    "symbol": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8,
+      "description": "US ticker symbol (case-insensitive, normalised to uppercase by the handler). Must be in the node's tracked list."
+    }
+  }
+}

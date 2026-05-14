@@ -8,6 +8,54 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- **Second real *data* node: `finance`.** Node.js mesh node at
+  `nodes/finance/` that polls Alpha Vantage's GLOBAL_QUOTE endpoint
+  every 5 minutes for a hardcoded list of ten US tickers (AAPL, MSFT,
+  GOOGL, AMZN, NVDA, TSLA, META, SPY, QQQ, DIA), staggering one symbol
+  every 30 seconds within each cycle. Quotes cached in-memory (NOT
+  SQLite — quotes are time-sensitive and persisting them across
+  restarts would mislead consumers). Two surfaces: `finance.quote({
+  symbol })` returns the cached quote (refreshing on-demand if stale),
+  with `MeshDeny: finance_untracked_symbol` for symbols outside the
+  tracked list; `finance.market_summary()` returns the full cached
+  grid. Validates the data-node template as a reusable pattern (news
+  was the RSS shape; finance is the REST-API shape) — pattern
+  extraction is held back to the third instance per CLAUDE.md §14.
+- **New Finance app** at `shell/src/apps/finance/` (order 60, between
+  News and Markdown; `TrendingUp` icon). 2-column-mobile / 3-column-
+  desktop responsive grid of `QuoteCard`s — symbol, price, dollar +
+  percent change with green ▲ / red ▼ direction arrows, day-trade-day
+  label, volume. Auto-refresh every 60 seconds against
+  `finance.market_summary`; most ticks hit the node's in-memory cache
+  cheaply. Loading / empty / error states match the holographic
+  language established by the News app, with a Retry button on the
+  error path.
+- **Two new voice tools:** `finance_quote(symbol)` ("what's AAPL at",
+  "how is Tesla doing today") and `finance_market_summary()` ("how's
+  the market", "give me a market update", "my stocks"). Both routed
+  through `mesh_invoke` to the finance node. Prompt updates: ticker
+  mapping (AAPL=Apple, MSFT=Microsoft, etc.) so Gemini doesn't have to
+  guess; few-shot examples for both tools; explicit
+  anti-hallucination guardrail extending the news-tool pattern —
+  training data contains historical stock prices that LOOK real but
+  are months out of date, so the model is told never to quote a price
+  from memory.
+- **Four new manifest edges:** `shell → finance.market_summary`,
+  `shell → finance.quote`, `raven → finance.market_summary`,
+  `raven → finance.quote`. Same-surface multi-consumer pattern from
+  `news_feeds.recent` carries forward.
+- `MESH_FINANCE_SECRET` joins the per-launch secrets bag. The
+  shell forwards a user-supplied `ALPHA_VANTAGE_API_KEY` env var into
+  the spawned finance child (refusal-on-missing with a clear log
+  message); `.env.local.example` documents the new var and the
+  daily-quota constraint.
+- `nodes/finance/schemas/{quote,market_summary}.json` — JSON Schemas
+  validated by Core on every invocation. Same `MeshDeny` channel as
+  news for rate-limit / unknown-symbol / malformed-response errors.
+- `nodeManager` spawns the finance node alongside `host_notifications`
+  and `news_feeds`; `staleSpawns` cleanup extended with a pattern
+  match on `finance/dist/index.js`.
+
 - `README.md` at repo root: project description, current state,
   quickstart, architecture overview, governance model summary,
   project context. First public-facing documentation surface.

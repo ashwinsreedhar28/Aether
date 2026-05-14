@@ -68,6 +68,28 @@ nodes:
         invocation_mode: request_response
         schema: nodes/news_feeds/schemas/recent.json
 
+  - id: finance
+    runtime: local-process
+    identity_secret: env:MESH_FINANCE_SECRET
+    metadata:
+      description: |
+        Stock-quote aggregator. Polls Alpha Vantage GLOBAL_QUOTE every
+        5 minutes for a hardcoded list of US tickers (one symbol every
+        30s within a cycle) and caches quotes in-memory — NOT SQLite,
+        see DECISIONS.md "Second data node: finance via Alpha Vantage".
+        Exposes per-symbol `quote` and full-grid `market_summary`. Second
+        real *data* node — proves the template established by news_feeds
+        carries to API-shaped sources, not just RSS.
+    surfaces:
+      - name: quote
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/finance/schemas/quote.json
+      - name: market_summary
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/finance/schemas/market_summary.json
+
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
   - from: shell
@@ -87,3 +109,18 @@ relationships:
   # news_recent → mesh.invoke('news_feeds.recent') → reads top headlines.
   - from: raven
     to: news_feeds.recent
+
+  # The Finance app (renderer-side) reads the cached ticker grid via the
+  # market_summary surface, and the per-symbol quote surface backs any
+  # future single-symbol click-through.
+  - from: shell
+    to: finance.market_summary
+  - from: shell
+    to: finance.quote
+
+  # Voice tools: finance_market_summary ("how's the market today") +
+  # finance_quote ("what's AAPL at"). Both route through mesh.invoke.
+  - from: raven
+    to: finance.market_summary
+  - from: raven
+    to: finance.quote

@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdirSync, writeFileSync, createWriteStream, type WriteStream } from 'node:fs'
 import { existsSync } from 'node:fs'
 import {
+  FINANCE_ENTRY,
   HOST_NOTIFICATIONS_ENTRY,
   NEWS_FEEDS_ENTRY,
   NODE_LOG_FILE,
@@ -51,7 +52,11 @@ export class NodeManager {
     // Parallel: each node only depends on Core (already up), not on each
     // other. Doing them sequentially would add ~register-latency × N to
     // every cold start for no benefit.
-    await Promise.all([this.spawnHostNotifications(), this.spawnNewsFeeds()])
+    await Promise.all([
+      this.spawnHostNotifications(),
+      this.spawnNewsFeeds(),
+      this.spawnFinance(),
+    ])
   }
 
   private async spawnHostNotifications(): Promise<void> {
@@ -76,6 +81,34 @@ export class NodeManager {
       // The node persists SQLite + the running marker under this root.
       // app.getPath is unreachable from the child, so we pass it in.
       extraEnv: { HOMEOS_DATA_DIR: dataDir },
+    })
+  }
+
+  private async spawnFinance(): Promise<void> {
+    // The finance node refuses to start without ALPHA_VANTAGE_API_KEY. We
+    // could skip the spawn entirely here, but logging "key not set" once
+    // in the spawn log file (the node will write its own refusal message)
+    // is cheaper than threading a "spawn-skipped" state through the rest
+    // of the shell. The cost is one harmless restart of a refusing
+    // process; the renderer just shows the empty/error state until the
+    // user sets the key and relaunches.
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    const apiKey = process.env.ALPHA_VANTAGE_API_KEY
+    await this.spawnNode({
+      id: 'finance',
+      entry: FINANCE_ENTRY,
+      buildHint: '`pnpm --filter @homeos/finance build`',
+      secretEnvName: 'MESH_FINANCE_SECRET',
+      secretValue: this.secrets.financeSecret,
+      // HOMEOS_DATA_DIR is the writable root for the running marker (no
+      // SQLite — quotes live in-memory). ALPHA_VANTAGE_API_KEY is forwarded
+      // from the shell's launch environment; absent → the node logs the
+      // refusal and exits with code 2.
+      extraEnv: {
+        HOMEOS_DATA_DIR: dataDir,
+        ...(apiKey ? { ALPHA_VANTAGE_API_KEY: apiKey } : {}),
+      },
     })
   }
 

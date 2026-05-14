@@ -781,3 +781,97 @@ its hardcoded `articles.ts` entirely and consumes the mesh surface.
   notification when articles update.* Rejected. The renderer wants
   fresh data on app open, not a push subscription; request/response
   is the simpler shape and matches how the user thinks about news.
+
+---
+
+## [2026-05-13] Second data node: finance via Alpha Vantage
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Post `v0.3.0`, finance is the natural second data node. News
+(`news_feeds`) validates the RSS / bulk-recent pattern. Finance validates a
+different shape entirely — REST API with an env-var key, per-symbol query
+surface, numeric (not text) data, shorter freshness window, and a
+provider-imposed rate limit that has to be respected without falling over.
+Together, the two nodes earn signal on what is *shared template* (the
+`nodes/<name>/{src,schemas,README.md}` layout, MeshNode + per-surface
+handler shape, marker-file liveness, MeshDeny error taxonomy, voice-tool
+mesh-routing pattern) versus *data-source-specific* (RSS-parser vs.
+REST-with-headers, SQLite-with-WAL vs. in-memory cache, bulk-poll vs.
+per-symbol-stagger, single-surface vs. two-surface ergonomics). Pattern
+extraction is held back per CLAUDE.md §14's third-instance rule — two
+nodes is signal, not yet enough.
+
+**Decision:** Alpha Vantage free tier as the data source. Hardcoded ticker
+list of ten popular symbols (AAPL, MSFT, GOOGL, AMZN, NVDA, TSLA, META,
+SPY, QQQ, DIA). In-memory cache with a 5-minute freshness window — no
+SQLite. Two surfaces: `finance.quote({ symbol })` for per-symbol queries
+(with `MeshDeny: finance_untracked_symbol` outside the tracked list) and
+`finance.market_summary()` for the full cached grid. 5-minute poll cycle
+with one symbol fetched every 30 seconds — exactly five minutes total per
+cycle with ten tickers, so polling is effectively continuous at ~2 req/min
+averaged. Rate-limit responses (HTTP 429 *or* Alpha Vantage's 200 + `Note`
+/ `Information` shape) trigger a 60-second cooldown during which on-demand
+`finance.quote` fetches return `MeshDeny: finance_rate_limited` rather
+than retrying.
+
+**Consequences:**
+- Pattern documented for any future API-based data node (weather, sports,
+  air quality, transit). The shape: REST client with structured-error
+  enum, in-memory `Map`-based cache with freshness windows, stagger-aware
+  poller, two surfaces (single-entity + collection-view).
+- **Daily quota constraint surfaced, not masked.** Alpha Vantage's free
+  tier is currently 25 requests/day. A 5-minute × 10-ticker poll runs
+  2880 requests/day under the design above — well over quota. The node
+  surfaces upstream rate-limit responses as `MeshDeny:
+  finance_rate_limited` (per-symbol) and the renderer's error state
+  ("Finance unavailable") rather than silently swallowing them or
+  caching indefinitely. Follow-ups: reduce ticker count, lengthen poll
+  cadence, move to Finnhub (60 req/min free, no daily cap), or buy
+  paid-tier capacity. The PR flags this as a known operational
+  constraint.
+- The renderer + voice both surface rate-limit / unknown-symbol errors
+  cleanly through the existing MeshDeny channel. No special-case
+  wiring in the consumers — same shape as `news_feeds_bad_since`.
+- User-configurable tickers and broader symbol coverage are future PRs,
+  most naturally tied to a Settings app. The node-side change is a
+  single file (`src/tickers.ts`); the JSON schema is unchanged.
+- Voice tools (`finance_quote`, `finance_market_summary`) add a second
+  category of mesh-routed tool. The anti-hallucination guardrail
+  established for `news_recent` (training-data-is-stale) is reused
+  verbatim for prices — arguably stronger here, since training-era
+  stock prices look real and the user will catch wrong numbers
+  instantly.
+
+**Alternatives considered:**
+- *Yahoo Finance unofficial scrape.* Rejected — fragile and unsupported.
+  The library would break on a quiet HTML change with no warning.
+- *Finnhub (60 req/min free, no daily cap).* Reasonable alternative,
+  and frankly the better fit for the design's request volume. Spec
+  defaulted to Alpha Vantage because the user-facing setup ("get a key
+  at alphavantage.co/support/#api-key") is well-known. Swap noted as
+  the first fallback if the Alpha Vantage cap proves crippling in
+  practice; the surface contract and consumer shape stay identical.
+- *Paid-tier IEX Cloud / Polygon.* Rejected — premature for v1.
+- *SQLite persistence (matching news_feeds).* Rejected. Stock quotes
+  are time-sensitive; persisting them across restarts surfaces stale
+  prices to consumers with no way to know they're stale. A cold start
+  re-polls and shows the empty state until the first cycle lands —
+  cheaper, less misleading.
+- *User-configurable tickers in v1.* Deferred. Pattern-first,
+  configuration-second (same call as news feeds).
+- *Single surface (only `market_summary`, with the renderer filtering
+  by symbol).* Rejected. The per-symbol surface is what makes the
+  rate-limit boundary enforceable — without it, voice tools would
+  have to fetch the full grid every time the user says "what's AAPL
+  at", and there'd be no place to deny untracked symbols.
+- *Hit the upstream API on every renderer refresh.* Rejected. 60-second
+  renderer polling × multiple users would burn quota immediately and
+  push past the historical 5-req/min limit even on a generous tier.
+  The node's cache is what insulates the upstream from consumer cadence.
+- *Bundle a shared poller base class with news_feeds.* Rejected per
+  CLAUDE.md §14 third-instance rule. Two nodes is too few to know which
+  bits are shared template vs. coincidence. The third data node's PR
+  (weather, probably) is the right time to extract.
+- *Build a separate Settings surface as part of this PR for tickers.*
+  Rejected as scope creep — the Settings app is its own PR.

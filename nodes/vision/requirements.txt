@@ -1,0 +1,12 @@
+# Vision capture node dependencies
+
+# AVFoundation bindings for macOS camera access
+pyobjc-framework-AVFoundation>=10.0
+pyobjc-framework-CoreMediaIO>=10.0
+pyobjc-framework-Cocoa>=10.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Async HTTP client (transitive dep of core/node_sdk, pinned explicitly)
+aiohttp>=3.9.0

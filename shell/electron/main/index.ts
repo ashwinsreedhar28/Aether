@@ -12,6 +12,7 @@ import {
 } from './services/mesh'
 import { registerFileHandlers } from './handlers/files'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
+import { VisionDaemonManager } from './services/visionDaemonManager'
 
 // Lock Electron's app name before any code calls app.getPath('userData') —
 // app.getPath derives the userData root from the app name, and we want the
@@ -244,6 +245,7 @@ ipcMain.handle('mesh:status', async () => {
 // on mount, well before the bootstrap finishes — without this guard we
 // flood main with ECONNREFUSED for every render until the daemon is up.
 const raven = getRavenDaemonManager()
+const vision = new VisionDaemonManager()
 
 ipcMain.handle('voice:availability', () => raven.getAvailability())
 ipcMain.handle('voice:status', () => {
@@ -278,6 +280,8 @@ raven.on('availability', (a) => broadcastToRenderers('voice:availability-changed
 raven.on('status', (state) => broadcastToRenderers('voice:status-changed', state))
 raven.on('transcript', (entry) => broadcastToRenderers('voice:transcript', entry))
 raven.on('toolCall', (entry) => broadcastToRenderers('voice:tool-call', entry))
+
+vision.on('availability', (a) => broadcastToRenderers('vision:availability-changed', a))
 
 app.whenReady().then(() => {
   // Splash + main + tray created immediately so the reveal sequence stays
@@ -321,6 +325,23 @@ app.whenReady().then(() => {
     .catch((err) => {
       console.error('[aether] raven ensureRunning threw:', err)
     })
+
+  // Vision capture daemon. Bootstrap pattern matches raven (async venv +
+  // requirements). macOS-only (AVFoundation); on other platforms
+  // ensureRunning() exits early with 'unavailable'.
+  void vision
+    .ensureRunning()
+    .then(() => {
+      const avail = vision.getAvailability()
+      if (avail.kind !== 'available') {
+        console.warn('[aether] vision unavailable:', avail.reason)
+      } else {
+        console.log('[aether] vision daemon healthy')
+      }
+    })
+    .catch((err) => {
+      console.error('[aether] vision ensureRunning threw:', err)
+    })
 })
 
 // Clean shutdown. before-quit fires on user-initiated quits AND on
@@ -338,6 +359,7 @@ async function stopAllChildren(): Promise<void> {
   const results = await Promise.allSettled([
     stopMesh(),
     raven.stop(),
+    vision.stop(),
   ])
   for (const r of results) {
     if (r.status === 'rejected') {

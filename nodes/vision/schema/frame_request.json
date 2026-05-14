@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VisionFrameRequest",
+  "description": "Request schema for vision.frame() surface - requests a camera frame",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

@@ -10,6 +10,17 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- **`nodes/vision/`** — new Python mesh node, Piece 1 of the vision arc
+  (per `docs/vision-roadmap.md` and PR #23 ADR). Captures camera frames
+  at 10fps via macOS AVFoundation (pyobjc); exposes single surface
+  `vision.frame()` returning JPEG q80 base64 at native dimensions. 5-second
+  idle-timeout camera release. Two response shapes: `{ available: true,
+  frame_b64, format, quality, width, height, timestamp }` on success;
+  `{ available: false, reason }` on `warming_up | permission_denied |
+  no_config`. Shell-side `visionDaemonManager.ts` lifts the daemon-
+  supervision pattern from `ravenDaemonManager.ts`. `MESH_VISION_SECRET`
+  wired into `secrets.ts` + `coreManager.ts`. Foundation for vision arc
+  pieces 2/3/4 (gesture watcher, raven gesture actions, pointing app).
 - **`nodes/weather/`** — new TypeScript mesh node polling Open-Meteo
   every 15 minutes. Two surfaces: `weather.current` (current conditions:
   temperature, humidity, wind, conditions string) and `weather.forecast`

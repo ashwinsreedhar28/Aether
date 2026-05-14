@@ -91,6 +91,11 @@ export class CoreManager {
       // reference resolves to the same hex-32 that nodeManager will
       // inject into the finance child's env.
       MESH_FINANCE_SECRET: this.secrets.financeSecret,
+      // Digest is the first composer node (fans out to news_feeds +
+      // finance and back into host_notifications). Same env contract
+      // as the data nodes — Core resolves env:MESH_DIGEST_SECRET at
+      // manifest load.
+      MESH_DIGEST_SECRET: this.secrets.digestSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

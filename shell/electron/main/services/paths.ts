@@ -35,6 +35,13 @@ export const FINANCE_ENTRY: string = join(
   'dist',
   'index.js',
 )
+export const DIGEST_ENTRY: string = join(
+  REPO_ROOT,
+  'nodes',
+  'digest',
+  'dist',
+  'index.js',
+)
 
 export function meshRuntimeDir(): string {
   return join(app.getPath('userData'), 'mesh')

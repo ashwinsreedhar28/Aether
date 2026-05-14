@@ -43,6 +43,28 @@ importers:
         specifier: ^5.0.0
         version: 5.7.3
 
+  nodes/digest:
+    dependencies:
+      '@homeos/mesh-node-sdk':
+        specifier: workspace:*
+        version: link:../../core/node_sdk_ts
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.18.0
+        version: 9.39.4
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      eslint:
+        specifier: ^9.18.0
+        version: 9.39.4(jiti@2.7.0)
+      typescript:
+        specifier: ~5.7.0
+        version: 5.7.3
+      typescript-eslint:
+        specifier: ^8.20.0
+        version: 8.59.3(eslint@9.39.4(jiti@2.7.0))(typescript@5.7.3)
+
   nodes/finance:
     dependencies:
       '@homeos/mesh-node-sdk':

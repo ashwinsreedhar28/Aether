@@ -108,17 +108,6 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
   in Tech." when a category filter is active vs. the generic
   "Headlines refreshing" when "All" is selected.
 
-### Changed
-
-- **`MeshUnavailable` (Python, `raven_core/mesh_client.py`) gains an
-  optional `reason` attribute.** Set to the MeshDeny reason from the
-  remote node when the failure path was a `kind=error` response;
-  `None` for setup-time failures (env unset / SDK import failed /
-  register failed). Lets voice tools branch on `e.reason ==
-  "finance_rate_limited"` rather than parsing the exception string —
-  the cleaner shape that every future mesh-routed tool will benefit
-  from. Existing call sites that only `except MeshUnavailable` are
-  unaffected.
 - `README.md` at repo root: project description, current state,
   quickstart, architecture overview, governance model summary,
   project context. First public-facing documentation surface.
@@ -272,6 +261,15 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Changed
 
+- **`MeshUnavailable` (Python, `raven_core/mesh_client.py`) gains an
+  optional `reason` attribute.** Set to the MeshDeny reason from the
+  remote node when the failure path was a `kind=error` response;
+  `None` for setup-time failures (env unset / SDK import failed /
+  register failed). Lets voice tools branch on `e.reason ==
+  "finance_rate_limited"` rather than parsing the exception string —
+  the cleaner shape that every future mesh-routed tool will benefit
+  from. Existing call sites that only `except MeshUnavailable` are
+  unaffected.
 - raven daemon's pip-deps marker bumped from `.requirements-installed`
   to `.requirements-installed-v2`. Existing dev venvs from PR #9 will
   re-run `pip install -r requirements.txt` once on first launch after

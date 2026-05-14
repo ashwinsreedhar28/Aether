@@ -11,6 +11,22 @@ historical record.
 
 
 ### Fixed
+
+- **Weather + vision post-merge wiring gaps.** PRs #42 and #43 merged
+  with incomplete wiring discovered during smoke test. Fixes:
+  `shell/electron/main/services/paths.ts` now exports `WEATHER_ENTRY`;
+  `shell/electron/main/services/nodeManager.ts` adds `spawnWeather()`
+  (with `AETHER_DATA_DIR` extraEnv per the data-node pattern) and calls
+  it in `startAll()`; `shell/electron/main/services/coreManager.ts`
+  adds `MESH_VISION_SECRET` to the env block so Core agrees with
+  visionDaemonManager on the vision secret value;
+  `shell/electron/main/services/visionDaemonManager.ts` renames
+  `VISION_SECRET` env var to `MESH_VISION_SECRET` (matches Aether
+  convention); `nodes/vision/main.py` imports CoreVideo symbols via
+  `Quartz.CoreVideo` (the pyobjc-framework-CoreVideo PyPI package
+  doesn't exist; CoreVideo is bundled in `pyobjc-framework-Quartz`)
+  and reads `MESH_VISION_SECRET` matching the convention.
+
 - **`nodes/weather/schemas/`** — created missing schema files (`current.json`, `forecast.json`) that the manifest registered in PR #42 but were never actually written. Core failed to load with `FileNotFoundError` on launch. Hotfix completes PR #42's surface declarations.
 
 ### Added

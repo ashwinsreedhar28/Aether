@@ -34,7 +34,7 @@ try:
         AVMediaTypeVideo,
     )
     from CoreMedia import CMSampleBufferGetImageBuffer
-    from CoreVideo import (
+    from Quartz.CoreVideo import (
         CVPixelBufferLockBaseAddress,
         CVPixelBufferUnlockBaseAddress,
         CVPixelBufferGetBaseAddress,
@@ -315,11 +315,11 @@ async def main() -> int:
 
     # Get config from environment
     node_id = os.getenv("NODE_ID", "vision")
-    secret = os.getenv("VISION_SECRET")
+    secret = os.getenv("MESH_VISION_SECRET")
     core_url = os.getenv("CORE_URL", "http://127.0.0.1:8000")
 
     if not secret:
-        log.error("VISION_SECRET environment variable required")
+        log.error("MESH_VISION_SECRET environment variable required")
         return 1
 
     # Create mesh node

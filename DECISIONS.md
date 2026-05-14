@@ -1,7 +1,75 @@
 # Decisions
 
-Append-only Architecture Decision Records. Format and rules per CLAUDE.md §8.
-Never edit a past entry — supersede with a new one.
+Append-only Architecture Decision Records for Aether (working name
+homeOS through v0.3.x). Format and rules per CLAUDE.md §8.
+Never edit a past entry — supersede with a new one. Entries dated
+before the rename PR refer to the project by its working name; they
+are preserved verbatim as historical record.
+
+---
+
+## [2026-05-14] Rename project homeOS → Aether (working name retired)
+
+**Status:** accepted
+**Decided by:** Director (Architect-recommended)
+**Context:** The project was bootstrapped under the working name
+"homeOS" — a descriptive placeholder while we figured out what the
+thing actually was. Through v0.3.x the working name carried; by the
+data-realization milestone it was clear the project had earned its
+own identity. "homeOS" reads as a category (one of many "home OS"
+projects) rather than a name; "Aether" — the classical luminiferous
+medium connecting everything — better captures the substrate framing
+(the spine the rest of the modules ride on) and is one syllable shorter
+to say aloud, which matters for a voice-first product.
+
+**Decision:** Adopt **Aether** as the project name. Specifically:
+- All in-prose references in current-state docs (README, CLAUDE.md,
+  MASTER_SYNTHESIS.md, manifest, sub-READMEs) become "Aether."
+- npm package scope `@homeos/*` → `@aether/*`. Root packages
+  `homeos-shell` → `aether-shell`, `@homeos/raven-daemon` →
+  `@aether/raven-daemon`.
+- Env var `HOMEOS_DATA_DIR` → `AETHER_DATA_DIR` (passed by the shell
+  to data nodes; every node refuses to start without it).
+- Electron `productName` "homeOS" → "Aether"; bundle identifier
+  `com.homeos.app` → `com.aether.app`.
+- Renderer bridge `window.homeOS` → `window.aether`; preload type
+  `HomeOSApi` → `AetherApi`.
+- App icon: introduce the cosmic-navy aurora-curtain icon (Concept C
+  per the icon design review) — SVG + generated PNGs + .icns bundle
+  committed under `shell/assets/`.
+- One-time macOS data-dir migration at first boot of the renamed app:
+  rename `~/Library/Application Support/homeOS/` →
+  `~/Library/Application Support/Aether/` before any node spawns so
+  existing news / finance / memory state carries forward.
+
+**Consequences:**
+- DECISIONS.md ADRs from earlier dates are left verbatim — they refer
+  to "homeOS" as the project name at the time. Same for CHANGELOG
+  entries from earlier versions. Top-of-file framing is updated to
+  flag the rename.
+- Bundle-id change means macOS treats the renamed app as a *new* app:
+  Director's existing window state, Keychain entries, and microphone
+  / notification permissions will reset. Accepted as a clean break —
+  the alternative (keep the old appId) is misleading and risks future
+  conflicts when Director eventually wants to deploy both halves
+  (substrate + workspace).
+- GitHub repository remains at `ashwinsreedhar28/homeOS` — separate
+  decision, separate timeline. GitHub's auto-redirect keeps existing
+  clone URLs alive when Director eventually renames the repo.
+- Director's local working directory remains on the working name; the
+  Director will rename it (or not) on their own schedule. Nothing in
+  the code path depends on the local directory name.
+- The `_ingest/*` submodules (Pulse, RAVEN_MESH, NEXUS, VIEWER) are
+  out of scope — external repos with their own naming.
+
+**Alternatives considered:**
+- *Keep "homeOS" forever.* Rejected: reads as a category name, not a
+  product name; future-Director will hit this same fork later with
+  more cruft accumulated.
+- *Rename to "Substrate" / "Mesh" / "Hearth".* Considered briefly.
+  Substrate / Mesh describe pieces of the architecture, not the whole;
+  Hearth was warmer but more domesticated than the always-on
+  ambient-computing arc the roadmap commits to.
 
 ---
 

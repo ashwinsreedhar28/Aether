@@ -67,7 +67,7 @@ export function MeshDevTools() {
     let timer: ReturnType<typeof setTimeout> | null = null
     const tick = async (): Promise<void> => {
       try {
-        const next = await window.homeOS.mesh.status()
+        const next = await window.aether.mesh.status()
         if (!cancelled) setStatus(next)
       } catch {
         // IPC failed — main process is gone or hung. Treat as failed
@@ -87,8 +87,8 @@ export function MeshDevTools() {
 
   const sendNotification = useCallback(async () => {
     setRt({ kind: 'firing' })
-    const result: MeshInvokeResult = await window.homeOS.mesh.invoke('host_notifications.notify', {
-      title: 'homeOS',
+    const result: MeshInvokeResult = await window.aether.mesh.invoke('host_notifications.notify', {
+      title: 'Aether',
       body: 'Mesh round-trip works.'
     })
     if (result.ok && result.envelope) {

@@ -1,7 +1,7 @@
 # news_feeds
 
 Mesh node that polls a hardcoded list of RSS/Atom feeds and exposes a single
-`recent` surface returning ordered articles. First *data* node on the homeOS
+`recent` surface returning ordered articles. First *data* node on the Aether
 mesh — host_notifications was the first *action* node.
 
 ## Surface
@@ -42,7 +42,7 @@ first launch until the first poll completes (~5s after node start).
 
 ## Storage
 
-SQLite via `better-sqlite3`. Path: `$HOMEOS_DATA_DIR/news_feeds/news.db`.
+SQLite via `better-sqlite3`. Path: `$AETHER_DATA_DIR/news_feeds/news.db`.
 WAL mode; `synchronous=NORMAL`. A single table `articles` keyed on
 deterministic id (sha1 of `feed::guid` truncated to 16 hex). Upserts on
 poll dedupe re-emitted articles by id.
@@ -63,7 +63,7 @@ v1 — OPML import and per-user subscriptions are deferred (see
 ## Lifecycle markers
 
 On successful Core registration, the node writes
-`$HOMEOS_DATA_DIR/news_feeds/running` containing its PID and registration
+`$AETHER_DATA_DIR/news_feeds/running` containing its PID and registration
 timestamp. The shell's `nodeManager` removes its own PID file at
 [`$userData/mesh/news_feeds.pid`]; the `running` marker is the node's
 own liveness signal and is unlinked on graceful shutdown.
@@ -74,8 +74,8 @@ own liveness signal and is unlinked on graceful shutdown.
 |---|---|---|
 | `MESH_NEWS_FEEDS_SECRET` | shell secrets bag | hex-32 per cold start |
 | `MESH_CORE_URL` | shell coreManager | defaults to `http://127.0.0.1:8000` |
-| `HOMEOS_DATA_DIR` | shell nodeManager | typically `app.getPath('userData')` |
+| `AETHER_DATA_DIR` | shell nodeManager | typically `app.getPath('userData')` |
 
 The node refuses to start without `MESH_NEWS_FEEDS_SECRET` or
-`HOMEOS_DATA_DIR`. `MESH_CORE_URL` falls back to localhost for convenience
+`AETHER_DATA_DIR`. `MESH_CORE_URL` falls back to localhost for convenience
 when running the node by hand outside the shell.

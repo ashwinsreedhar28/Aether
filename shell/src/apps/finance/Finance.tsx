@@ -333,7 +333,7 @@ async function fetchHistoryMap(symbols: string[]): Promise<HistoryMap> {
   if (symbols.length === 0) return out
   const results = await Promise.allSettled(
     symbols.map((sym) =>
-      window.homeOS.mesh.invoke('finance.history', {
+      window.aether.mesh.invoke('finance.history', {
         symbol: sym,
         period: '1d',
       }),
@@ -359,7 +359,7 @@ export function Finance() {
   const load = useCallback(async (): Promise<void> => {
     let result: MeshInvokeResult
     try {
-      result = await window.homeOS.mesh.invoke('finance.market_summary', {})
+      result = await window.aether.mesh.invoke('finance.market_summary', {})
     } catch (e) {
       setState({ kind: 'error', message: (e as Error).message ?? 'IPC failed' })
       return

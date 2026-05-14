@@ -47,7 +47,7 @@ export function meshRuntimeDir(): string {
   return join(app.getPath('userData'), 'mesh')
 }
 
-// Per-node data directory passed to spawned nodes as HOMEOS_DATA_DIR.
+// Per-node data directory passed to spawned nodes as AETHER_DATA_DIR.
 // Standalone Node child processes can't reach Electron's app.getPath
 // themselves; the shell hands them a writable root and they namespace
 // under it (e.g. news_feeds → $userData/data/news_feeds/news.db). Kept

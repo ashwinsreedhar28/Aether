@@ -21,7 +21,7 @@ from google.genai import types
 
 from ..session_context import get_session_context
 
-# Import only the tool modules we ship enabled in homeOS week-1.
+# Import only the tool modules we ship enabled in Aether week-1.
 # Other VIEWER tools (cerebras_tool, silence_tool, system_tool) stay
 # vendored on disk but are NOT registered here, so they cannot be
 # called. They get re-enabled once voice is rebased onto the mesh and

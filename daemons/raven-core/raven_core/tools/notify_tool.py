@@ -6,11 +6,11 @@ than running any notification code itself. The edge
 ``raven → host_notifications.notify`` in manifest.yaml authorises the
 hop; without it Core would reject the envelope.
 
-Pattern for every future voice tool that touches homeOS data or
+Pattern for every future voice tool that touches Aether data or
 capabilities: declare the function here, implement as a single
 ``await mesh_invoke(...)``, add the edge to manifest.yaml. Tools
 internal to raven (time, memory) stay direct Python — they're not
-homeOS data and don't need to leave the daemon.
+Aether data and don't need to leave the daemon.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _truncate(text: str, limit: int) -> str:
 
 
 async def _notify(title: str, body: str) -> dict[str, Any]:
-    title = _truncate(title or "homeOS", TITLE_MAX)
+    title = _truncate(title or "Aether", TITLE_MAX)
     body = _truncate(body or "", BODY_MAX)
 
     try:

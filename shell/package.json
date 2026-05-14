@@ -1,25 +1,25 @@
 {
-  "name": "homeos-shell",
-  "productName": "homeOS",
+  "name": "aether-shell",
+  "productName": "Aether",
   "version": "0.0.1",
   "private": true,
   "license": "UNLICENSED",
-  "description": "homeOS workspace shell — Electron + React + Tailwind",
+  "description": "Aether workspace shell — Electron + React + Tailwind",
   "main": "out/main/index.js",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "predev": "pnpm --filter @homeos/mesh-node-sdk build && pnpm --filter @homeos/host-notifications build && pnpm --filter @homeos/news-feeds build && pnpm --filter @homeos/finance build && pnpm --filter @homeos/digest build",
+    "predev": "pnpm --filter @aether/mesh-node-sdk build && pnpm --filter @aether/host-notifications build && pnpm --filter @aether/news-feeds build && pnpm --filter @aether/finance build && pnpm --filter @aether/digest build",
     "dev": "electron-vite dev",
-    "prebuild": "pnpm --filter @homeos/mesh-node-sdk build && pnpm --filter @homeos/host-notifications build && pnpm --filter @homeos/news-feeds build && pnpm --filter @homeos/finance build && pnpm --filter @homeos/digest build",
+    "prebuild": "pnpm --filter @aether/mesh-node-sdk build && pnpm --filter @aether/host-notifications build && pnpm --filter @aether/news-feeds build && pnpm --filter @aether/finance build && pnpm --filter @aether/digest build",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "gen:icons": "node scripts/gen-tray-icon.mjs",
-    "package": "echo '[homeOS] package: electron-builder config is a later PR — see TODO in PR self-review' && exit 1"
+    "package": "echo '[aether] package: electron-builder config is a later PR — see TODO in PR self-review' && exit 1"
   },
   "dependencies": {
-    "@homeos/mesh-node-sdk": "workspace:*",
+    "@aether/mesh-node-sdk": "workspace:*",
     "lucide-react": "^0.554.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

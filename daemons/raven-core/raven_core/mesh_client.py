@@ -3,7 +3,7 @@
 raven registers with Core as the `raven` node on orchestrator startup
 and uses the resulting session to dispatch invocations to other mesh
 nodes. Outbound-only: no surfaces are registered, no .on() handlers are
-attached, no SSE stream is opened. Tools that need homeOS data or
+attached, no SSE stream is opened. Tools that need Aether data or
 capabilities (notify, future news/finance/agents) call into
 ``mesh_invoke`` rather than embedding their implementation directly.
 
@@ -11,7 +11,7 @@ Lifecycle:
 - ``setup()`` is awaited from Orchestrator.run() before Gemini Live
   starts taking input. It instantiates the node, opens an aiohttp
   session, and POSTs /v0/register. If MESH_CORE_URL / MESH_RAVEN_SECRET
-  are unset (e.g. raven launched standalone outside the homeOS shell),
+  are unset (e.g. raven launched standalone outside the Aether shell),
   setup logs a warning and returns; subsequent ``mesh_invoke`` calls
   raise MeshUnavailable so the tool layer can surface a clean error to
   Gemini rather than crashing the orchestrator.

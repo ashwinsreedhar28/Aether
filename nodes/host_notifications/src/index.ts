@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { MeshNode, MeshDeny, type Envelope } from '@homeos/mesh-node-sdk'
+import { MeshNode, MeshDeny, type Envelope } from '@aether/mesh-node-sdk'
 
 const execFileP = promisify(execFile)
 

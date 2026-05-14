@@ -90,7 +90,7 @@ class Config:
     function_descriptions: dict = field(default_factory=dict)
     cerebras_system_instruction: str = ""
 
-    # User directory — RAVEN_USER_DIR is set by the homeOS shell daemon-manager
+    # User directory — RAVEN_USER_DIR is set by the Aether shell daemon-manager
     # so config / memory live under Electron's userData root, not ~/.raven.
     user_dir: Path = field(
         default_factory=lambda: Path(os.environ["RAVEN_USER_DIR"])

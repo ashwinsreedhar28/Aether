@@ -24,7 +24,7 @@ from dataclasses import dataclass, asdict
 
 
 def _default_user_dir() -> Path:
-    # homeOS passes its Electron userData root via RAVEN_USER_DIR so that
+    # Aether passes its Electron userData root via RAVEN_USER_DIR so that
     # memory + config live inside the shell's per-app data dir rather than
     # ~/.raven (which VIEWER used). The fallback keeps the daemon runnable
     # standalone (e.g. for direct CLI use).

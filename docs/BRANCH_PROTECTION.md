@@ -12,7 +12,7 @@ becomes mechanically enforced rather than a convention.
 
 ## One-time setup (Director action)
 
-1. Go to **Settings → Branches** on the homeOS GitHub repo.
+1. Go to **Settings → Branches** on the Aether GitHub repo (still at github.com/ashwinsreedhar28/homeOS until the repo rename).
 2. Click **Add branch ruleset** (or **Add classic branch protection
    rule** — either works; the steps below match the classic UI, which
    is faster for a single rule).

@@ -5,7 +5,7 @@ Mesh node that polls US stock quotes — Yahoo Finance primary (via the
 exposes three surfaces: `quote` for per-symbol lookups,
 `market_summary` for the full tracked grid, and `history` for the
 accumulated time series of polled samples per symbol. No API key.
-Second *data* node on the homeOS mesh (news_feeds was the first,
+Second *data* node on the Aether mesh (news_feeds was the first,
 host_notifications the first *action* node).
 
 ## Surfaces
@@ -99,7 +99,7 @@ fetch and updates the cache before returning. `finance.market_summary`
 always reads the cache as-is (no on-demand refresh).
 
 **Historical time series.** SQLite at
-`$HOMEOS_DATA_DIR/finance/history.db` (WAL). Every successful poll
+`$AETHER_DATA_DIR/finance/history.db` (WAL). Every successful poll
 appends a row to `quotes_history (symbol, fetched_at, price, change,
 change_percent)`, INSERT OR IGNORE on `(symbol, fetched_at)`. 90-day
 rolling retention; older rows are pruned at the start of each poll
@@ -164,7 +164,7 @@ Settings app (future PR).
 ## Lifecycle markers
 
 On successful Core registration, the node writes
-`$HOMEOS_DATA_DIR/finance/running` containing its PID and registration
+`$AETHER_DATA_DIR/finance/running` containing its PID and registration
 timestamp — same convention as `news_feeds/running`. The marker is
 unlinked on graceful shutdown.
 
@@ -174,10 +174,10 @@ unlinked on graceful shutdown.
 |---|---|---|
 | `MESH_FINANCE_SECRET` | shell secrets bag | hex-32 per cold start |
 | `MESH_CORE_URL` | shell coreManager | defaults to `http://127.0.0.1:8000` |
-| `HOMEOS_DATA_DIR` | shell nodeManager | writable root for the liveness marker |
+| `AETHER_DATA_DIR` | shell nodeManager | writable root for the liveness marker |
 
 The node refuses to start without `MESH_FINANCE_SECRET` or
-`HOMEOS_DATA_DIR`. `MESH_CORE_URL` falls back to localhost for
+`AETHER_DATA_DIR`. `MESH_CORE_URL` falls back to localhost for
 convenience when running the node by hand outside the shell. No
 upstream API key is required — Yahoo Finance and Stooq are both
 anonymous endpoints.

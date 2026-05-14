@@ -1,5 +1,5 @@
 /**
- * Raven Daemon Types — homeOS build
+ * Raven Daemon Types — Aether build
  *
  * Trimmed from VIEWER's raven-daemon types.ts (SHA 9c58664). Cut:
  *   - VisualMode + camera/screen plumbing (always-none mode here).
@@ -28,7 +28,7 @@ export interface TranscriptEntry {
 }
 
 // Tool/function call entry. Renamed from VIEWER's FunctionLog for clarity —
-// the homeOS shell surfaces these as "recent tool calls" in the Voice app.
+// the Aether shell surfaces these as "recent tool calls" in the Voice app.
 export interface ToolCallEntry {
   id: string;
   timestamp: string;

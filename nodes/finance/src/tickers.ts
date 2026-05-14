@@ -6,7 +6,7 @@
 // Selection criteria: liquid US equities + the headline broad-market
 // ETFs (SPY/QQQ/DIA). Ten symbols fits a 3-col grid in ~4 rows on the
 // renderer without scroll, and at the 5-min × 30-s stagger cadence
-// uses ~2 req/min — well under Finnhub's free-tier 60-req/min ceiling.
+// uses ~2 req/min — polite for anonymous Yahoo / Stooq use.
 export interface TickerSource {
   /** US ticker symbol. UPPERCASE; the client normalises before
    *  request and the Quote.symbol is always upper. */

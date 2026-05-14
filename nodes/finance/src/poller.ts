@@ -7,11 +7,11 @@ import type { TickerSource } from './tickers'
 // One symbol per stagger slot. With 10 tickers × 30s stagger = exactly
 // 5 minutes, so the next cycle begins immediately after the previous
 // finishes — effectively continuous polling, but never more than ~2
-// requests/min averaged across the cycle. Finnhub's free tier allows
-// 60 req/min with no daily cap, so we're at ~3% of the per-minute
-// limit. The stagger is kept (vs. burst fetching) as belt-and-braces
-// in case the upstream limit tightens, and to spread fetch latency
-// across the cycle rather than spiking at the start.
+// requests/min averaged across the cycle. Neither Yahoo nor Stooq
+// publishes a hard rate limit for anonymous use, but staggering is
+// kept (vs. burst fetching) to be polite, spread fetch latency across
+// the cycle, and avoid bursts that might trip an anti-scrape heuristic
+// on either upstream.
 const POLL_CYCLE_MS = 5 * 60_000
 const STAGGER_MS = 30_000
 
@@ -30,7 +30,6 @@ export class QuotePoller {
   private readonly opts: PollerOptions
   private timer: NodeJS.Timeout | null = null
   private stopped = false
-  private rateLimitedUntilMs = 0
   private inflight: Promise<void> | null = null
 
   constructor(opts: PollerOptions) {
@@ -64,31 +63,12 @@ export class QuotePoller {
     }
   }
 
-  /** True iff the upstream rate-limit grace window is still active.
-   *  finance.quote consults this before triggering on-demand fetches. */
-  isRateLimited(): boolean {
-    return Date.now() < this.rateLimitedUntilMs
-  }
-
   /** Trigger a fresh fetch for a single symbol (used by finance.quote
-   *  when its cache miss falls through). Returns true on success, false
-   *  if the client refused (rate-limit, unknown symbol, etc). The error
-   *  surfaces via the handler, not here. */
-  async fetchOnce(symbol: string): Promise<boolean> {
-    try {
-      const quote = await this.opts.client.fetchQuote(symbol)
-      this.opts.store.set(quote)
-      return true
-    } catch (e) {
-      if (e instanceof QuoteClientError && e.reason === 'rate_limited') {
-        // 60s cooldown matches AV's 5/min rolling window. Longer caps
-        // (daily) will keep tripping; that's intentional — the node
-        // surfaces rate_limited responses upstream rather than hiding
-        // the constraint.
-        this.rateLimitedUntilMs = Date.now() + 60_000
-      }
-      throw e
-    }
+   *  when its cache miss falls through). Errors propagate to the
+   *  handler, which maps them to MeshDeny. */
+  async fetchOnce(symbol: string): Promise<void> {
+    const quote = await this.opts.client.fetchQuote(symbol)
+    this.opts.store.set(quote)
   }
 
   private async runCycleOnce(): Promise<void> {
@@ -106,7 +86,6 @@ export class QuotePoller {
     const stagger = this.opts.staggerMs ?? STAGGER_MS
     const startedAt = Date.now()
     let ok = 0
-    let rateLimited = 0
     let failed = 0
     for (let i = 0; i < this.opts.tickers.length; i += 1) {
       if (this.stopped) break
@@ -117,17 +96,6 @@ export class QuotePoller {
         this.opts.store.set(quote)
         ok += 1
       } catch (e) {
-        if (e instanceof QuoteClientError && e.reason === 'rate_limited') {
-          this.rateLimitedUntilMs = Date.now() + 60_000
-          rateLimited += 1
-          this.opts.log(
-            `rate-limited at ${t.symbol} (${e.details.note ?? e.details.info ?? ''}); ` +
-              `aborting cycle, will retry next interval`,
-          )
-          // Don't keep hammering — bail the rest of the cycle, the next
-          // POLL_CYCLE_MS tick will try again.
-          break
-        }
         failed += 1
         const reason = e instanceof QuoteClientError ? e.reason : 'unknown'
         this.opts.log(`fetch failed for ${t.symbol}: ${reason}`)
@@ -139,8 +107,8 @@ export class QuotePoller {
     }
     const elapsed = Date.now() - startedAt
     this.opts.log(
-      `cycle done: ok=${ok} rate_limited=${rateLimited} failed=${failed} ` +
-        `in ${elapsed}ms (cache size=${this.opts.store.size()})`,
+      `cycle done: ok=${ok} failed=${failed} in ${elapsed}ms ` +
+        `(cache size=${this.opts.store.size()})`,
     )
   }
 }

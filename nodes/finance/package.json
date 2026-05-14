@@ -2,7 +2,7 @@
   "name": "@homeos/finance",
   "version": "0.0.0",
   "private": true,
-  "description": "Mesh node that polls stock quotes via Finnhub and exposes per-symbol + market-summary surfaces.",
+  "description": "Mesh node that polls stock quotes via Yahoo Finance (with Stooq CSV fallback) and exposes per-symbol + market-summary surfaces. No API key.",
   "license": "UNLICENSED",
   "main": "./dist/index.js",
   "scripts": {
@@ -12,7 +12,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@homeos/mesh-node-sdk": "workspace:*"
+    "@homeos/mesh-node-sdk": "workspace:*",
+    "yahoo-finance2": "^3.14.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

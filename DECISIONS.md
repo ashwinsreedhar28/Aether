@@ -860,16 +860,37 @@ enumeration (broad → specific). Selecting a chip re-invokes
 
 ---
 
-## [2026-05-13] Second data node: finance via Finnhub
+## [2026-05-13] Second data node: finance
 
 **Status:** accepted
 **Decided by:** Architect (approved by Director)
+
+**Update (2026-05-13, post-PR-#17 merge):** Finnhub dropped in favour
+of Yahoo Finance (primary, via the `yahoo-finance2` npm) with a Stooq
+CSV fallback. No API key.
+- *Reason.* The required-env-var onboarding friction (sign up at
+  finnhub.io, paste a key into a shell rc) was disproportionate for a
+  personal-use surface. Pulse's lived experience showed Yahoo + Stooq
+  the more durable pairing for this scale — anonymous endpoints, no
+  per-key quota to track, two providers means one outage doesn't
+  drop the whole grid.
+- *Consequences.* Finnhub rate-limit handling code removed
+  (`finance_rate_limited` MeshDeny reason is no longer reachable; the
+  voice tool's `_throttled_response` and the renderer's
+  `ThrottledState` are kept defined as dead branches for reuse if a
+  future provider needs them). `QuoteClientError` gains
+  `provider_error` for the both-providers-failed case. The Quote
+  shape gains `volume` (Yahoo returns it on the same /quote call;
+  Stooq returns it in the CSV row). Finnhub moves to Alternatives
+  below alongside Alpha Vantage. PR: `chore/finance-no-key`.
+
 **Note:** This ADR was originally drafted with Alpha Vantage as the
 upstream. PR-#17 review surfaced that the AV free tier is now 25
 req/day (was 5/min historically) — incompatible with this design's
 ~2880 req/day. Architect resolved on the PR: swap to Finnhub. The ADR
 was edited in place before merge (the AV version never shipped to
-`main`); the swap reasoning is preserved in Alternatives below.
+`main`); the swap reasoning is preserved in Alternatives below. The
+Update above records the subsequent Finnhub → Yahoo+Stooq swap.
 **Context:** Post `v0.3.0`, finance is the natural second data node. News
 (`news_feeds`) validates the RSS / bulk-recent pattern. Finance validates a
 different shape entirely — REST API with an env-var key, per-symbol query
@@ -911,6 +932,11 @@ finance_rate_limited` rather than retrying.
   unusual volume). The Quote type, JSON schema, voice tool response,
   and renderer all agree on the new shape (no `volume` field) — no
   half-state where one consumer knows the field and another doesn't.
+  *(Superseded by the Update above — Yahoo+Stooq both return volume
+  on the single quote call, so volume is back in the Quote shape and
+  the QuoteCard. The voice tool still strips it from spoken
+  readbacks — "Apple is at 189, down a percent, on 40 million shares"
+  is noise.)*
 - The renderer and voice tool both special-case `finance_rate_limited`.
   Renderer shows an amber "temporarily throttled — quotes refreshing
   later" card (distinct from the red "Finance unavailable" generic
@@ -945,8 +971,21 @@ finance_rate_limited` rather than retrying.
   ever shifts to "fetch one ticker every six hours" / "fetch on user
   request only" — but that's a different shape from the one this ADR
   ratifies.
-- *Yahoo Finance unofficial scrape.* Rejected — fragile and unsupported.
-  The library would break on a quiet HTML change with no warning.
+- *Finnhub free tier (60 req/min, no daily cap).* Initially accepted
+  (see Note above), then superseded by the Update at the top of this
+  ADR. The API-key onboarding friction was disproportionate for a
+  personal-use surface, and Finnhub's free tier had been quietly
+  tightening symbol coverage. Yahoo+Stooq removes the env var
+  entirely and is more durable in practice (Pulse's lived
+  experience). Finnhub remains a viable upstream if the design ever
+  needs fundamentals / financials, which Yahoo's quote endpoint
+  doesn't cover and Stooq doesn't expose at all.
+- *Yahoo Finance unofficial scrape.* Originally rejected — fragile
+  and unsupported. The `yahoo-finance2` npm wraps Yahoo's JSON API
+  (not HTML scraping) and is well-maintained; the failure mode is
+  "Yahoo changes the JSON shape" rather than "Yahoo changes the
+  HTML." Re-accepted as primary in the Update above, paired with
+  Stooq as fallback so a Yahoo outage doesn't drop the grid.
 - *Paid-tier IEX Cloud / Polygon.* Rejected — premature for v1.
 - *Fetch volume via `/stock/metric` per symbol.* Rejected for v1.
   Doubles request volume against the rate limit. Re-add when a use case

@@ -85,16 +85,10 @@ export class NodeManager {
   }
 
   private async spawnFinance(): Promise<void> {
-    // The finance node refuses to start without FINNHUB_API_KEY. We
-    // could skip the spawn entirely here, but logging "key not set" once
-    // in the spawn log file (the node will write its own refusal message)
-    // is cheaper than threading a "spawn-skipped" state through the rest
-    // of the shell. The cost is one harmless restart of a refusing
-    // process; the renderer just shows the empty/error state until the
-    // user sets the key and relaunches.
+    // No API key required as of v0.3.x — the node fetches via Yahoo
+    // Finance (primary) and Stooq (fallback), both anonymous endpoints.
     const dataDir = nodeDataDir()
     mkdirSync(dataDir, { recursive: true })
-    const apiKey = process.env.FINNHUB_API_KEY
     await this.spawnNode({
       id: 'finance',
       entry: FINANCE_ENTRY,
@@ -102,12 +96,9 @@ export class NodeManager {
       secretEnvName: 'MESH_FINANCE_SECRET',
       secretValue: this.secrets.financeSecret,
       // HOMEOS_DATA_DIR is the writable root for the running marker (no
-      // SQLite — quotes live in-memory). FINNHUB_API_KEY is forwarded
-      // from the shell's launch environment; absent → the node logs the
-      // refusal and exits with code 2.
+      // SQLite — quotes live in-memory).
       extraEnv: {
         HOMEOS_DATA_DIR: dataDir,
-        ...(apiKey ? { FINNHUB_API_KEY: apiKey } : {}),
       },
     })
   }

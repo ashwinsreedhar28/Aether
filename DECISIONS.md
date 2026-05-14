@@ -1198,3 +1198,80 @@ each QuoteCard, period `1d`, suppressed below 3 samples.
   for free at the existing card layout. A detail view is a separate
   PR if/when the user asks for it.
 
+---
+
+## [2026-05-13] Vision arc: gesture-driven interaction on laptop + future projection on home substrate
+
+**Status:** roadmap accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Voice and visual interaction are both first-class
+primitives for Aether (working name homeOS until the rename PR).
+Vision opens a gesture vocabulary (stop / select / next / wake) and
+pointer-targeting ("read *this* article") that voice alone can't
+reach without awkward verbalisation. Eventually — when the home
+substrate has projectors, multiple cameras, and depth sensors — the
+same vision stack enables projection of UI onto physical surfaces
+("put my calendar there"). The arc is multi-PR with architectural
+decisions baked into the ordering, and Director's end-state extends
+beyond what the laptop dev surface can demonstrate. Encoding the
+plan before any vision PR fires prevents scope creep on any single
+PR and keeps the trajectory legible across sessions.
+**Decision:** Vision arc ships as a **4-PR sequence**:
+1. `feat/vision-capture-node` — webcam capture mesh node, single
+   `vision.frame()` surface, no user-visible behaviour.
+2. `feat/vision-gesture-watcher` — MediaPipe Hands inference, the
+   first **always-on event-emitting** mesh node; introduces a new
+   mesh pattern (events, not request-response).
+3. `feat/raven-gesture-actions` — raven-core subscribes to gesture
+   events and maps them to voice/app actions; adds a Gemini-
+   interruption hook so "open palm = cancel" actually works.
+4. `feat/pointing-app-integration` — `data-pointable` attribute
+   convention on apps; shell pointer service; voice tools consult
+   pointer state for "read this" semantics.
+
+**Six gestures** comprise the laptop v1 vocabulary, in the order they
+appear in `docs/vision-roadmap.md`:
+1. Open palm hold — stop / cancel
+2. Index finger point — "look here"
+3. Thumbs up / down — confirm / dismiss
+4. Pinch — select / open
+5. Hand swipe L/R — next / previous
+6. Two-finger peace sign hold — wake voice session
+
+Wider vocabulary (multi-user distinguishing, mid-air drawing,
+eye-gaze) is deferred to when home-substrate hardware exists.
+**Consequences:**
+- Introduces the first always-on event-emitting mesh node pattern
+  (the gesture watcher). Mesh envelope protocol may need extension
+  or an SSE-based "subscribe to events" surface — that design
+  decision is deferred to when PR 2 is actively designed, not
+  pre-committed here.
+- Apps need a `data-pointable="{kind}-{id}"` attribute convention
+  to support pointer-targeting (News, Finance, Markdown each get
+  this in PR 4; new apps inherit the convention).
+- Vision Python deps (`mediapipe`, `opencv-python`, `Pillow`, `mss`,
+  `numpy`) stay vendored in raven-core's bootstrap even though the
+  current voice path doesn't use them — pruning would mean
+  re-vendoring at PR 1. Explicit anti-decision.
+- raven-core gains a Gemini-interruption mechanism in PR 3; until
+  then "cancel voice" mid-response is not reachable.
+- Patterns established for laptop v1 (event-emitting nodes,
+  gesture-to-action mapping, pointer-targeting convention) extend
+  to the home substrate without retrofit.
+**Alternatives considered:**
+- *LLM-based gesture inference from raw frames* (stream frames to a
+  vision model, ask "what's the user doing"). Rejected: too slow and
+  too expensive at 10fps, and a per-frame round-trip to a remote
+  model violates the "vision data is owned by Aether" doctrine.
+- *Apple Vision framework instead of MediaPipe.* Rejected: macOS-
+  locked, harder cross-platform path. MediaPipe is the portable
+  choice for the eventual home substrate (Linux box likely).
+- *Gesture-as-MCP — delegate detection to an external vision
+  service.* Rejected as the wrong taxonomic shape: gesture detection
+  is owned data (camera feed never leaves the device), so it lives
+  in mesh, not MCP. Same reasoning as `news_feeds` and `finance`
+  living in mesh rather than being MCP-facing.
+**Reference:** [`docs/vision-roadmap.md`](docs/vision-roadmap.md)
+for the full design — gesture-by-gesture semantics, PR-by-PR
+specifics, home-substrate eventual scope, and dependency rationale.
+

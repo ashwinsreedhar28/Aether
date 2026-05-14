@@ -8,6 +8,11 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- `README.md` at repo root: project description, current state,
+  quickstart, architecture overview, governance model summary,
+  project context. First public-facing documentation surface.
+- `LICENSE` file at repo root (MIT).
+
 - **First real *data* node: `news_feeds`.** Node.js mesh node at
   `nodes/news_feeds/` that polls a hardcoded list of RSS/Atom feeds
   (Hacker News, BBC, The Verge, Ars Technica) every 15 minutes,

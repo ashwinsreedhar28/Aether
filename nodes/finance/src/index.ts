@@ -3,14 +3,30 @@ import { join } from 'node:path'
 import { MeshNode, MeshDeny, type Envelope } from '@homeos/mesh-node-sdk'
 import { QuoteClient, QuoteClientError } from './client'
 import { QuoteStore } from './storage'
+import { QuoteHistory } from './history'
 import { QuotePoller } from './poller'
 import { TICKERS, isTracked } from './tickers'
 
 const NODE_ID = 'finance'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
 
+// finance.history period enum. Ordered shortest → longest so the JSON
+// Schema enum, this set, and the voice tool's mapping share one
+// reading order. 'all' is the full retained window (90d, see history.ts
+// RETENTION_DAYS). Extending the enum (e.g. '6m') is a code change here
+// + schema bump + voice-tool mapping — same intentional friction as
+// news_feeds categories.
+const VALID_PERIODS = new Set(['1d', '1w', '1m', 'all'])
+const DEFAULT_PERIOD = '1w'
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
 interface QuoteArgs {
   symbol?: unknown
+}
+
+interface HistoryArgs {
+  symbol?: unknown
+  period?: unknown
 }
 
 function log(msg: string): void {
@@ -71,6 +87,54 @@ function makeMarketSummaryHandler(store: QuoteStore) {
   }
 }
 
+// Period → since-iso lower bound for the history query. 'all' is the
+// epoch so the store returns whatever is retained (capped at 90 days
+// by the poller's prune step). Day-counts are calendar-loose: '1m' is
+// 30 days, not last-calendar-month — close enough for the voice tool's
+// "this month" summary and avoids the timezone-month-boundary hairball.
+function periodToSinceIso(period: string): string {
+  const now = Date.now()
+  if (period === '1d') return new Date(now - 1 * MS_PER_DAY).toISOString()
+  if (period === '1w') return new Date(now - 7 * MS_PER_DAY).toISOString()
+  if (period === '1m') return new Date(now - 30 * MS_PER_DAY).toISOString()
+  if (period === 'all') return new Date(0).toISOString()
+  return new Date(now - 7 * MS_PER_DAY).toISOString()
+}
+
+function makeHistoryHandler(history: QuoteHistory) {
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
+    const payload = env.payload as HistoryArgs
+    const symbol =
+      typeof payload?.symbol === 'string' ? payload.symbol.toUpperCase() : ''
+    if (!symbol) {
+      throw new MeshDeny('finance_bad_symbol', { reason: 'symbol_required' })
+    }
+    if (!isTracked(symbol)) {
+      // Same belt-and-braces check as finance.quote: the JSON Schema
+      // doesn't enforce tracked-list membership (so the tracked set
+      // can grow without a schema bump), so we enforce here.
+      throw new MeshDeny('finance_untracked_symbol', {
+        symbol,
+        tracked: TICKERS.map((t) => t.symbol),
+      })
+    }
+    const rawPeriod =
+      typeof payload?.period === 'string' ? payload.period : DEFAULT_PERIOD
+    if (!VALID_PERIODS.has(rawPeriod)) {
+      throw new MeshDeny('finance_bad_period', {
+        period: rawPeriod,
+        valid: Array.from(VALID_PERIODS),
+      })
+    }
+    const sinceIso = periodToSinceIso(rawPeriod)
+    const points = history.points(symbol, sinceIso)
+    // Empty array is the honest first-day answer — never an error. The
+    // sparkline skips render below the 3-point threshold; the voice
+    // tool says "insufficient history" below 2 samples.
+    return { points }
+  }
+}
+
 async function main(): Promise<void> {
   const secret = process.env.MESH_FINANCE_SECRET
   if (!secret) {
@@ -87,25 +151,32 @@ async function main(): Promise<void> {
     process.exit(2)
   }
   // The marker file under HOMEOS_DATA_DIR is the node's own liveness
-  // signal (matches the news_feeds pattern). No SQLite here — all state
-  // lives in-process — so the directory exists only to host the marker.
+  // signal (matches the news_feeds pattern). The directory now ALSO
+  // hosts history.db — the in-memory current-quote cache is still
+  // in-memory (storage.ts), but the historical time series is
+  // persisted (see history.ts header for why these two are split).
   const nodeDir = join(dataDir, 'finance')
   mkdirSync(nodeDir, { recursive: true })
   const markerPath = join(nodeDir, 'running')
+  const historyDbPath = join(nodeDir, 'history.db')
 
   const client = new QuoteClient({ log })
   const store = new QuoteStore()
+  const history = new QuoteHistory(historyDbPath)
+  log(`history db opened at ${historyDbPath} (existing rows=${history.count()})`)
   const node = new MeshNode(NODE_ID, secret, CORE_URL)
 
   const poller = new QuotePoller({
     tickers: TICKERS,
     client,
     store,
+    history,
     log,
   })
 
   node.on('quote', makeQuoteHandler(store, poller))
   node.on('market_summary', makeMarketSummaryHandler(store))
+  node.on('history', makeHistoryHandler(history))
 
   await node.start()
   log(`registered with core at ${CORE_URL}`)
@@ -132,6 +203,11 @@ async function main(): Promise<void> {
     }
     try {
       await node.stop()
+    } catch {
+      /* best-effort */
+    }
+    try {
+      history.close()
     } catch {
       /* best-effort */
     }

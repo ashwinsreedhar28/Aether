@@ -1012,3 +1012,116 @@ finance_rate_limited` rather than retrying.
   (weather, probably) is the right time to extract.
 - *Build a separate Settings surface as part of this PR for tickers.*
   Rejected as scope creep — the Settings app is its own PR.
+
+## [2026-05-13] Finance historical quotes via passive accumulation
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** With `finance.quote` / `finance.market_summary` shipping in
+the prior PR, the obvious next move is depth. Voice-side ("how's AAPL
+this week"), renderer-side (in-card sparkline), and any future
+agent-side ("did NVDA do anything unusual this month") all want
+*historical* price samples — not just the current price the in-memory
+cache already serves. The question is how the finance node should
+*get* that history. Three options realistically present themselves:
+fetch from a dedicated historical endpoint (Finnhub `/stock/candle`,
+Alpha Vantage time-series, etc.) on startup or on each query;
+back-fill from training data / a third-party historical dataset; or
+passively accumulate from the polling cycle already running. This
+ADR is the third choice ratified.
+
+**Decision:** Each successful poll appends one row to a SQLite
+`quotes_history` table at `$HOMEOS_DATA_DIR/finance/history.db`. The
+table is independent of the in-memory current-quote cache (storage.ts
+is unchanged — that anti-decision from "Second data node: finance via
+Finnhub" still holds). Rolling 90-day retention; rows older than the
+window are pruned at the start of each poll cycle. A new surface
+`finance.history({symbol, period?})` reads accumulated points back
+(periods: `1d` / `1w` / `1m` / `all`, default `1w`); empty array on
+first-day installs is honest, not an error. Voice tool
+`finance_history` summarises the points into a spoken-ready line
+(range low/high, change-over-window) and special-cases
+insufficient-history with a "check back in a few hours" `spoken`
+field. Renderer adds an inline 80×24px sparkline at the bottom of
+each QuoteCard, period `1d`, suppressed below 3 samples.
+
+**Consequences:**
+- **First-day installs honestly return no history.** The voice tool
+  reads "I don't have enough history for AAPL yet, sir — check back in
+  a few hours." Sparklines stay hidden in QuoteCards until 3 samples
+  accumulate (~15 min after first poll). The user can verify that
+  history *is* growing by reopening the app or asking again later.
+  This is intentional — see "Alternatives considered" below for why
+  the other choices were worse.
+- The finance node now has BOTH in-memory state (current-quote cache,
+  unchanged) AND SQLite state (history.db, new). The separation is
+  defensible: in-memory because *current* prices going stale across a
+  restart would mislead consumers; SQLite because *historical* prices
+  are inherently time-stamped — there's no staleness to mislead, and
+  losing the accumulated series across restarts would defeat the
+  whole point. README + node metadata in manifest.yaml both spell
+  this out so the next reader doesn't get confused by what looks like
+  a U-turn from the prior ADR.
+- Same retention shape as a possible future weather node (90 days
+  rolling, key on time + entity). The third instance is where pattern
+  extraction earns its weight per CLAUDE.md §14; this PR doesn't
+  extract.
+- History writes are best-effort inside the poller — a failing DB
+  (corruption, disk full) is logged but doesn't propagate; the
+  in-memory cache and `finance.quote` / `finance.market_summary` keep
+  working. Trade-off: rare silent data loss for the historical series
+  in pathological cases, vs. a single failed write blowing up the
+  renderer's grid. The grid is the more visible failure mode.
+- Three new manifest edges (`shell → finance.history`,
+  `raven → finance.history`, plus the surface declaration on the
+  finance node). Same multi-consumer pattern as `news_feeds.recent`.
+- `finance_history` is the third entry in the voice tool's
+  hallucination guardrail. Training-era prices are wrong; training-era
+  *charts* are wronger. The prompt now explicitly tells Gemini to
+  read the `spoken` field verbatim — both the summary line and the
+  insufficient-history line — and never substitute past prices from
+  memory.
+
+**Alternatives considered:**
+- *Startup backfill via Finnhub `/stock/candle`.* Rejected. Free-tier
+  `/stock/candle` is heavily limited (paid tier required for
+  >sub-daily resolution on most symbols), the resolutions on offer
+  don't match our 5-minute polling cadence, and the boundary case
+  ("what counts as `now` if the upstream historical and our live
+  series disagree?") needs reconciliation logic this PR does not
+  want to write. Passive accumulation sidesteps the reconciliation by
+  having only one source of truth: our own polls.
+- *Live `/stock/candle` on each `finance.history` call.* Rejected.
+  Doubles request count against Finnhub's per-minute cap for what is
+  almost always read-back of data the node has already collected; and
+  fails for fresh installs in the same way passive accumulation
+  does, just slower and at higher upstream cost.
+- *Back-fill from training data / a public historical dataset on
+  first launch.* Rejected — fakes the depth. The user would see a
+  full chart immediately, but the points wouldn't be what the node
+  *itself* observed; the moment one of those backfilled prices
+  disagrees with reality (it will), the trust in *all* charts
+  evaporates. Worse than honest emptiness.
+- *Persist the current-quote cache to SQLite too (re-open the prior
+  ADR).* Rejected. The reason the current cache stays in-memory is
+  unchanged: a stale current-quote read after a restart would
+  mislead consumers with no signal that it's stale. A separate
+  historical table avoids this — every row in `quotes_history`
+  carries its own `fetched_at`, so consumers know exactly when each
+  sample was observed.
+- *Persist history in a single shared DB with news_feeds.* Rejected.
+  Node-local SQLite is the established pattern (DECISIONS.md "News
+  feeds node storage layout"). Cross-node DBs would couple lifecycles
+  that should stay independent. Same rationale as keeping
+  `news_feeds/news.db` separate from anything else.
+- *Bigger or smaller retention window.* 90 days picked as the
+  sweet spot: covers the voice tool's longest period (`1m`) with
+  generous headroom for future "past quarter" / "past two months"
+  phrasings, and at ~26k rows per symbol per quarter the on-disk
+  footprint is small (<1MB per symbol for the full window). 30 days
+  would be too tight; 365 days has no use case yet.
+- *Detail-page chart in the renderer (full range, hover, etc.).*
+  Out of scope. The 80×24 inline sparkline gives "at-a-glance trend"
+  for free at the existing card layout. A detail view is a separate
+  PR if/when the user asks for it.
+

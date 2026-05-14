@@ -15,9 +15,20 @@ interface Quote {
   fetched_at: string
 }
 
+// HistoryPoint mirrors the finance.history surface output. Same
+// duplication rationale as Quote — keep in sync with
+// nodes/finance/src/history.ts.
+interface HistoryPoint {
+  fetched_at: string
+  price: number
+  change_percent: number
+}
+
+type HistoryMap = Record<string, HistoryPoint[]>
+
 type LoadState =
   | { kind: 'loading' }
-  | { kind: 'ok'; quotes: Quote[]; fetchedAt: string }
+  | { kind: 'ok'; quotes: Quote[]; fetchedAt: string; history: HistoryMap }
   // 'throttled' is the special-case rate_limited reason — surfaced with
   // a "temporarily throttled, retry shortly" copy instead of "finance
   // unavailable". A confused-by-rare-event user reads the throttled
@@ -25,6 +36,14 @@ type LoadState =
   // broken". Everything else collapses into the generic error path.
   | { kind: 'throttled' }
   | { kind: 'error'; message: string }
+
+// Minimum sample count before the sparkline renders. Below this the
+// shape would be noise (two points = a straight line, one = a dot);
+// the QuoteCard quietly omits the row instead. A fresh install hits
+// 3 samples within ~15 minutes of node launch.
+const SPARKLINE_MIN_POINTS = 3
+const SPARKLINE_W = 80
+const SPARKLINE_H = 24
 
 // 60s. Most ticks hit the node's in-memory cache (poller refreshes every
 // 5min). The render-side refresh is what surfaces fresh prices when the
@@ -59,7 +78,61 @@ function formatVolume(n: number): string {
   return n.toString()
 }
 
-function QuoteCard({ quote }: { quote: Quote }) {
+// Linear point-to-point path. No smoothing, no fill — the card is small
+// (80×24) and a poly-line reads cleanly at that size; bezier or area-fill
+// would burn pixels on visual noise.
+function Sparkline({
+  points,
+  stroke,
+}: {
+  points: HistoryPoint[]
+  stroke: string
+}) {
+  if (points.length < SPARKLINE_MIN_POINTS) return null
+  const prices = points.map((p) => p.price)
+  const min = Math.min(...prices)
+  const max = Math.max(...prices)
+  const range = max - min
+  // Flat series (range === 0) would divide-by-zero; centre the line
+  // vertically instead. Rare but possible for low-volume tickers.
+  const stride = SPARKLINE_W / (points.length - 1)
+  const d = points
+    .map((p, i) => {
+      const x = i * stride
+      const y =
+        range === 0
+          ? SPARKLINE_H / 2
+          : SPARKLINE_H - ((p.price - min) / range) * SPARKLINE_H
+      return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
+    })
+    .join(' ')
+  return (
+    <svg
+      width={SPARKLINE_W}
+      height={SPARKLINE_H}
+      viewBox={`0 0 ${SPARKLINE_W} ${SPARKLINE_H}`}
+      style={{ display: 'block' }}
+      aria-hidden="true"
+    >
+      <path
+        d={d}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function QuoteCard({
+  quote,
+  history,
+}: {
+  quote: Quote
+  history: HistoryPoint[] | undefined
+}) {
   const positive = quote.change >= 0
   // Direction is communicated by both shape (▲/▼) and colour — colour-only
   // would fail accessibility checks. The arrows are unicode glyphs (not
@@ -114,6 +187,9 @@ function QuoteCard({ quote }: { quote: Quote }) {
         <span>Volume</span>
         <span className="tabular-nums">{formatVolume(quote.volume)}</span>
       </div>
+      {history && history.length >= SPARKLINE_MIN_POINTS && (
+        <Sparkline points={history} stroke={changeColor} />
+      )}
     </div>
   )
 }
@@ -246,6 +322,37 @@ function bySymbolAsc(a: Quote, b: Quote): number {
   return a.symbol.localeCompare(b.symbol)
 }
 
+// Best-effort parallel fetch of last-24h history per symbol for the
+// in-card sparkline. The finance.history surface reads from local
+// SQLite (no upstream call, no rate-limit risk), so 10 parallel
+// invocations cost only the IPC round-trips. allSettled keeps a single
+// failing symbol from poisoning the whole map — failed lookups just
+// mean that card renders without a sparkline.
+async function fetchHistoryMap(symbols: string[]): Promise<HistoryMap> {
+  const out: HistoryMap = {}
+  if (symbols.length === 0) return out
+  const results = await Promise.allSettled(
+    symbols.map((sym) =>
+      window.homeOS.mesh.invoke('finance.history', {
+        symbol: sym,
+        period: '1d',
+      }),
+    ),
+  )
+  results.forEach((r, i) => {
+    if (r.status !== 'fulfilled') return
+    const sym = symbols[i]
+    if (!sym) return
+    const inv = r.value
+    if (!inv.ok || !inv.envelope) return
+    const payload = inv.envelope.payload as { points?: unknown }
+    if (Array.isArray(payload.points)) {
+      out[sym] = payload.points as HistoryPoint[]
+    }
+  })
+  return out
+}
+
 export function Finance() {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
 
@@ -279,7 +386,18 @@ export function Finance() {
     // this the Map iteration order in the node would carry through and
     // cells could appear to swap positions on each refresh.
     quotes.sort(bySymbolAsc)
-    setState({ kind: 'ok', quotes, fetchedAt: new Date().toISOString() })
+    // Fetch sparkline data AFTER the quotes land so the grid renders
+    // immediately with the prices and the sparklines fill in once the
+    // history calls complete. Both legs use the same node, so the
+    // history reads usually return within a tick or two of the
+    // market_summary read; the perceived delay is invisible.
+    const history = await fetchHistoryMap(quotes.map((q) => q.symbol))
+    setState({
+      kind: 'ok',
+      quotes,
+      fetchedAt: new Date().toISOString(),
+      history,
+    })
   }, [])
 
   useEffect(() => {
@@ -304,7 +422,11 @@ export function Finance() {
         {state.kind === 'ok' && state.quotes.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {state.quotes.map((q) => (
-              <QuoteCard key={q.symbol} quote={q} />
+              <QuoteCard
+                key={q.symbol}
+                quote={q}
+                history={state.history[q.symbol]}
+              />
             ))}
           </div>
         )}

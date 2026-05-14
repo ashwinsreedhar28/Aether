@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "finance.history",
+  "description": "Get the accumulated time series of polled quote samples for a tracked symbol. The node passively appends one row per symbol per successful poll (~5-minute cadence) and prunes rows older than 90 days; there is no upstream historical-fetch path. First-day installs return an empty points array — empty is not an error; the caller (voice tool / sparkline) decides how to surface it.",
+  "type": "object",
+  "required": ["symbol"],
+  "additionalProperties": true,
+  "properties": {
+    "symbol": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8,
+      "description": "US ticker symbol (case-insensitive, normalised to uppercase by the handler). Must be in the node's tracked list."
+    },
+    "period": {
+      "type": "string",
+      "enum": ["1d", "1w", "1m", "all"],
+      "description": "Lookback window for points returned. Default '1w' if omitted. 'all' returns the full retained 90-day window."
+    }
+  }
+}

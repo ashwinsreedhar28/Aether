@@ -8,6 +8,33 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- **Finance historical quotes via passive accumulation.** The finance
+  node now writes every successful poll to a SQLite time series at
+  `$HOMEOS_DATA_DIR/finance/history.db` (90-day rolling retention,
+  pruned at the start of each poll cycle). New surface
+  `finance.history({symbol, period?})` reads the accumulated points
+  back — periods `1d` / `1w` / `1m` / `all`, default `1w`; empty
+  array on first-day installs is honest, not an error. The in-memory
+  current-quote cache (`storage.ts`) is unchanged — the anti-decision
+  against persisting *current* quotes still holds; this is a separate
+  *historical* concern. New voice tool `finance_history(symbol,
+  period?)` summarises the time series into a spoken-ready line
+  ("AAPL this past week: ranged $230.10 to $238.42, currently up 1.4
+  percent.") and special-cases insufficient-history with a "check
+  back in a few hours" `spoken` field — the anti-hallucination
+  guardrail extends to historical prices, which Gemini's training
+  data contains in roughly-real-looking form. New JSON Schema at
+  `nodes/finance/schemas/history.json`. Two new manifest edges
+  (`shell → finance.history`, `raven → finance.history`).
+- **In-card sparkline on the Finance app.** Each QuoteCard now
+  renders an 80×24px SVG poly-line below the change row showing the
+  last 24h of polled samples, stroke colour matching the day's
+  direction (green up / red down). Skipped under 3 samples so a
+  fresh install doesn't show a single dot. The renderer fetches
+  history per symbol in parallel after `market_summary` lands — all
+  reads hit the node's local SQLite, no upstream cost. See
+  DECISIONS.md "Finance historical quotes via passive accumulation".
+
 - **Second real *data* node: `finance`.** Node.js mesh node at
   `nodes/finance/` that polls Finnhub's `/quote` endpoint every 5
   minutes for a hardcoded list of ten US tickers (AAPL, MSFT, GOOGL,

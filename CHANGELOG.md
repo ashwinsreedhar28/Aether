@@ -8,6 +8,22 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- **`docs/vision-roadmap.md`** captures the 4-PR vision arc sequence
+  (`feat/vision-capture-node` → `feat/vision-gesture-watcher` →
+  `feat/raven-gesture-actions` → `feat/pointing-app-integration`),
+  the six-gesture laptop vocabulary (open palm, point, thumbs up/down,
+  pinch, swipe, two-finger wave), the hardware-constraint reasoning
+  (MacBook Pro webcam-only v1 vs. eventual home substrate with depth
+  sensors and projectors), and the laptop-vs-home-substrate scope
+  split. Encoded before any vision PR fires so the trajectory is
+  legible across sessions.
+- **DECISIONS.md ADR "Vision arc: gesture-driven interaction on
+  laptop + future projection on home substrate"** accepted as
+  roadmap. Locks the 4-PR ordering, the six-gesture vocabulary,
+  and the mesh-not-MCP placement of vision data. Alternatives
+  considered (LLM-from-raw-frames, Apple Vision framework, gesture-
+  as-MCP) recorded with rejection reasoning.
+
 - **News keyword search backed by SQLite FTS5.** New mesh surface
   `news_feeds.search({query, limit?, category?})` ranks articles by
   bm25 across `title` / `summary` / `feed`, with `published_at` as

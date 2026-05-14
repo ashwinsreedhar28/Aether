@@ -10,6 +10,36 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- **`docs/voice-extensibility-roadmap.md`** captures the five-piece
+  design for organising Aether's voice tool substrate as the tool
+  count grows past 13. Encodes the five tensions the arc resolves
+  (no discoverability, no user-level composition, hand-written
+  wrapper duplication, no modal context, no primitives for richer
+  composition), the five pieces (tool registry + taxonomy with
+  categories `time` / `memory` / `data` / `system` / `composer` /
+  `creative` / `automation`; user automations / named sequences
+  persisted in a SQLite `automations` table; mesh-surface
+  auto-mapping via a `voice_tool` schema metadata block;
+  adaptive modes — `default` / `morning` / `focus` / `evening` —
+  with mode transitions riding session restarts to work around the
+  `system_instruction` set-once constraint; composition primitives
+  with sequential + parallel as v1 expressiveness and conditional
+  steps deferred to v2), the PR sequence (`feat/voice-tool-registry`
+  → `feat/voice-automations` + `feat/voice-mesh-automap` in parallel
+  → `feat/voice-modes` → `feat/voice-composition`), composition with
+  the voice-ambient and MCP arcs, and the explicit out-of-scope list
+  (voice-created tools, tool versioning, cross-user / cloud sync,
+  MCP auto-tooling, per-tool permission gates, conditional
+  composition primitives, user-tunable thresholds). No
+  implementation in this PR — design captured before any
+  voice-extensibility code fires, same shape as
+  `docs/voice-ambient-roadmap.md` and `docs/mcp-integration-arc-roadmap.md`.
+- **DECISIONS.md ADR "Voice extensibility arc roadmap: five-piece
+  tool substrate"** accepting the roadmap above, including rejected
+  alternatives (single-PR bundle, ship Piece 5 before Piece 2,
+  conditional primitives in v1 — bound deferral, YAML over JSON for
+  sequence persistence, flat tool list without categories, defer the
+  arc until ~25-30 tools).
 - **`docs/mcp-integration-arc-roadmap.md`** captures the five-piece
   design for authenticated personal data sources (Google Calendar,
   Gmail, Drive) via the Model Context Protocol. Encodes the

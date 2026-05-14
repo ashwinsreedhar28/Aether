@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "finance.market_summary",
+  "description": "Get cached quotes for every tracked symbol. No parameters. The response is a snapshot of whatever is currently in the node's in-memory cache; the poller refreshes the cache on its own 5-minute cadence and this surface does not trigger fetches.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

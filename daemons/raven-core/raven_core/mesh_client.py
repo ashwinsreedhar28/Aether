@@ -34,7 +34,23 @@ log = logging.getLogger("raven.mesh_client")
 
 
 class MeshUnavailable(Exception):
-    """Raised by mesh_invoke when the client never came up (e.g. env unset)."""
+    """Raised by mesh_invoke when the call could not complete.
+
+    Two failure modes share this exception class so callers have a
+    single ``except`` to write:
+
+    1. The mesh client never came up (env unset / SDK import failed /
+       register failed). ``reason`` is ``None`` in this case — the
+       exception text carries the setup-time detail.
+    2. The remote node responded with ``kind=error`` (MeshDeny). The
+       ``reason`` attribute carries the structured reason from the
+       error payload (e.g. ``"finance_rate_limited"``) so tools can
+       branch on it without parsing the exception string.
+    """
+
+    def __init__(self, message: str, reason: str | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 # Module-level singletons. We only ever have one mesh client per
@@ -129,7 +145,7 @@ async def mesh_invoke(target: str, payload: dict[str, Any]) -> dict[str, Any]:
     kind = env.get("kind")
     if kind == "error":
         reason = env.get("payload", {}).get("reason", "remote_error")
-        raise MeshUnavailable(f"mesh error: {reason}")
+        raise MeshUnavailable(f"mesh error: {reason}", reason=reason)
     return env.get("payload", {}) if isinstance(env.get("payload"), dict) else {}
 
 

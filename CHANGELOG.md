@@ -8,6 +8,62 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- **Second real *data* node: `finance`.** Node.js mesh node at
+  `nodes/finance/` that polls Finnhub's `/quote` endpoint every 5
+  minutes for a hardcoded list of ten US tickers (AAPL, MSFT, GOOGL,
+  AMZN, NVDA, TSLA, META, SPY, QQQ, DIA), staggering one symbol every
+  30 seconds within each cycle (~2 req/min averaged, ~3% of Finnhub's
+  60/min free-tier ceiling). Quotes cached in-memory (NOT SQLite —
+  quotes are time-sensitive and persisting them across restarts would
+  mislead consumers). Two surfaces: `finance.quote({ symbol })`
+  returns the cached quote (refreshing on-demand if stale), with
+  `MeshDeny: finance_untracked_symbol` for symbols outside the tracked
+  list; `finance.market_summary()` returns the full cached grid.
+  Validates the data-node template as a reusable pattern (news was
+  the RSS shape; finance is the REST-API shape) — pattern extraction
+  is held back to the third instance per CLAUDE.md §14. No volume in
+  v1 (Finnhub's `/quote` doesn't return it; the `/stock/metric` side
+  call wasn't worth doubling request volume for v1 — see DECISIONS.md).
+- **New Finance app** at `shell/src/apps/finance/` (order 60, between
+  News and Markdown; `TrendingUp` icon). 2-column-mobile / 3-column-
+  desktop responsive grid of `QuoteCard`s — symbol, price, dollar +
+  percent change with green ▲ / red ▼ direction arrows, latest-trading-
+  day label. Auto-refresh every 60 seconds against
+  `finance.market_summary`; most ticks hit the node's in-memory cache
+  cheaply. Loading / empty / generic-error states match the holographic
+  language established by the News app. A distinct amber "temporarily
+  throttled — quotes refreshing later" state surfaces only on
+  `finance_rate_limited` MeshDeny; all other errors collapse into the
+  red "Finance unavailable" path.
+- **Two new voice tools:** `finance_quote(symbol)` ("what's AAPL at",
+  "how is Tesla doing today") and `finance_market_summary()` ("how's
+  the market", "give me a market update", "my stocks"). Both routed
+  through `mesh_invoke` to the finance node. On `finance_rate_limited`
+  the tools return a structured `{error: "rate_limited", spoken: …}`
+  response so Gemini reads "Stock quotes are temporarily throttled,
+  sir; try again in a minute." verbatim rather than the generic
+  unavailable copy. Prompt updates: ticker mapping (AAPL=Apple,
+  MSFT=Microsoft, etc.) so Gemini doesn't have to guess; few-shot
+  examples for both tools; the `spoken`-field-verbatim convention is
+  documented in the system prompt; explicit anti-hallucination
+  guardrail extending the news-tool pattern — training data contains
+  historical stock prices that LOOK real but are months out of date,
+  so the model is told never to quote a price from memory.
+- **Four new manifest edges:** `shell → finance.market_summary`,
+  `shell → finance.quote`, `raven → finance.market_summary`,
+  `raven → finance.quote`. Same-surface multi-consumer pattern from
+  `news_feeds.recent` carries forward.
+- `MESH_FINANCE_SECRET` joins the per-launch secrets bag. The shell
+  forwards a user-supplied `FINNHUB_API_KEY` env var into the spawned
+  finance child (refusal-on-missing with a clear log message);
+  `.env.local.example` documents the new var.
+- `nodes/finance/schemas/{quote,market_summary}.json` — JSON Schemas
+  validated by Core on every invocation. Same `MeshDeny` channel as
+  news for rate-limit / unknown-symbol / malformed-response errors.
+- `nodeManager` spawns the finance node alongside `host_notifications`
+  and `news_feeds`; `staleSpawns` cleanup extended with a pattern
+  match on `finance/dist/index.js`.
+
 - **News feeds gain a seven-category taxonomy** (`world`, `us`, `tech`,
   `business`, `sports`, `science`, `local`). The catalog in
   `nodes/news_feeds/src/feeds.ts` expands from 4 → ~33 feeds across
@@ -51,6 +107,7 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
   below it. Empty-state copy is context-aware: "No recent articles
   in Tech." when a category filter is active vs. the generic
   "Headlines refreshing" when "All" is selected.
+
 - `README.md` at repo root: project description, current state,
   quickstart, architecture overview, governance model summary,
   project context. First public-facing documentation surface.
@@ -204,6 +261,15 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Changed
 
+- **`MeshUnavailable` (Python, `raven_core/mesh_client.py`) gains an
+  optional `reason` attribute.** Set to the MeshDeny reason from the
+  remote node when the failure path was a `kind=error` response;
+  `None` for setup-time failures (env unset / SDK import failed /
+  register failed). Lets voice tools branch on `e.reason ==
+  "finance_rate_limited"` rather than parsing the exception string —
+  the cleaner shape that every future mesh-routed tool will benefit
+  from. Existing call sites that only `except MeshUnavailable` are
+  unaffected.
 - raven daemon's pip-deps marker bumped from `.requirements-installed`
   to `.requirements-installed-v2`. Existing dev venvs from PR #9 will
   re-run `pip install -r requirements.txt` once on first launch after

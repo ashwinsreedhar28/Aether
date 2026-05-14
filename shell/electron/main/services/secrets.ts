@@ -10,6 +10,7 @@ export interface MeshSecrets {
   hostNotificationsSecret: string
   ravenSecret: string
   newsFeedsSecret: string
+  financeSecret: string
 }
 
 function hex32(): string {
@@ -24,5 +25,6 @@ export function generateMeshSecrets(): MeshSecrets {
     hostNotificationsSecret: hex32(),
     ravenSecret: hex32(),
     newsFeedsSecret: hex32(),
+    financeSecret: hex32(),
   }
 }

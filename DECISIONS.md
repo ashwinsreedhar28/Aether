@@ -782,7 +782,6 @@ its hardcoded `articles.ts` entirely and consumes the mesh surface.
   fresh data on app open, not a push subscription; request/response
   is the simpler shape and matches how the user thinks about news.
 
-
 ---
 
 ## [2026-05-13] Feed categorization: hardcoded per-feed taxonomy
@@ -858,3 +857,119 @@ enumeration (broad → specific). Selecting a chip re-invokes
   JSON Schema, dynamic IN-clause in storage) and unlocks `["us",
   "world"]` queries that future UI work might want without another
   schema migration.
+
+---
+
+## [2026-05-13] Second data node: finance via Finnhub
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Note:** This ADR was originally drafted with Alpha Vantage as the
+upstream. PR-#17 review surfaced that the AV free tier is now 25
+req/day (was 5/min historically) — incompatible with this design's
+~2880 req/day. Architect resolved on the PR: swap to Finnhub. The ADR
+was edited in place before merge (the AV version never shipped to
+`main`); the swap reasoning is preserved in Alternatives below.
+**Context:** Post `v0.3.0`, finance is the natural second data node. News
+(`news_feeds`) validates the RSS / bulk-recent pattern. Finance validates a
+different shape entirely — REST API with an env-var key, per-symbol query
+surface, numeric (not text) data, shorter freshness window, and a
+provider-imposed rate limit that has to be respected without falling over.
+Together, the two nodes earn signal on what is *shared template* (the
+`nodes/<name>/{src,schemas,README.md}` layout, MeshNode + per-surface
+handler shape, marker-file liveness, MeshDeny error taxonomy, voice-tool
+mesh-routing pattern) versus *data-source-specific* (RSS-parser vs.
+REST-with-headers, SQLite-with-WAL vs. in-memory cache, bulk-poll vs.
+per-symbol-stagger, single-surface vs. two-surface ergonomics). Pattern
+extraction is held back per CLAUDE.md §14's third-instance rule — two
+nodes is signal, not yet enough.
+
+**Decision:** Finnhub free tier as the data source (60 req/min, no daily
+cap). Hardcoded ticker list of ten popular symbols (AAPL, MSFT, GOOGL,
+AMZN, NVDA, TSLA, META, SPY, QQQ, DIA). In-memory cache with a 5-minute
+freshness window — no SQLite. Two surfaces: `finance.quote({ symbol })`
+for per-symbol queries (with `MeshDeny: finance_untracked_symbol` outside
+the tracked list) and `finance.market_summary()` for the full cached
+grid. 5-minute poll cycle with one symbol fetched every 30 seconds —
+exactly five minutes total per cycle with ten tickers, so polling is
+effectively continuous at ~2 req/min averaged (~3% of Finnhub's 60/min
+budget). Rate-limit responses (HTTP 429) trigger a 60-second cooldown
+during which on-demand `finance.quote` fetches return `MeshDeny:
+finance_rate_limited` rather than retrying.
+
+**Consequences:**
+- Pattern documented for any future API-based data node (weather, sports,
+  air quality, transit). The shape: REST client with structured-error
+  enum, in-memory `Map`-based cache with freshness windows, stagger-aware
+  poller, two surfaces (single-entity + collection-view).
+- **No volume in v1.** Finnhub's `/quote` endpoint returns price, change,
+  percent change, high/low/open/prev_close, and a timestamp — but no
+  volume. Fetching volume would require a separate `/stock/metric` call
+  per symbol, doubling request count for marginal user value. The
+  trade-off chosen: drop volume from the QuoteCard display in v1, re-add
+  if there's a clear use case (e.g. a "movers" view that ranks by
+  unusual volume). The Quote type, JSON schema, voice tool response,
+  and renderer all agree on the new shape (no `volume` field) — no
+  half-state where one consumer knows the field and another doesn't.
+- The renderer and voice tool both special-case `finance_rate_limited`.
+  Renderer shows an amber "temporarily throttled — quotes refreshing
+  later" card (distinct from the red "Finance unavailable" generic
+  error). Voice tool returns `{error: "rate_limited", spoken: "Stock
+  quotes are temporarily throttled, sir; try again in a minute."}`;
+  Gemini reads the `spoken` field verbatim. Other errors collapse into
+  the generic shape. Rationale: throttle is a temporary, expected state
+  with a clear "retry later" remediation — collapsing into "unavailable"
+  misleads the user.
+- `MeshUnavailable` (Python, `raven_core/mesh_client.py`) gains an
+  optional `reason` attribute so voice tools can branch on the MeshDeny
+  reason without parsing the exception string. Cleaner than the parse-
+  text alternative; the existing call-sites that just catch
+  `MeshUnavailable` are unaffected (attribute is optional).
+- User-configurable tickers and broader symbol coverage are future PRs,
+  most naturally tied to a Settings app. The node-side change is a
+  single file (`src/tickers.ts`); the JSON schema is unchanged.
+- Voice tools (`finance_quote`, `finance_market_summary`) add a second
+  category of mesh-routed tool. The anti-hallucination guardrail
+  established for `news_recent` (training-data-is-stale) is reused
+  verbatim for prices — arguably stronger here, since training-era
+  stock prices look real and the user will catch wrong numbers
+  instantly.
+
+**Alternatives considered:**
+- *Alpha Vantage free tier (5 req/min historically, 25 req/day current).*
+  Rejected. The current free-tier daily quota (25 req/day) cannot
+  support the design's 5-minute × 10-ticker poll cadence (~2880 req/day,
+  well over quota). The PR-author originally implemented against AV per
+  the spec; Architect resolved the cap mismatch by swapping to Finnhub
+  before merge. Alpha Vantage remains a viable upstream if the design
+  ever shifts to "fetch one ticker every six hours" / "fetch on user
+  request only" — but that's a different shape from the one this ADR
+  ratifies.
+- *Yahoo Finance unofficial scrape.* Rejected — fragile and unsupported.
+  The library would break on a quiet HTML change with no warning.
+- *Paid-tier IEX Cloud / Polygon.* Rejected — premature for v1.
+- *Fetch volume via `/stock/metric` per symbol.* Rejected for v1.
+  Doubles request volume against the rate limit. Re-add when a use case
+  earns it.
+- *SQLite persistence (matching news_feeds).* Rejected. Stock quotes
+  are time-sensitive; persisting them across restarts surfaces stale
+  prices to consumers with no way to know they're stale. A cold start
+  re-polls and shows the empty state until the first cycle lands —
+  cheaper, less misleading.
+- *User-configurable tickers in v1.* Deferred. Pattern-first,
+  configuration-second (same call as news feeds).
+- *Single surface (only `market_summary`, with the renderer filtering
+  by symbol).* Rejected. The per-symbol surface is what makes the
+  rate-limit boundary enforceable — without it, voice tools would
+  have to fetch the full grid every time the user says "what's AAPL
+  at", and there'd be no place to deny untracked symbols.
+- *Hit the upstream API on every renderer refresh.* Rejected. 60-second
+  renderer polling × multiple consumers would push toward the per-
+  minute ceiling for no benefit; the cache insulates the upstream from
+  consumer cadence.
+- *Bundle a shared poller base class with news_feeds.* Rejected per
+  CLAUDE.md §14 third-instance rule. Two nodes is too few to know which
+  bits are shared template vs. coincidence. The third data node's PR
+  (weather, probably) is the right time to extract.
+- *Build a separate Settings surface as part of this PR for tickers.*
+  Rejected as scope creep — the Settings app is its own PR.

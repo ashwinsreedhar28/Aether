@@ -10,6 +10,29 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- **`docs/mcp-integration-arc-roadmap.md`** captures the five-piece
+  design for authenticated personal data sources (Google Calendar,
+  Gmail, Drive) via the Model Context Protocol. Encodes the
+  mesh-vs-MCP architectural split (mesh nodes for data Aether owns
+  the pipeline for; MCP for third-party authenticated surfaces where
+  the provider owns the contract and the auth), the sequenced PR
+  shape (`feat/raven-mcp-client` → `feat/mcp-calendar` →
+  `feat/mcp-gmail` + `feat/mcp-drive` in parallel →
+  `feat/digest-mcp-sections`), the OAuth flow design (Electron shell
+  launches system-browser auth, captures redirect on localhost,
+  writes tokens to macOS Keychain under `com.aether.app`; raven-core
+  reads from Keychain when invoking MCP servers), the privacy
+  posture (no local persistence of authenticated data beyond the
+  refresh token; on-demand fetch; Gemini Live is the only outbound
+  channel in v1), and the explicit out-of-scope list (Microsoft 365,
+  Apple ecosystem, chat platforms, multi-account, MCP server
+  hosting). No implementation in this PR — design captured before
+  any MCP code fires, same shape as `docs/vision-roadmap.md`.
+- **DECISIONS.md ADR "MCP integration arc roadmap: authenticated
+  personal data via MCP"** accepting the roadmap above, including
+  rejected alternatives (custom per-provider mesh nodes,
+  cloud-mediated MCP, local-LLM mediation in v1, Microsoft-first
+  ecosystem).
 - **Voice ambient arc roadmap** (`docs/voice-ambient-roadmap.md`) —
   five-piece design for voice as ambient presence: boot greeting,
   always-on VAD, wake word, idle behavior, real AEC. Captures library

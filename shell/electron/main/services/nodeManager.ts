@@ -6,6 +6,7 @@ import {
   FINANCE_ENTRY,
   HOST_NOTIFICATIONS_ENTRY,
   NEWS_FEEDS_ENTRY,
+  WEATHER_ENTRY,
   NODE_LOG_FILE,
   NODE_PID_FILE,
   meshRuntimeDir,
@@ -58,6 +59,7 @@ export class NodeManager {
       this.spawnNewsFeeds(),
       this.spawnFinance(),
       this.spawnDigest(),
+      this.spawnWeather(),
     ])
   }
 
@@ -119,6 +121,27 @@ export class NodeManager {
       extraEnv: {
         AETHER_DATA_DIR: dataDir,
       },
+    })
+  }
+
+  private async spawnWeather(): Promise<void> {
+    // Weather node — polls Open-Meteo every 15 minutes for current
+    // conditions + 7-day forecast. No API key. Requires
+    // AETHER_WEATHER_LAT/LON/LABEL env vars; the node itself starts in
+    // graceful-degradation mode if they are unset (returns
+    // available: false on both surfaces). Those env vars flow through
+    // ...process.env on the spawn line in spawnNode below.
+    // AETHER_DATA_DIR is the writable root for the running marker
+    // (no persistent state — readings live in-memory only).
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'weather',
+      entry: WEATHER_ENTRY,
+      buildHint: '`pnpm --filter @aether/weather build`',
+      secretEnvName: 'MESH_WEATHER_SECRET',
+      secretValue: this.secrets.weatherSecret,
+      extraEnv: { AETHER_DATA_DIR: dataDir },
     })
   }
 

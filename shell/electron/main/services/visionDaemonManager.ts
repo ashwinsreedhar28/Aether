@@ -193,7 +193,7 @@ export class VisionDaemonManager extends EventEmitter {
         env: {
           ...process.env,
           NODE_ID: 'vision',
-          VISION_SECRET: visionSecret,
+          MESH_VISION_SECRET: visionSecret,
           CORE_URL: 'http://127.0.0.1:8000',
           PYTHONPATH: coreDir,
           PYTHONUNBUFFERED: '1',

@@ -101,6 +101,11 @@ export class CoreManager {
       // at manifest load so nodeManager can inject the same value into the
       // weather child's env.
       MESH_WEATHER_SECRET: this.secrets.weatherSecret,
+      // Vision is the camera-capture Python daemon (spawned by
+      // visionDaemonManager, not nodeManager). Same env contract — Core
+      // resolves env:MESH_VISION_SECRET at manifest load so that
+      // visionDaemonManager and Core agree on the secret value.
+      MESH_VISION_SECRET: this.secrets.visionSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

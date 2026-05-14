@@ -52,6 +52,22 @@ nodes:
         of living in raven's internal Python tool registry.
     surfaces: []
 
+  - id: news_feeds
+    runtime: local-process
+    identity_secret: env:MESH_NEWS_FEEDS_SECRET
+    metadata:
+      description: |
+        RSS/Atom news aggregator. Polls a hardcoded list of feeds every
+        15 minutes, dedupes by stable id, and exposes recent articles
+        ordered by published_at desc. Local SQLite storage at
+        $HOMEOS_DATA_DIR/news_feeds/news.db. First real *data* node on
+        the homeOS mesh (host_notifications was the first action node).
+    surfaces:
+      - name: recent
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/news_feeds/schemas/recent.json
+
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
   - from: shell
@@ -61,3 +77,13 @@ relationships:
   # node. Added when raven was rebased onto the mesh (v0.2.1).
   - from: raven
     to: host_notifications.notify
+
+  # The News app (renderer-side) reads recent headlines through the mesh.
+  # No more hardcoded articles list in shell/src/apps/news/.
+  - from: shell
+    to: news_feeds.recent
+
+  # Voice tool news_recent: "what's in the news?" → Gemini calls
+  # news_recent → mesh.invoke('news_feeds.recent') → reads top headlines.
+  - from: raven
+    to: news_feeds.recent

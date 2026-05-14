@@ -8,6 +8,42 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- **First real *data* node: `news_feeds`.** Node.js mesh node at
+  `nodes/news_feeds/` that polls a hardcoded list of RSS/Atom feeds
+  (Hacker News, BBC, The Verge, Ars Technica) every 15 minutes,
+  dedupes articles by stable id (sha1 of `feed::guid`), stores them
+  in SQLite at `$HOMEOS_DATA_DIR/news_feeds/news.db` via
+  `better-sqlite3` in WAL mode, and exposes a single `recent` surface
+  (`{ limit?, since? } → { articles }`). First poll fires
+  immediately on startup so launch-to-data is ~5s, not 15min.
+- **First multi-consumer mesh surface.** Two edges in
+  `manifest.yaml`: `shell → news_feeds.recent` (the News app drops
+  its hardcoded `articles.ts` and consumes the mesh) and
+  `raven → news_feeds.recent` (new voice tool). Same surface, two
+  callers — the manifest's edge graph is doing real authorization
+  work now, not just glue.
+- News app refactor (`shell/src/apps/news/`): mesh-driven, with
+  loading / empty / error states and a Retry button. Clicking an
+  article opens its URL in the system browser via the new
+  `window.homeOS.shell.openExternal` preload bridge (http/https
+  scheme-checked in main).
+- Voice tool `news_recent(limit?, category?)` in
+  `raven_core/tools/news_tool.py`. Reads aloud headlines fetched
+  through the mesh; strips id/url/fetched_at/published_at from the
+  response so Gemini's output stays focused on the readable fields.
+  Prompts updated with a few-shot example and a "do not invent
+  headlines from prior knowledge" guardrail (same anti-hallucination
+  shape that worked for the time tool).
+- `MESH_NEWS_FEEDS_SECRET` joins the per-launch secrets bag.
+  `HOMEOS_DATA_DIR` env var is the canonical path nodes use to
+  reach a writable root (set by `nodeManager` at spawn to
+  `<userData>/data`).
+- `nodes/news_feeds/schemas/recent.json` — JSON Schema validated
+  by Core on every invocation (limit clamped to `[1, 100]`, since
+  must be ISO datetime). Both renderer + voice errors surface
+  through the structured `MeshDeny` channel rather than as opaque
+  exceptions.
+
 - **Voice → mesh integration.** raven registers as the `raven` mesh
   node on orchestrator startup and routes its new `notify(title, body)`
   tool through `mesh.invoke('host_notifications.notify', ...)`. First

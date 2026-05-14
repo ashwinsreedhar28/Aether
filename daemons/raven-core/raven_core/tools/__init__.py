@@ -28,6 +28,7 @@ from google.genai import types
 from . import time_tool
 from . import memory_tool
 from . import notify_tool
+from . import news_tool
 
 # Disabled until mesh integration:
 # from . import cerebras_tool   # second-LLM HTML generator, needs Flask sidecar
@@ -38,6 +39,7 @@ _TOOL_MODULES = [
     time_tool,
     memory_tool,
     notify_tool,
+    news_tool,
 ]
 
 

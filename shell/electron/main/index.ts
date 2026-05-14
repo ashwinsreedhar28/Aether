@@ -166,6 +166,20 @@ ipcMain.handle('shell:metadata', () => {
   }
 })
 
+// Open an external http(s) URL in the user's default browser. Anchored to
+// http/https so a renderer can't trick the main process into shelling out
+// to a file:// or other handler. The existing setWindowOpenHandler covers
+// renderer-initiated window.open; this IPC is for explicit anchor clicks
+// in sandboxed renderers where window.open is unreliable.
+ipcMain.handle('shell:openExternal', async (_e, url: unknown) => {
+  if (typeof url !== 'string') return { ok: false, reason: 'url_must_be_string' }
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return { ok: false, reason: 'unsupported_scheme' }
+  }
+  await shell.openExternal(url)
+  return { ok: true }
+})
+
 // Mesh IPC. Renderer-facing surface is window.homeOS.mesh in preload.
 // The renderer never holds a signing secret; main owns the shell's MeshNode.
 ipcMain.handle('mesh:invoke', async (_e, target: string, payload: Record<string, unknown>) => {

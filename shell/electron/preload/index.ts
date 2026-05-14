@@ -131,6 +131,15 @@ const mesh = {
   status: (): Promise<MeshStatus> => ipcRenderer.invoke('mesh:status'),
 }
 
+const shellApi = {
+  /**
+   * Open an http or https URL in the user's default browser. Returns
+   * `{ ok: false, reason: ... }` for non-http(s) schemes — never throws.
+   */
+  openExternal: (url: string): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke('shell:openExternal', url),
+}
+
 // Voice namespace — proxies to daemons/raven-daemon over loopback HTTP via
 // the main process. None of this is direct: the renderer never opens sockets
 // itself, and the daemon never accepts non-loopback traffic.
@@ -168,6 +177,7 @@ const api = {
   files,
   mesh,
   voice,
+  shell: shellApi,
 }
 
 contextBridge.exposeInMainWorld('homeOS', api)

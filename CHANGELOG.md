@@ -9,6 +9,10 @@ historical record.
 
 ## [Unreleased]
 
+
+### Fixed
+- **`nodes/weather/schemas/`** — created missing schema files (`current.json`, `forecast.json`) that the manifest registered in PR #42 but were never actually written. Core failed to load with `FileNotFoundError` on launch. Hotfix completes PR #42's surface declarations.
+
 ### Added
 - **`nodes/vision/`** — new Python mesh node, Piece 1 of the vision arc
   (per `docs/vision-roadmap.md` and PR #23 ADR). Captures camera frames

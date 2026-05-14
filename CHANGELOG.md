@@ -9,6 +9,15 @@ historical record.
 
 ## [Unreleased]
 
+### Added
+- **Voice ambient arc roadmap** (`docs/voice-ambient-roadmap.md`) —
+  five-piece design for voice as ambient presence: boot greeting,
+  always-on VAD, wake word, idle behavior, real AEC. Captures library
+  choices (silero-vad, openWakeWord, voiceProcessingIO), dependency
+  ordering, privacy posture, and composition with the vision arc.
+  No implementation in this PR; design captured before any voice-
+  ambient code fires.
+
 ### Changed
 - CLAUDE.md §10 gains a Gemini Live system_instruction gotcha entry
   capturing PR #25's finding that the API field is set-once per

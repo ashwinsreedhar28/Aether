@@ -96,7 +96,6 @@ Pre-1.0. Tags map to capability categories lighting up:
 | `v0.2.0`  | Voice arrives                                 |
 | `v0.2.1`  | Voice meets mesh                              |
 | `v0.3.0`  | Data realization (real data via mesh nodes)   |
-| `v0.4.0+` | (TBD — voice expansion, more data nodes)      |
 
 ## License
 

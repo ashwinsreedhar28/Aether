@@ -19,6 +19,8 @@ import inspect
 from typing import Any
 from google.genai import types
 
+from ..session_context import get_session_context
+
 # Import only the tool modules we ship enabled in homeOS week-1.
 # Other VIEWER tools (cerebras_tool, silence_tool, system_tool) stay
 # vendored on disk but are NOT registered here, so they cannot be
@@ -90,3 +92,150 @@ def get_registered_functions() -> list[str]:
         if hasattr(module, "FUNCTIONS"):
             functions.extend(module.FUNCTIONS)
     return functions
+
+
+# ---------------------------------------------------------------------------
+# Session-context updaters
+#
+# After every tool call we update the per-session SessionContext (see
+# raven_core/session_context.py) with two things:
+#
+#   1. A short one-line ``result_summary`` recapping what the tool did,
+#      pushed onto a 5-deep ring of recent tool calls. This becomes the
+#      ``recent_tool_calls`` field on the context summary injected back
+#      into Gemini's input stream on the next FunctionResponse.
+#
+#   2. Topical state — last_ticker, last_category, last_entity, the
+#      cached article and quote lists — so anaphora ("how about last
+#      week", "the second one", "go back to that") resolves without
+#      requiring Gemini to remember the previous tool's full JSON.
+#
+# The updater lives in this module because the topical-extraction logic
+# is tool-specific knowledge. Keeping it next to the tool dispatch (and
+# off the orchestrator's hot path) means a new tool only has to touch
+# one file to participate in conversational context.
+#
+# The orchestrator calls ``update_session_context(...)`` directly after
+# ``handle_function_call(...)`` returns; it then reads the SessionContext
+# summary and attaches it to the outgoing FunctionResponse as a
+# ``_session_context`` field. That is the per-turn injection point — see
+# the comment block at the top of session_context.py for why
+# FunctionResponse augmentation is the closest feasible equivalent to
+# "re-format the system prompt at each turn" given Gemini Live's
+# connect-time-only system_instruction.
+# ---------------------------------------------------------------------------
+
+
+def _format_change_percent(value: Any) -> str:
+    """Short signed percent string for spoken-style summaries."""
+    if isinstance(value, (int, float)):
+        return f"{value:+.2f}%"
+    return "?"
+
+
+def _format_price(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        return f"${value:.2f}"
+    return "?"
+
+
+def _summarise_news(name: str, args: dict, result: dict) -> str:
+    """Build the one-line recap for news_recent / news_search."""
+    if "error" in result:
+        return f"{name} error: {result.get('error')}"
+    count = result.get("count", 0)
+    category = result.get("filtered_category")
+    if name == "news_search":
+        query = result.get("query") or args.get("query", "?")
+        suffix = f" [{category}]" if category else ""
+        return f"news_search('{query}'): {count} article(s){suffix}"
+    suffix = f" [{category}]" if category else ""
+    return f"news_recent: {count} headline(s){suffix}"
+
+
+def _summarise_finance_quote(result: dict) -> str:
+    if "error" in result:
+        return f"finance_quote error: {result.get('error')}"
+    quote = result.get("quote") or {}
+    symbol = quote.get("symbol", "?")
+    return (
+        f"finance_quote({symbol}): "
+        f"{_format_price(quote.get('price'))} "
+        f"{_format_change_percent(quote.get('change_percent'))}"
+    )
+
+
+def _summarise_finance_market_summary(result: dict) -> str:
+    if "error" in result:
+        return f"finance_market_summary error: {result.get('error')}"
+    return f"finance_market_summary: {result.get('count', 0)} quote(s)"
+
+
+def _summarise_finance_history(args: dict, result: dict) -> str:
+    if "error" in result:
+        return f"finance_history error: {result.get('error')}"
+    symbol = result.get("symbol") or args.get("symbol", "?")
+    period = result.get("period") or args.get("period", "?")
+    samples = result.get("samples", 0)
+    if samples < 2:
+        return f"finance_history({symbol}, {period}): insufficient history"
+    return (
+        f"finance_history({symbol}, {period}): "
+        f"{_format_price(result.get('low'))}–{_format_price(result.get('high'))}, "
+        f"{_format_change_percent(result.get('change_percent'))}"
+    )
+
+
+def _summarise_generic(name: str, result: dict) -> str:
+    if isinstance(result, dict) and "error" in result:
+        return f"{name} error: {result.get('error')}"
+    return f"{name}: ok"
+
+
+def update_session_context(name: str, args: dict, result: Any) -> None:
+    """Push tool call + topical state into the SessionContext singleton.
+
+    Called by the orchestrator immediately after handle_function_call
+    returns. Failures here must NOT propagate — context tracking is
+    a best-effort aid to Gemini's reference resolution, not a
+    correctness requirement on the tool path. Anything unexpected
+    (non-dict result, missing fields) falls back to a generic summary.
+    """
+    ctx = get_session_context()
+    args = args or {}
+    result_dict = result if isinstance(result, dict) else {}
+
+    # Per-tool topical updates first (the summary is built from the
+    # already-extracted fields where convenient).
+    summary: str
+    try:
+        if name in ("news_recent", "news_search"):
+            articles = result_dict.get("articles") or []
+            category = result_dict.get("filtered_category")
+            entity = result_dict.get("query") if name == "news_search" else None
+            ctx.set_articles(articles, category=category, entity=entity)
+            summary = _summarise_news(name, args, result_dict)
+        elif name == "finance_quote":
+            quote = result_dict.get("quote") or {}
+            symbol = quote.get("symbol") or args.get("symbol")
+            if symbol:
+                ctx.set_ticker(str(symbol))
+            summary = _summarise_finance_quote(result_dict)
+        elif name == "finance_market_summary":
+            ctx.set_quotes(result_dict.get("quotes") or [])
+            summary = _summarise_finance_market_summary(result_dict)
+        elif name == "finance_history":
+            symbol = result_dict.get("symbol") or args.get("symbol")
+            if symbol:
+                ctx.set_ticker(str(symbol))
+            summary = _summarise_finance_history(args, result_dict)
+        else:
+            # time, notify, memory tools: just record the call. They
+            # don't carry conversational state ("go back to that
+            # remember_note" isn't a real follow-up shape).
+            summary = _summarise_generic(name, result_dict)
+    except Exception as exc:  # pragma: no cover - defensive
+        # Never let context-tracking failures break the tool path.
+        summary = f"{name}: context update failed ({type(exc).__name__})"
+
+    ctx.add_tool_call(name=name, args=args, result_summary=summary)

@@ -53,6 +53,17 @@ def create_live_config(config: Config) -> types.LiveConnectConfig:
     # surface that benefits from web grounding (news / research).
     # tools.append({"google_search": {}})
 
+    # input_audio_transcription: turn on Gemini-side transcription of
+    # the user's audio. The transcript text arrives on
+    # response.server_content.input_transcription and is the only
+    # supported way to recover "what did the user just say" from a
+    # native-audio model — the audio bytes themselves are not echoed
+    # back to the client. The orchestrator pushes each transcribed
+    # utterance onto SessionContext.utterances so the
+    # ``_session_context`` summary injected into the next tool call
+    # carries the user's recent phrasing. Without this, anaphora
+    # references like "tell me more about that" lose the most useful
+    # disambiguating signal — the words the user actually said.
     live_config = types.LiveConnectConfig(
         system_instruction=config.system_instruction,
         response_modalities=["AUDIO"],
@@ -70,6 +81,7 @@ def create_live_config(config: Config) -> types.LiveConnectConfig:
                 target_tokens=config.sliding_window_tokens
             ),
         ),
+        input_audio_transcription=types.AudioTranscriptionConfig(),
         tools=tools,
     )
 

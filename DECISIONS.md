@@ -5,6 +5,101 @@ Never edit a past entry — supersede with a new one.
 
 ---
 
+## [2026-05-13] Voice session context for follow-up resolution
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Gemini Live's native-audio model handles single-shot tool
+queries well ("what's AAPL at" → finance_quote → spoken answer) but
+struggles with the second turn of a real conversation. Ordinal
+references ("the second one", "tell me about number three"), topic
+inheritance ("how about last week" after a finance question), and
+explicit anaphora ("go back to that") all fail intermittently — the
+model has the full prior tool result in its conversation history but
+does not reliably index into JSON arrays by ordinal nor re-ground on
+a previously-mentioned ticker without a strong nudge. Voice without
+follow-ups is a transactional command shell, not a conversational
+partner; closing this gap is a prerequisite for treating the voice
+loop as anything more than a smarter Siri.
+
+**Decision:** Add an in-memory, per-session `SessionContext`
+(daemons/raven-core/raven_core/session_context.py) that tracks the
+last five user utterances, the last five tool calls (with one-line
+recaps), the most recent topical state (last_ticker, last_category,
+last_entity), and the cached article and quote lists from the most
+recent news_*/finance_market_summary call. The context is updated
+after each tool call (in tools/__init__.py:update_session_context)
+and after each user-side transcript fragment arrives
+(orchestrator._on_user_transcript, fed by Gemini Live's
+input_audio_transcription stream). A compact summary of the context
+is injected into every FunctionResponse under the `_session_context`
+key; the system prompt is extended with explicit
+reference-resolution rules and few-shot examples that read from that
+field.
+
+**Consequences:**
+- Follow-up phrases ("tell me more about the second one", "how about
+  last week", "anything new on that") now have a deterministic
+  resolution path that does not depend on Gemini's array-indexing
+  habits.
+- Every tool round-trip carries the context recap, so prefix size on
+  the Gemini input stream grows modestly per turn (capped — see deque
+  maxlen and per-utterance truncation in session_context.py). The
+  context window compression that already runs at 25.6k tokens still
+  governs the total session footprint; the per-turn add is small
+  enough not to push compression noticeably sooner.
+- input_audio_transcription is now enabled in LiveConnectConfig.
+  This is a Gemini-side billable feature on some tiers; the project
+  already uses gemini-2.5-flash-native-audio-preview which includes
+  it at no extra cost on the dev key, but downstream tier changes
+  should re-check.
+- Daemon transcript channel now carries `user`-spoken text alongside
+  the existing `raven`-spoken text. The renderer-side transcript view
+  (Voice app) gets both speakers without further changes; if any
+  consumer assumed only `raven` flowed, it must be adjusted (none
+  observed in this PR).
+- Long-term user memory (memory_tool's remember_note) is untouched —
+  that captures user-authored facts, this captures implicit
+  conversational state. The two are separate by design.
+
+**Alternatives considered:**
+- *Per-turn system_instruction rewrite.* The natural shape would be
+  to reformat the system prompt with the latest context before every
+  user turn. Gemini Live's `LiveConnectConfig.system_instruction` is
+  set once at `client.aio.live.connect(...)` and cannot be hot-swapped
+  mid-session. The only way to "update" it is to reconnect, which
+  interrupts the live audio stream — fatal for a conversational UX.
+  Attaching context to every FunctionResponse is the closest feasible
+  equivalent: the recap lands in Gemini's input stream alongside the
+  tool payload on every round trip, and the static system prompt is
+  what carries the reference-resolution *rules*.
+- *Rely on Gemini Live's native conversation history.* The session
+  does retain prior turns and tool results, and a stronger model
+  would resolve most ordinals from that alone. Empirically the
+  current model does not, often enough that an explicit injection
+  pays off; this also makes the behaviour testable and debuggable
+  (we can print the context, replay it, and not depend on opaque
+  model state).
+- *RAG over a per-session transcript store.* Premature — the search
+  is over five-deep deques, not a vector index. If sessions get long
+  enough that five is too few, the answer is to bump the cap, not
+  introduce a retrieval system.
+- *Cross-session persistence.* Out of scope. Voice sessions today
+  start fresh each time the voice control flips on; long-running
+  conversational memory belongs to remember_note. Persisting
+  conversational context would also surface a privacy question
+  (what gets stored to disk vs. evaporates with the process) that
+  is not the right question to answer in this PR.
+- *Sidecar text channel — push a "context update" via
+  `send_client_content(turn_complete=False)` before each turn.*
+  Possible but disruptive: the audio model interprets injected user
+  text as if the user said it, which produces spurious turns and is
+  hard to time around realtime VAD. FunctionResponse augmentation
+  doesn't have this problem because the response is always Gemini's
+  own next-step input.
+
+---
+
 ## [2026-05-13] News search via SQLite FTS5
 
 **Status:** accepted

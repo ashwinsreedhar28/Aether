@@ -24,7 +24,8 @@ from .client import create_client, create_live_config
 from .config import Config
 from .json_logger import JsonLogger
 from . import mesh_client
-from .tools import handle_function_call
+from .session_context import get_session_context
+from .tools import handle_function_call, update_session_context
 from .tools.system_tool import set_visual_mode_callback
 from .vision import CameraCapture, ScreenCapture
 
@@ -197,7 +198,13 @@ class Orchestrator:
             function_call: The function call from Gemini
 
         Returns:
-            Result dictionary
+            Result dictionary. The returned dict carries a
+            ``_session_context`` field on top of the tool's own payload;
+            see ``session_context.SessionContext.summarize`` for shape.
+            This is the per-turn context-injection point — see the
+            module-level docstring in raven_core/session_context.py for
+            why FunctionResponse augmentation is used instead of a
+            (not feasible) live system_instruction update.
         """
         function_name = function_call.name
         function_args = function_call.args or {}
@@ -219,7 +226,21 @@ class Orchestrator:
             else:
                 print(f"[FUNCTION RESULT] {json.dumps(result)}")
 
-            return result
+            # Update SessionContext AFTER the user-visible function-result
+            # log so the logged payload remains the tool's raw output.
+            # The context update is best-effort: a failure here must not
+            # break the tool path (Gemini still gets a valid result),
+            # but it should be surfaced so the next debugging session
+            # has something to follow.
+            try:
+                update_session_context(function_name, function_args, result)
+            except Exception as ctx_exc:  # pragma: no cover - defensive
+                if not JsonLogger.is_enabled():
+                    print(
+                        f"[SESSION CTX] update failed for {function_name}: {ctx_exc}"
+                    )
+
+            return self._augment_with_context(result)
         except Exception as e:
             error_msg = f"Error executing {function_name}: {str(e)}"
 
@@ -228,7 +249,52 @@ class Orchestrator:
             else:
                 print(f"[FUNCTION ERROR] {error_msg}")
 
-            return {"error": error_msg}
+            return self._augment_with_context({"error": error_msg})
+
+    def _on_user_transcript(self, text: str) -> None:
+        """Append a transcribed user utterance to SessionContext.
+
+        Called from ``receive_audio`` when Gemini emits an
+        input_transcription event. The transcription stream is
+        incremental — Gemini sends one or more fragments per spoken
+        burst, and the same logical utterance may arrive in pieces.
+        SessionContext.add_utterance drops empty strings and caps
+        length, which is enough for our purposes: the deque is a
+        best-effort recap, not a verbatim record. Also tee the
+        transcript out through JsonLogger so the daemon-side transcript
+        view shows what the user said (the existing transcript channel
+        only carried Gemini's text replies before).
+        """
+        ctx = get_session_context()
+        ctx.add_utterance(text)
+        if JsonLogger.is_enabled():
+            JsonLogger.transcript("user", text)
+
+    def _augment_with_context(self, result: Any) -> dict[str, Any]:
+        """Attach the SessionContext summary to a tool result.
+
+        Gemini Live's ``system_instruction`` is set once at connect
+        time and cannot be hot-swapped per turn (a reconnect would
+        interrupt the live audio stream). Attaching the context recap
+        to every FunctionResponse is the closest feasible equivalent
+        — the recap lands in Gemini's input stream alongside the tool
+        payload on every round trip, giving the model fresh state for
+        reference-resolution prompts ("the second one", "how about
+        last week").
+        """
+        if not isinstance(result, dict):
+            # Defensive: tools currently always return dicts, but if
+            # one ever doesn't, wrap it so the FunctionResponse
+            # remains well-formed. The original value lives under
+            # "result" so the model still sees it.
+            base: dict[str, Any] = {"result": result}
+        else:
+            # Shallow copy: avoid mutating the caller's dict (the same
+            # object is passed to JsonLogger above), and we only add
+            # one top-level key.
+            base = dict(result)
+        base["_session_context"] = get_session_context().summarize()
+        return base
 
     async def receive_audio(self) -> None:
         """Process responses from the API."""
@@ -284,6 +350,25 @@ class Orchestrator:
                     server_content, "interrupted", False
                 ):
                     interrupted = True
+
+                # Pull user-side transcripts off the server_content stream.
+                # input_audio_transcription is enabled in
+                # client.create_live_config, so each user-speech burst
+                # produces one or more incremental Transcription events
+                # on server_content.input_transcription. Append each
+                # non-empty text fragment to the SessionContext so the
+                # next FunctionResponse carries the user's actual
+                # phrasing in ``_session_context.recent_utterances``.
+                # Defensive getattr-chain in case the SDK reshapes the
+                # field (it has shifted between v1 and v1beta).
+                if server_content is not None:
+                    input_transcription = getattr(
+                        server_content, "input_transcription", None
+                    )
+                    if input_transcription is not None:
+                        utterance_text = getattr(input_transcription, "text", None)
+                        if utterance_text:
+                            self._on_user_transcript(utterance_text)
 
                 if data := response.data:
                     audio_chunk_count += 1

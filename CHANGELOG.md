@@ -8,6 +8,34 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- **Voice session context for follow-up resolution.** New
+  `raven_core/session_context.py` tracks the last five user utterances,
+  the last five tool calls (with one-line recaps), the most recent
+  topical state (`last_ticker`, `last_category`, `last_entity`), and
+  the cached article / quote lists from the most recent news_* /
+  finance_market_summary call. Updates happen in two places: per-tool
+  topical extraction in `tools/__init__.py:update_session_context`,
+  invoked from the orchestrator after every `handle_function_call`;
+  and per-user-utterance in `orchestrator._on_user_transcript`, fed
+  by Gemini Live's `input_audio_transcription` stream (newly enabled
+  in `client.create_live_config`). The compact context summary is
+  attached to every outgoing `FunctionResponse` under the
+  `_session_context` field — Gemini Live's `system_instruction` is
+  set once at connect time and cannot be hot-swapped per turn, so
+  attaching the recap to tool results is the closest feasible
+  equivalent to "re-format the system prompt at each turn." The
+  voice system prompt gains a "Conversation context" section
+  enumerating the recap shape, a Reference-resolution rules block,
+  and ten new few-shot examples covering ordinal references ("the
+  second one"), topic inheritance ("how about last week"),
+  cross-category follow-ups ("any tech news on this"), and the
+  null-context clarification path. See DECISIONS.md 2026-05-13
+  "Voice session context for follow-up resolution".
+- **User-side transcripts now flow through the daemon transcript
+  channel** alongside Gemini's spoken text — `JsonLogger.transcript`
+  is now called with `speaker='user'` on every input_transcription
+  fragment. The renderer-side transcript view picks up both
+  speakers without further changes.
 - **`docs/vision-roadmap.md`** captures the 4-PR vision arc sequence
   (`feat/vision-capture-node` → `feat/vision-gesture-watcher` →
   `feat/raven-gesture-actions` → `feat/pointing-app-integration`),

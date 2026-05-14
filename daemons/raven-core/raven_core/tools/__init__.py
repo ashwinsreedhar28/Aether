@@ -32,6 +32,7 @@ from . import memory_tool
 from . import notify_tool
 from . import news_tool
 from . import finance_tool
+from . import digest_tool
 
 # Disabled until mesh integration:
 # from . import cerebras_tool   # second-LLM HTML generator, needs Flask sidecar
@@ -44,6 +45,7 @@ _TOOL_MODULES = [
     notify_tool,
     news_tool,
     finance_tool,
+    digest_tool,
 ]
 
 

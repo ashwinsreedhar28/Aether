@@ -8,9 +8,9 @@
   "main": "out/main/index.js",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "predev": "pnpm --filter @homeos/mesh-node-sdk build && pnpm --filter @homeos/host-notifications build && pnpm --filter @homeos/news-feeds build && pnpm --filter @homeos/finance build",
+    "predev": "pnpm --filter @homeos/mesh-node-sdk build && pnpm --filter @homeos/host-notifications build && pnpm --filter @homeos/news-feeds build && pnpm --filter @homeos/finance build && pnpm --filter @homeos/digest build",
     "dev": "electron-vite dev",
-    "prebuild": "pnpm --filter @homeos/mesh-node-sdk build && pnpm --filter @homeos/host-notifications build && pnpm --filter @homeos/news-feeds build && pnpm --filter @homeos/finance build",
+    "prebuild": "pnpm --filter @homeos/mesh-node-sdk build && pnpm --filter @homeos/host-notifications build && pnpm --filter @homeos/news-feeds build && pnpm --filter @homeos/finance build && pnpm --filter @homeos/digest build",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",

@@ -4,6 +4,84 @@ All notable changes to homeOS are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning per
 CLAUDE.md §6 (honest pre-1.0 scheme).
 
+- **First composer node on the homeOS mesh: `digest`.** New Node.js
+  mesh node at `nodes/digest/` that synthesizes briefings by composing
+  upstream data nodes — proves the mesh-as-a-graph property of
+  RAVEN_MESH (every previous node was a leaf). Two surfaces:
+  `digest.morning()` returns top breaking news + a markets snapshot;
+  `digest.evening()` returns top recent headlines + market close +
+  the day's SPY range. Each briefing is a `BriefingSection[]` whose
+  `summary` field is voice-readable prose (2–3 sentences), with
+  optional structured `items` for a future UI renderer. The composer
+  fans out to upstream surfaces in **parallel via
+  `Promise.allSettled`** with a 4s per-upstream timeout — a single
+  upstream failure ships an `available: false` section ("News is
+  unavailable right now…") rather than failing the whole briefing.
+  Smoke-tested end-to-end (post-breaking-swap): morning briefing
+  returns in ~30ms; empty `news_feeds.breaking` results render as
+  "All quiet on the feeds this morning, sir — nothing breaking."
+  with `available: true` (succeeded-but-empty, distinct from
+  upstream-broken). Five outbound edges:
+  `digest → news_feeds.breaking` (morning news source),
+  `digest → news_feeds.recent` (evening news source),
+  `digest → finance.market_summary`, `digest → finance.history`,
+  `digest → host_notifications.notify` (scheduled delivery). Four
+  inbound edges: `shell → digest.morning`, `shell → digest.evening`,
+  `raven → digest.morning`, `raven → digest.evening`. No renderer-
+  side Digest app in this PR — voice-only access in v1; shell edges
+  are reserved for a follow-up UI. See DECISIONS.md "Digest engine:
+  first multi-hop mesh composition".
+
+  **Morning sources `news_feeds.breaking`; evening sources
+  `news_feeds.recent`.** Morning briefings should surface what
+  *actually matters* overnight — the urgency heuristic from PR #24
+  gives us that signal, so the morning composer reads from
+  `news_feeds.breaking` directly. Evening is the day's wrap-up — top
+  of feed by recency is the right shape, so the evening composer
+  keeps `news_feeds.recent`. The voice tool exposes no knowledge of
+  urgency vs. recency; Gemini sees a single `digest_briefing` tool
+  that returns coherent prose.
+- **New voice tool `digest_briefing(time_of_day?)`.** Thin
+  `mesh_invoke` wrapper around `digest.{morning|evening}` that joins
+  each section's `summary` into a single `spoken` paragraph for
+  Gemini to read verbatim. `time_of_day` defaults from the local
+  clock (morning before noon, evening otherwise); explicit override
+  via `time_of_day: 'morning' | 'evening'`. Three new few-shot
+  examples in the system prompt covering the canonical phrasings
+  ("give me the morning briefing" → `digest_briefing(time_of_day:
+  'morning')`, "what's my evening rundown" → `digest_briefing(time_of_day:
+  'evening')`, "brief me" → `digest_briefing()` letting the composer
+  pick by local clock), plus an explicit "prefer `digest_briefing`
+  over chaining `news_breaking` / `news_recent` +
+  `finance_market_summary`" rule. The composer's internal fan-out
+  across news / finance / history is invisible to Gemini — the tool
+  description signals "returns a multi-section briefing", not how
+  it's assembled. Same anti-hallucination guardrail as the rest of
+  the voice stack — when the composer ships "Briefing unavailable",
+  the model says so plainly rather than filling the gap from memory.
+- **Opt-in scheduled briefings.** Digest node ships a basic in-
+  process scheduler (`nodes/digest/src/scheduler.ts`) that fires
+  morning + evening briefings on local-time hour boundaries (default
+  07:00 / 18:00, configurable via `DIGEST_MORNING_HOUR` /
+  `DIGEST_EVENING_HOUR`). Each scheduled fire composes the briefing
+  and dispatches the lead section summary via
+  `host_notifications.notify` ("Morning Briefing" / "Evening
+  Briefing"). **Default off** — opt in with `DIGEST_SCHEDULED=true`.
+  Fired-stamp suppression is process-memory only; a restart during
+  the firing window may re-fire (acceptable for v1; persisted state
+  under `HOMEOS_DATA_DIR/digest/` is the follow-up).
+- **Shell wiring for the digest node.** `MESH_DIGEST_SECRET` joins
+  the per-launch secrets bag; `coreManager` injects it at Core spawn
+  time so the manifest's `env:MESH_DIGEST_SECRET` reference resolves;
+  `nodeManager.spawnDigest()` joins the parallel `startAll()` fan-out
+  alongside the three existing nodes; `staleSpawns` learns the digest
+  PID-file + cmdline pattern; the shell's `predev` / `prebuild`
+  scripts add `pnpm --filter @homeos/digest build` to the chain.
+- **New JSON Schemas:** `nodes/digest/schemas/morning.json` +
+  `evening.json`. Both are parameter-less (`additionalProperties:
+  true`) — the briefing scope is fixed by surface choice, not by
+  request payload.
+
 - **Entity extraction on news articles.** Each article now runs through
   a lightweight NER pass (compromise's `.people()` / `.places()` /
   `.organizations()` matchers) in the poller after the article upsert.

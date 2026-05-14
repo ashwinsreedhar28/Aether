@@ -114,6 +114,32 @@ nodes:
         invocation_mode: request_response
         schema: nodes/finance/schemas/history.json
 
+  - id: digest
+    runtime: local-process
+    identity_secret: env:MESH_DIGEST_SECRET
+    metadata:
+      description: |
+        Briefing composer. First multi-hop mesh node on homeOS: fans
+        out to news_feeds + finance on each invocation and synthesizes
+        a morning or evening briefing. Two surfaces: morning() (top
+        news + market snapshot) and evening() (top news + market
+        close + day's SPY range). Upstream failures degrade
+        gracefully — each section either has content or carries a
+        brief "data unavailable" note; the briefing never fails as a
+        whole because one upstream returned an error. Optional opt-in
+        scheduler (DIGEST_SCHEDULED=true) fires morning + evening
+        briefings on local-time hour boundaries via
+        host_notifications.notify. Default off.
+    surfaces:
+      - name: morning
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/digest/schemas/morning.json
+      - name: evening
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/digest/schemas/evening.json
+
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
   - from: shell
@@ -186,3 +212,36 @@ relationships:
     to: finance.quote
   - from: raven
     to: finance.history
+
+  # Digest is the first composer node — fans out across news + finance
+  # to synthesize briefings. Its outbound edges declare which upstream
+  # surfaces it can read. Morning briefings source from
+  # `news_feeds.breaking` (urgency-filtered: what changed overnight
+  # that matters); evening briefings source from `news_feeds.recent`
+  # (chronological day's wrap-up). The composer auto-selects per
+  # surface; both edges live here. finance edges back the market /
+  # history sections. host_notifications.notify backs the opt-in
+  # scheduled-delivery path (DIGEST_SCHEDULED=true).
+  - from: digest
+    to: news_feeds.breaking
+  - from: digest
+    to: news_feeds.recent
+  - from: digest
+    to: finance.market_summary
+  - from: digest
+    to: finance.history
+  - from: digest
+    to: host_notifications.notify
+
+  # Shell + raven consume the briefings. No renderer-side Digest app
+  # in this PR — the shell edges are reserved for a future Digest UI;
+  # raven consumes immediately via the digest_briefing voice tool
+  # ("give me a morning briefing").
+  - from: shell
+    to: digest.morning
+  - from: shell
+    to: digest.evening
+  - from: raven
+    to: digest.morning
+  - from: raven
+    to: digest.evening

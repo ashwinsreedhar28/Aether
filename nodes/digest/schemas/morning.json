@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "digest.morning",
+  "description": "Compose a morning briefing from upstream nodes (top news, market open). No parameters. Briefing sections degrade gracefully — an upstream failure marks that section as unavailable rather than failing the whole briefing.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

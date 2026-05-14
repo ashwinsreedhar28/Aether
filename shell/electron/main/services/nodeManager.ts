@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdirSync, writeFileSync, createWriteStream, type WriteStream } from 'node:fs'
 import { existsSync } from 'node:fs'
 import {
+  DIGEST_ENTRY,
   FINANCE_ENTRY,
   HOST_NOTIFICATIONS_ENTRY,
   NEWS_FEEDS_ENTRY,
@@ -56,6 +57,7 @@ export class NodeManager {
       this.spawnHostNotifications(),
       this.spawnNewsFeeds(),
       this.spawnFinance(),
+      this.spawnDigest(),
     ])
   }
 
@@ -80,6 +82,23 @@ export class NodeManager {
       secretValue: this.secrets.newsFeedsSecret,
       // The node persists SQLite + the running marker under this root.
       // app.getPath is unreachable from the child, so we pass it in.
+      extraEnv: { HOMEOS_DATA_DIR: dataDir },
+    })
+  }
+
+  private async spawnDigest(): Promise<void> {
+    // First composer node — fans out to news_feeds + finance and back
+    // into host_notifications for scheduled briefings. No DB; the
+    // marker file under HOMEOS_DATA_DIR matches the data-node pattern
+    // for liveness consistency.
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'digest',
+      entry: DIGEST_ENTRY,
+      buildHint: '`pnpm --filter @homeos/digest build`',
+      secretEnvName: 'MESH_DIGEST_SECRET',
+      secretValue: this.secrets.digestSecret,
       extraEnv: { HOMEOS_DATA_DIR: dataDir },
     })
   }

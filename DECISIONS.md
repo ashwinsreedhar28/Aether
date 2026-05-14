@@ -5,6 +5,141 @@ Never edit a past entry — supersede with a new one.
 
 ---
 
+## [2026-05-13] Digest engine: first multi-hop mesh composition
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Every mesh surface to date has been point-to-point: the
+shell or raven invokes a data node and reads back a single payload.
+The user's natural language increasingly asks for *synthesized*
+outputs — "give me a morning briefing", "wrap up the day" — that span
+multiple data nodes. Until now those would route to N back-to-back
+voice tool calls (`news_recent` then `finance_market_summary`), which
+(a) wastes a tool-call round trip per upstream, (b) couples the
+composition logic into raven's prompt rather than the mesh, and (c)
+gives no shared place for an opt-in scheduled-delivery path
+(`notify` at 7am with a briefing body). The mesh-as-a-graph property
+of RAVEN_MESH was unexercised — every node was a leaf.
+**Decision:** A dedicated mesh node, `digest`, that **composes**
+upstream nodes into a single briefing. It is a real mesh participant
+— its own identity secret (`MESH_DIGEST_SECRET`), its own process,
+its own outbound edges (`digest → news_feeds.breaking`,
+`digest → news_feeds.recent`, `digest → finance.market_summary`,
+`digest → finance.history`, `digest → host_notifications.notify`) —
+not a library import. Two inbound surfaces: `digest.morning()` and
+`digest.evening()`. Each returns
+`{briefing: BriefingSection[], generated_at, time_of_day}`; each
+section has a voice-readable `summary` and optional structured
+`items` for a future UI renderer.
+
+**Morning sources `news_feeds.breaking`; evening sources
+`news_feeds.recent`.** Morning briefings are about *what changed
+overnight that matters* — the urgency heuristic (DECISIONS.md
+"News urgency scoring via heuristic" below) gives us a real
+breaking-only feed, and the morning composer reads from there.
+Evening briefings are a day's wrap-up — the user wants the full
+chronological top-of-feed, not just urgency-filtered items, so the
+evening composer keeps `news_feeds.recent`. Empty breaking results
+are NOT an error: when the heuristic produces nothing high-urgency,
+the morning briefing's news section gracefully reads "All quiet on
+the feeds this morning, sir — nothing breaking." with
+`available: true`. That distinguishes "the call succeeded, content
+was empty by design" from "the upstream is broken" (which still
+yields `available: false`).
+
+The composer fans out to upstream surfaces in parallel via
+`Promise.allSettled` with a per-upstream 4s timeout. A single
+upstream failure does NOT fail the briefing — the affected section
+ships with `available: false` and a descriptive line ("News is
+unavailable right now…"). This is the same anti-hallucination /
+honest-empty pattern as the news-tool empty-list and
+finance-history insufficient-history paths: a structured negative is
+louder than missing keys.
+
+The renderer-side Digest **app** is deliberately deferred to a later
+PR (voice-only access in v1). The shell still gets the inbound edges
+(`shell → digest.{morning,evening}`) so a future UI can drop into the
+same surfaces without a manifest bump.
+
+Voice surface is a single tool `digest_briefing(time_of_day?)` —
+defaults to morning before noon / evening otherwise. It concatenates
+`BriefingSection.summary` fields into a single `spoken` paragraph
+that Gemini reads verbatim. The composer writes prose summaries so
+the voice tool stays a thin join. Critically, the voice surface
+exposes NO knowledge of the underlying urgency / entity / category
+signals — Gemini sees a single tool that returns a coherent
+briefing, and the composer's internal fan-out is invisible. That's
+the composer-node pattern: from the consumer's point of view, the
+composer is a single mesh surface.
+
+Opt-in scheduler (`DIGEST_SCHEDULED=true`) fires morning + evening
+briefings at the top of `DIGEST_MORNING_HOUR` (default 7) and
+`DIGEST_EVENING_HOUR` (default 18), delivering the lead section
+summary as the body of a `host_notifications.notify` call. Default
+off — a fresh install should not start firing notifications at users
+who didn't ask for them. Schedule state lives in process memory only;
+a restart during the firing window may re-fire — acceptable for v1
+(a persisted last-fired stamp under `HOMEOS_DATA_DIR/digest/` is the
+follow-up).
+
+This is the **first composer node** on the homeOS mesh. The pattern
+generalises to any future "synthesis across multiple data nodes"
+need: alerts ("notify me when AAPL drops 5%"), watchlists, planned
+narratives. Each composer adds its own mesh edges to its
+dependencies; the manifest graph grows organically, and the
+authorization model (edge present = allowed) handles permissions at
+the same granularity as point-to-point invocations.
+**Consequences:**
+- The mesh graph picks up its first non-leaf node. The composer
+  pattern is now legible to the next builder: dedicated process,
+  identity secret, outbound edges enumerated in the manifest,
+  consumer-facing surface that hides the internal fan-out.
+- Morning briefings depend on `news_feeds.breaking` being meaningful
+  — i.e. the urgency heuristic in PR #24 doing real work. Empty
+  breaking results are intentionally read as "nothing breaking" by
+  the composer (graceful copy, `available: true`), so a quiet news
+  cycle doesn't make the briefing look broken.
+- The composer's parallel-allSettled+timeout pattern gives us a
+  shared shape for any future fan-out: composer functions should
+  never throw on single-upstream failure. Each section either has
+  content or carries a structured negative.
+- The `available: false` shape on `BriefingSection` is now public
+  contract — voice and any future UI must handle both states.
+  `available: true` with empty `items[]` is also a valid shape and
+  carries the "succeeded but empty by design" semantics.
+- Opt-in scheduler is intentionally minute-resolution and process-
+  scoped. We'll re-evaluate if/when a second scheduler instance
+  shows up (CLAUDE.md §14: wait for the third instance before
+  extracting).
+**Alternatives considered:**
+- **Compose in the voice tool directly.** Tempting (no new node, no
+  new secret, no new edges). Rejected because it couples
+  composition logic to raven-core's Python tool registry instead of
+  placing it on the mesh. The renderer's future Digest app would
+  need to re-implement the same composition in TypeScript — wrong
+  shape.
+- **Compose in the shell.** Same coupling issue with a different
+  blast radius: every future composer would have to teach the shell
+  about a new aggregation. The shell is a mesh client, not a
+  composition hub.
+- **Make news_feeds and finance directly expose a briefing surface
+  each.** Wrong responsibility: data nodes shouldn't know about
+  briefing framing. A briefing is a user-facing concept that lives
+  one layer above the data nodes.
+- **Reuse the existing voice path with prompt-driven multi-tool
+  calls** (Gemini calls `news_recent` then `finance_market_summary`
+  back-to-back, narrates the result). Rejected because it adds N
+  round trips per briefing, gives the model latitude to forget a
+  section, and provides no scheduled-delivery path.
+- **Use `news_feeds.recent` for both morning and evening.** That's
+  what the v1 stub did before PR #24 (urgency) landed. Rejected
+  post-rebase because the morning briefing is supposed to surface
+  *what's actually important to know about overnight*, not just the
+  top-of-feed. Recent → breaking for morning was the whole reason
+  digest blocked on the urgency lane.
+
+---
+
 ## [2026-05-13] News entity extraction via compromise
 
 **Status:** accepted

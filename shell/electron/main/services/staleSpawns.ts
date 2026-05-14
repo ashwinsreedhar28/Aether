@@ -14,6 +14,7 @@ const CORE_CMD_PATTERN = /\bcore\.core\b/
 const HOST_NOTIFICATIONS_CMD_PATTERN = /host_notifications[\\/]dist[\\/]index\.js$/
 const NEWS_FEEDS_CMD_PATTERN = /news_feeds[\\/]dist[\\/]index\.js$/
 const FINANCE_CMD_PATTERN = /finance[\\/]dist[\\/]index\.js$/
+const DIGEST_CMD_PATTERN = /digest[\\/]dist[\\/]index\.js$/
 
 function processIsAlive(pid: number): boolean {
   try {
@@ -105,5 +106,6 @@ export async function cleanupStaleSpawns(): Promise<void> {
     cleanupOne(NODE_PID_FILE('host_notifications'), HOST_NOTIFICATIONS_CMD_PATTERN, 'host_notifications'),
     cleanupOne(NODE_PID_FILE('news_feeds'), NEWS_FEEDS_CMD_PATTERN, 'news_feeds'),
     cleanupOne(NODE_PID_FILE('finance'), FINANCE_CMD_PATTERN, 'finance'),
+    cleanupOne(NODE_PID_FILE('digest'), DIGEST_CMD_PATTERN, 'digest'),
   ])
 }

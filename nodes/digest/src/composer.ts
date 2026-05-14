@@ -226,6 +226,59 @@ function formatMarketCloseSection(
   }
 }
 
+interface WeatherLike {
+  available?: unknown
+  location_label?: unknown
+  temperature_f?: unknown
+  conditions?: unknown
+  high_f?: unknown
+  low_f?: unknown
+}
+
+function formatWeatherSection(current: WeatherLike | null, forecast: WeatherLike[] | null): BriefingSection {
+  // Weather section: Current conditions + today's high/low from forecast.
+  // Graceful degradation when weather isn't configured.
+  if (!current || current.available !== true) {
+    return {
+      title: 'Weather',
+      summary: 'Weather isn\'t configured yet — set AETHER_WEATHER_LAT/LON/LABEL to enable.',
+      available: false,
+      items: [],
+    }
+  }
+
+  const location = isString(current.location_label) ? current.location_label : 'Unknown'
+  const temp_f = isNumber(current.temperature_f) ? current.temperature_f : null
+  const conditions = isString(current.conditions) ? current.conditions : 'unknown'
+
+  let summary = ''
+  if (temp_f !== null) {
+    summary = `${location}: ${temp_f}°F right now, ${conditions.toLowerCase()}`
+  } else {
+    summary = `${location}: ${conditions.toLowerCase()}`
+  }
+
+  // Add today's high/low if available in forecast
+  if (forecast && forecast.length > 0 && isNumber(forecast[0]?.high_f)) {
+    const todayHigh = forecast[0].high_f
+    const todayLow = isNumber(forecast[0]?.low_f) ? forecast[0].low_f : null
+    if (todayLow !== null) {
+      summary += `, high ${todayHigh}°F today, low ${todayLow}°F`
+    } else {
+      summary += `, high ${todayHigh}°F today`
+    }
+  }
+
+  summary += '.'
+
+  return {
+    title: 'Weather',
+    summary,
+    available: true,
+    items: [{ location, temperature_f: temp_f, conditions }],
+  }
+}
+
 export interface ComposeOptions {
   node: MeshNode
   /** Override the auto-selected news source. Default selection by
@@ -257,8 +310,16 @@ export async function composeBriefing(
     timeOfDay === 'evening'
       ? invokeAndUnwrap(node, 'finance.history', { symbol: 'SPY', period: '1d' })
       : Promise.resolve<Record<string, unknown> | null>(null)
+  const weatherCurrentP = invokeAndUnwrap(node, 'weather.current', {})
+  const weatherForecastP = invokeAndUnwrap(node, 'weather.forecast', { days: 1 })
 
-  const [newsRes, marketRes, historyRes] = await Promise.allSettled([newsP, marketP, historyP])
+  const [newsRes, marketRes, historyRes, weatherCurrentRes, weatherForecastRes] = await Promise.allSettled([
+    newsP,
+    marketP,
+    historyP,
+    weatherCurrentP,
+    weatherForecastP,
+  ])
 
   const sections: BriefingSection[] = []
 
@@ -295,6 +356,15 @@ export async function composeBriefing(
       items: [],
     })
   }
+
+  // Weather section
+  const weatherCurrent =
+    weatherCurrentRes.status === 'fulfilled' ? (weatherCurrentRes.value as WeatherLike) : null
+  const weatherForecast =
+    weatherForecastRes.status === 'fulfilled' && Array.isArray(weatherForecastRes.value.days)
+      ? (weatherForecastRes.value.days as WeatherLike[])
+      : null
+  sections.push(formatWeatherSection(weatherCurrent, weatherForecast))
 
   return {
     briefing: sections,

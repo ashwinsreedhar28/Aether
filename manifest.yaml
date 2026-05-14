@@ -114,22 +114,45 @@ nodes:
         invocation_mode: request_response
         schema: nodes/finance/schemas/history.json
 
+  - id: weather
+    runtime: local-process
+    identity_secret: env:MESH_WEATHER_SECRET
+    metadata:
+      description: |
+        Weather node. Polls Open-Meteo every 15 minutes for current
+        conditions and 7-day forecast. No API key — Open-Meteo public
+        tier. Requires AETHER_WEATHER_LAT/LON/LABEL env vars; starts
+        in graceful-degradation mode if unset (available: false on all
+        surfaces). In-memory cache only — no DB. Current + forecast
+        surfaces exposed. Third data node — proves the template works
+        for no-auth external APIs, not just Yahoo/Stooq (finance) or
+        RSS (news).
+    surfaces:
+      - name: current
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/weather/schemas/current.json
+      - name: forecast
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/weather/schemas/forecast.json
+
   - id: digest
     runtime: local-process
     identity_secret: env:MESH_DIGEST_SECRET
     metadata:
       description: |
         Briefing composer. First multi-hop mesh node on Aether: fans
-        out to news_feeds + finance on each invocation and synthesizes
-        a morning or evening briefing. Two surfaces: morning() (top
-        news + market snapshot) and evening() (top news + market
-        close + day's SPY range). Upstream failures degrade
-        gracefully — each section either has content or carries a
-        brief "data unavailable" note; the briefing never fails as a
-        whole because one upstream returned an error. Optional opt-in
-        scheduler (DIGEST_SCHEDULED=true) fires morning + evening
-        briefings on local-time hour boundaries via
-        host_notifications.notify. Default off.
+        out to news_feeds + finance + weather on each invocation and
+        synthesizes a morning or evening briefing. Two surfaces:
+        morning() (top news + market snapshot + weather) and evening()
+        (top news + market close + day's SPY range + weather).
+        Upstream failures degrade gracefully — each section either has
+        content or carries a brief "data unavailable" note; the
+        briefing never fails as a whole because one upstream returned
+        an error. Optional opt-in scheduler (DIGEST_SCHEDULED=true)
+        fires morning + evening briefings on local-time hour
+        boundaries via host_notifications.notify. Default off.
     surfaces:
       - name: morning
         type: tool
@@ -213,15 +236,24 @@ relationships:
   - from: raven
     to: finance.history
 
+  # Voice tools: weather_current ("what's the weather") +
+  # weather_forecast ("what's the forecast", "tomorrow's weather"). Both
+  # route through mesh.invoke.
+  - from: raven
+    to: weather.current
+  - from: raven
+    to: weather.forecast
+
   # Digest is the first composer node — fans out across news + finance
-  # to synthesize briefings. Its outbound edges declare which upstream
-  # surfaces it can read. Morning briefings source from
+  # + weather to synthesize briefings. Its outbound edges declare which
+  # upstream surfaces it can read. Morning briefings source from
   # `news_feeds.breaking` (urgency-filtered: what changed overnight
   # that matters); evening briefings source from `news_feeds.recent`
   # (chronological day's wrap-up). The composer auto-selects per
   # surface; both edges live here. finance edges back the market /
-  # history sections. host_notifications.notify backs the opt-in
-  # scheduled-delivery path (DIGEST_SCHEDULED=true).
+  # history sections. weather.current backs the weather section.
+  # host_notifications.notify backs the opt-in scheduled-delivery path
+  # (DIGEST_SCHEDULED=true).
   - from: digest
     to: news_feeds.breaking
   - from: digest
@@ -230,6 +262,10 @@ relationships:
     to: finance.market_summary
   - from: digest
     to: finance.history
+  - from: digest
+    to: weather.current
+  - from: digest
+    to: weather.forecast
   - from: digest
     to: host_notifications.notify
 

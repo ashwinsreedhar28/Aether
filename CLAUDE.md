@@ -228,7 +228,7 @@ At repo root. Touch whenever:
 - An open question in `MASTER_SYNTHESIS.md §7` gets answered.
 - You discover a constraint mid-implementation that forecloses or commits to a future path.
 
-Entry format:
+Entry format. All six fields below are **required** and appear in this order — `Status`, `Decided by`, `Context`, `Decision`, `Consequences`, `Alternatives considered`. An ADR missing any of these gets rejected at review and amended in the same PR. The fields are the binding shape of an Aether ADR; the rest of an entry (prose, sub-bullets, links) is freeform.
 
 ```markdown
 ## [YYYY-MM-DD] <Title>
@@ -241,7 +241,7 @@ Entry format:
 **Alternatives considered:** <what else was on the table and why we rejected each>
 ```
 
-DECISIONS.md is *append-only* — never edit a past entry. If a decision is reversed, add a new entry that supersedes it and update the old entry's status to `superseded by [link]`.
+DECISIONS.md is *append-only* — never edit a past entry. If a decision is reversed, add a new entry that supersedes it and update the old entry's status to `superseded by [link]`. Ordering: newest at top within a date; dates descending overall.
 
 ### CHANGELOG.md
 
@@ -363,6 +363,12 @@ When designing future voice tools that need per-turn context:
 - Attach contextual data to FunctionResponse bodies
 - For state that needs to persist across multiple turns without a tool call mediating, the only options are: (a) restart the session with new system_instruction, or (b) feed context through the next tool result
 
+### Identity renames and stealth-residual surfaces
+
+- **Workflow YAML is a stealth-residual surface during identity renames.** GitHub Actions YAML (`.github/workflows/*.yml`) and any CI config that references package names, workspace filters, or directory paths can silently carry the old identity past a rename. `pnpm --filter <pkg>` does NOT fail when the filter matches zero packages — it logs `No projects matched the filters` and exits 0. A renamed workspace package (`@homeos/* → @aether/*`) with an un-updated `pnpm --filter @homeos/foo build` step turns into a no-op CI green check that masks the rename gap. Audit every workflow YAML during an identity rename PR; a green CI run after a rename is not evidence the rename is complete. Codify in DECISIONS.md if the rename is multi-PR. Class: any string-key that the build/CI/runtime uses to resolve the identity is a residual surface — package names, workspace filter scopes, env vars, bundle identifiers, preload-bridge globals, userData directory names.
+- **Stale local `dist/` can mask workspace resolution failures that CI catches.** After a workspace rename (or any change to `package.json` `name:` / `pnpm-workspace.yaml`), a previous build's `dist/` plus a populated `node_modules/.pnpm` store may resolve imports locally even though the new identity isn't actually wired through. CI starts from a clean state, hits the gap, and fails — by which point you've already opened the PR claiming "works locally." After a rename, do `rm -rf node_modules dist && pnpm install && pnpm -r build` before opening the PR. A passing local build of un-cleaned state is not a smoke test.
+- **Identity renames have a long tail of non-code surfaces that get missed if you only update the code paths.** Beyond the obvious source-tree edits, every rename also touches: GitHub Actions workflow YAML (job names, filter scopes, status-check names referenced by branch protection), README badge URLs (image + link, both directions of `homeOS → Aether`), README quickstart commands (clone URLs, `cd` paths), documentation cross-references (links between markdown files), DECISIONS.md historical ADRs (left verbatim by policy — do NOT rewrite past entries), CHANGELOG entries from prior versions (also verbatim), `.env.example` and any sample config files, the project's own self-description in `package.json` `description` fields, electron-builder `productName` and `appId`, preload bridge globals (`window.homeOS` → `window.aether`), userData directory migration (one-time idempotent rename on first boot — see PR #31 lineage), and the project's display name in the voice system prompt. Build a per-rename checklist; the rename PR's self-review under §7 should walk it explicitly. The class to internalize: identity lives in many side-channels, not just source code.
+
 ---
 
 ## 11. Architect Review Heuristics (self-apply before opening any PR)
@@ -385,11 +391,33 @@ These are patterns Architect has repeatedly flagged in review. Self-apply them B
 
 8. **Pattern-lifting from `_ingest/` should aggressively simplify.** When adapting code from Pulse/VIEWER/NEXUS/RAVEN_MESH: cut what we don't need yet (multi-window, file types, OAuth, retry queues, etc.). Document what was cut and why in the PR description and DECISIONS.md if the cut is non-obvious or reversible.
 
+9. **Cross-doc consistency.** When a literal phrase, version number, package name, or terminology choice appears in more than one of CLAUDE.md / MASTER_SYNTHESIS.md / DECISIONS.md / CHANGELOG.md / README.md / docs/*.md, treat the set as one surface during a change. Pick the canonical form, then grep for the others — every divergence is either a doc-drift bug (fix in the same PR) or an intentional historical reference (DECISIONS.md and CHANGELOG.md entries dated before the divergence are policy-preserved verbatim; flag the divergence in the §7 self-review so the reviewer doesn't read drift as inconsistency). Common drift vectors: project name (homeOS vs Aether), version-current claims ("Current state (v0.x.0)" in README), tag tables, env var names, package scopes, port numbers, env-keyed paths. A passing typecheck does not catch a 0.3.0-in-README-while-CHANGELOG-says-0.5.0 mismatch — only a literal grep does.
+
 This list will grow. When Architect flags a new recurring pattern, add it here in a follow-up PR.
 
 ---
 
-## 12. Communication Style
+## 12. Architectural Patterns
+
+Named patterns that have earned their weight across at least one binding architectural decision. The point of naming them is so future PRs can say "applying the three-tier auth pattern" without re-deriving the rationale. Each entry below names the pattern, summarizes the shape, and cites the ADR(s) that bound it.
+
+### 12.1 Three-tier auth: shell-UX / core-protocol / secret-store
+
+For any third-party integration that requires user-bound authentication (OAuth, API keys, signed tokens), responsibility splits across three tiers that must not be collapsed:
+
+- **Shell-UX tier (Electron shell).** Owns the user-facing auth experience — launching the system browser for OAuth consent, capturing the redirect on a loopback port, presenting account-connection state, prompting for re-auth on expiry. The shell is the only tier with a window and a clipboard; it is the only tier the user ever sees during an auth flow.
+- **Core-protocol tier (raven-core or equivalent backend).** Owns the actual integration protocol — MCP client calls, REST/GraphQL invocations, token refresh logic, the typed adapter surface that the rest of the system consumes. The protocol tier reads tokens from the secret store and never asks the user anything directly.
+- **Secret-store tier (OS-native keychain).** macOS Keychain under the bundle identifier (`com.aether.app`). The only tier permitted to persist authenticated material at rest. Tokens written by the shell-UX tier, read by the core-protocol tier; no other path persists them.
+
+The boundaries are load-bearing because each tier's failure mode is different — UX failures need a user-visible affordance, protocol failures need retry/refresh logic, secret-store failures need OS-level error reporting — and conflating them produces auth flows that fail silently or leak credentials into logs. When designing a new authenticated surface, label which tier owns each piece of work in the task spec; if a single function spans two tiers, split it.
+
+**Bound by:** DECISIONS.md "MCP integration arc roadmap" (2026-05-14) — first instantiation of this pattern across the MCP client substrate.
+
+This section will grow. When an ADR introduces a pattern that is going to recur (rather than a one-off decision), name and add it here in the same PR.
+
+---
+
+## 13. Communication Style
 
 ### In PRs
 - Be specific. "Refactored layout" is useless. "Moved tray-icon assembly from `index.ts:189-213` into `services/trayIcon.ts:setup()` so splash sequencing stays in one file" is useful.
@@ -415,7 +443,7 @@ Helpful patterns:
 
 ---
 
-## 13. When Director seems to contradict CLAUDE.md
+## 14. When Director seems to contradict CLAUDE.md
 
 CLAUDE.md is authored by Architect with Director's approval. If Director says something in chat that contradicts CLAUDE.md, two cases:
 
@@ -426,7 +454,7 @@ When unsure, **ask Director in chat which of these it is.** Don't decide unilate
 
 ---
 
-## 14. Velocity Notes
+## 15. Velocity Notes
 
 - We are vibe-coding for velocity in week 1. Boring correctness loses to visible progress *in week 1 only*. After v0.1.0, we tighten.
 - "Tests" in week 1 means: smoke tests that the thing runs. Unit tests come once a module stabilizes — premature unit tests on rapidly-changing code are negative-value.
@@ -435,7 +463,7 @@ When unsure, **ask Director in chat which of these it is.** Don't decide unilate
 
 ---
 
-## 15. Glossary
+## 16. Glossary
 
 - **The mesh / the spine** — RAVEN_MESH's signed-envelope protocol. The eventual transport for inter-process communication in Aether.
 - **The substrate** — the always-on home half of Aether. Lives on a small machine in the home eventually.

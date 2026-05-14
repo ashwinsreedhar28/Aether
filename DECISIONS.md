@@ -8,6 +8,42 @@ are preserved verbatim as historical record.
 
 ---
 
+## [2026-05-14] Codify ADR template fields as required (CLAUDE.md §8)
+
+**Status:** accepted
+**Decided by:** Director (Architect-recommended)
+**Context:** CLAUDE.md §8 has shown an ADR template since the operating manual was first written, but the template's status was descriptive rather than prescriptive — a code block under "Entry format:" that read as illustrative. Recent ADRs in DECISIONS.md (notably the MCP and voice-ambient roadmap entries dated 2026-05-14) settled on a stable six-field shape — Status / Decided by / Context / Decision / Consequences / Alternatives considered — that reviewers were already enforcing in practice. The governance-batch lane is the moment to bind the shape: turn the de-facto convention into a required template so future ADRs do not drift, and so an automated review (see PR #'s claude-auto-review workflow added in the same batch) can mechanically check the format.
+**Decision:** The six fields — `Status`, `Decided by`, `Context`, `Decision`, `Consequences`, `Alternatives considered` — are now **required** in every Aether ADR and must appear in that order. The rest of an ADR entry (prose, sub-bullets, links, cross-references) remains freeform. An ADR missing any of the six fields is rejected at review and amended in the same PR; reviewers (human or auto-review) treat field-presence as a mechanical check rather than a judgment call. Ordering of ADRs in DECISIONS.md is also bound: newest at top within a date; dates descending overall. Historical entries (those dated before this ADR) are preserved verbatim per the append-only policy, including any whose shape differs from the now-required template — the binding applies forward.
+**Consequences:**
+- Future ADRs have a predictable shape that the claude-auto-review workflow can verify mechanically against the §7 PR self-review's pre-PR-heuristics check.
+- Reviewers (Architect and the auto-review) can flag missing fields without ambiguity ("Alternatives considered is absent" beats "this ADR feels thin").
+- The append-only policy continues to apply: pre-existing ADRs that diverge from the template are not retroactively rewritten; their divergence is read as a pre-binding historical artifact.
+- A small ergonomic cost: ADRs that genuinely have no rejected alternatives must still include an `Alternatives considered:` field, even if the content is "None — the constraint was singular" or similar. The field's presence is what's bound; its content can honestly note when the option set was small.
+**Alternatives considered:**
+- *Leave the template as a non-binding example.* Rejected: status quo had already produced minor drift in field ordering and occasional missing fields in earlier ADRs, and the auto-review workflow needs a stable shape to check against.
+- *Bind a smaller required set (drop `Alternatives considered`).* Rejected: the alternatives field is the most load-bearing for future readers — knowing what was rejected and why is what makes an ADR useful at re-litigation time. Cutting it would gut the document's purpose.
+- *Bind a larger set (add e.g. `Stakeholders`, `Review date`, `Implementation PRs`).* Rejected for v1 of this binding: adds metadata fields that have not yet earned their weight in practice; can be added in a future amendment once the six-field core proves stable.
+
+---
+
+## [2026-05-14] Three-tier auth as a named architectural pattern (CLAUDE.md §12.1)
+
+**Status:** accepted
+**Decided by:** Director (Architect-recommended)
+**Context:** The MCP integration arc (DECISIONS.md "MCP integration arc roadmap" — same date) codified a specific auth-flow shape: the Electron shell handles the OAuth UX, raven-core handles the MCP protocol calls, and macOS Keychain under `com.aether.app` holds the secrets. This split is going to recur — every authenticated third-party integration Aether grows (Google Calendar, Gmail, Drive in v1; future Microsoft, GitHub, etc.) needs the same three-tier separation, and conflating any two tiers produces failure modes that are hard to debug after the fact (UX errors that leak as protocol errors; protocol errors that leak credentials into logs; secret-store errors that crash the auth flow silently). Naming the pattern now — before there is a second instance — keeps future PRs from re-deriving the boundary case-by-case, and gives task specs a vocabulary ("apply the three-tier auth pattern") that compresses the design conversation.
+**Decision:** Add a new CLAUDE.md §12 "Architectural Patterns" section whose first entry §12.1 names the three-tier auth pattern: **shell-UX tier** (Electron shell — system-browser launch, redirect capture, account-state UI, re-auth prompts), **core-protocol tier** (raven-core or equivalent backend — protocol calls, token refresh, typed adapter surface), and **secret-store tier** (OS-native keychain — macOS Keychain under the bundle identifier `com.aether.app` for v1). The boundaries are load-bearing: the shell is the only tier with a window; the protocol tier never asks the user anything directly; the secret store is the only tier that persists authenticated material at rest. New authenticated integrations label which tier owns each piece of work in their task spec, and split functions that span tiers. The §12 section is intended to grow — additional architectural patterns earn entries as they get bound by ADRs.
+**Consequences:**
+- Future MCP integrations (Gmail, Drive, and later Microsoft 365 / GitHub) inherit a shared vocabulary and design shape — task specs reference §12.1 instead of re-stating the split.
+- CLAUDE.md gains a new top-level section (§12) and existing §12-§15 renumber to §13-§16 (Communication Style, When Director seems to contradict CLAUDE.md, Velocity Notes, Glossary). No internal cross-references in CLAUDE.md point to the old §12-§15 numbers; the renumber is safe.
+- Establishes a precedent that named patterns get added to §12 when they're going to recur, distinct from one-off architectural decisions which live only in DECISIONS.md. Reviewers will need to judge "is this going to recur" at ADR time — getting it wrong means either a CLAUDE.md §12 entry that never gains a second instance (low cost, can be pruned), or a recurring pattern that lives only in DECISIONS.md and gets re-derived (higher cost).
+- The pattern is descriptive of v1's reality (macOS Keychain, Electron shell, raven-core). When Aether grows a second host platform (Windows substrate, web shell), the secret-store tier's concrete OS binding changes but the three-tier shape is intended to survive — that's the whole point of naming it.
+**Alternatives considered:**
+- *Leave the three-tier shape implicit in the MCP roadmap ADR.* Rejected: the shape is going to recur across multiple integrations, and re-deriving it case-by-case is exactly what naming patterns prevents. Implicit conventions drift; named ones can be cited.
+- *Name the pattern but put it in MASTER_SYNTHESIS.md instead of CLAUDE.md.* Rejected: MASTER_SYNTHESIS.md is an architecture briefing about *what Aether is*. CLAUDE.md is the operating manual the implementer reads while writing code. Patterns that shape day-to-day implementation belong in the manual.
+- *Bind a different tier split (e.g. two-tier "shell + backend" with secrets folded into the backend tier).* Rejected: collapses the secret-store boundary, which is the tier that needs the strongest invariants ("never logged, never serialized to disk outside the keychain, never transmitted except to the upstream provider"). Two-tier auth in practice loses these invariants because the backend's logging configuration grows over time.
+
+---
+
 ## [2026-05-14] MCP integration arc roadmap: authenticated personal data via MCP
 
 **Status:** accepted

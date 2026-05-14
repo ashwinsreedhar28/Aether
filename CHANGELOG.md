@@ -42,6 +42,38 @@ historical record.
   ambient code fires.
 
 ### Changed
+- **Governance batch: CLAUDE.md amendments + auto-review workflow +
+  README refresh.** Single PR bundling six CLAUDE.md codifications,
+  two DECISIONS.md ADRs, a new GitHub Actions workflow that fires
+  Claude on every PR for mechanical-check review, and a README sync to
+  current state. CLAUDE.md changes: §8 binds the six-field ADR
+  template (`Status`, `Decided by`, `Context`, `Decision`,
+  `Consequences`, `Alternatives considered`) as required and codifies
+  ADR ordering (newest at top within date, dates descending); §10
+  gains three new gotchas on identity-rename stealth-residual surfaces
+  (workflow YAML + `pnpm --filter` silent no-op, stale `dist/`
+  masking workspace resolution failures, the long tail of non-code
+  surfaces touched by a rename); §11 gains heuristic 9 on cross-doc
+  consistency (literal grep across CLAUDE.md / MASTER_SYNTHESIS.md /
+  DECISIONS.md / CHANGELOG.md / README.md / docs/* when a phrase /
+  version / package name changes); a new §12 "Architectural Patterns"
+  section is inserted (existing §12-§15 renumber to §13-§16) whose
+  first entry §12.1 names the three-tier auth pattern (shell-UX /
+  core-protocol / secret-store) bound by the MCP integration arc
+  roadmap ADR. DECISIONS.md gains two ADRs (`Codify ADR template
+  fields as required` and `Three-tier auth as a named architectural
+  pattern`). `.github/workflows/claude-auto-review.yml` is new: fires
+  on `pull_request: [opened, synchronize, reopened]`, runs five
+  mechanical checks against §7 self-review completeness, CHANGELOG
+  update, DECISIONS.md ADR format conformance, cross-doc consistency,
+  and stealth-residual class issues; outputs a single comment with
+  ✓ / ⚠ / ⊘ per check. Existing on-demand `.github/workflows/claude.yml`
+  is unchanged. README refresh: badges and quickstart updated to the
+  `Aether` repo identity, Node version raised to 22+ (yahoo-finance2
+  v3 requirement), `Current state` header bumped to v0.5.0 with new
+  v0.4.0 (composers / multi-hop mesh) and v0.5.0 (identity inflection)
+  bullets and status-table rows. No source-code changes in this PR —
+  docs and workflow only.
 - CLAUDE.md §10 gains a Gemini Live system_instruction gotcha entry
   capturing PR #25's finding that the API field is set-once per
   session and cannot be hot-swapped per turn. Documents the

@@ -8,6 +8,47 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
 
 ### Added
 
+- **News keyword search backed by SQLite FTS5.** New mesh surface
+  `news_feeds.search({query, limit?, category?})` ranks articles by
+  bm25 across `title` / `summary` / `feed`, with `published_at` as
+  tiebreaker. Backed by a contentless external-content FTS5 virtual
+  table (`articles_fts`) with three sync triggers keeping it lockstep
+  with `articles`; porter tokenizer for plural / verb-form stemming
+  ("wildfire" matches "wildfires"). Search scope is the polled feed
+  pool ONLY — not an open-web search; off-feed topics return empty
+  rather than reaching out. DB schema bumps to `user_version=2`; the
+  v1→v2 migration creates the virtual table, triggers, and backfills
+  from existing articles inside a single transaction (CLAUDE.md §10
+  schema-migrations gotcha applied — column-dependent objects live in
+  `migrate()`, not the initial CREATE block). User-supplied query
+  strings are sanitised into literal phrase tokens before reaching
+  FTS5 MATCH so stray punctuation / accidental FTS5 grammar (`*`,
+  `NEAR`, unbalanced quotes) can't break the query.
+- **New voice tool `news_search(query, category?)`.** Thin
+  `mesh_invoke` wrapper around `news_feeds.search`. Same Article
+  stripping as `news_recent` (drops url / id / fetched_at /
+  published_at — Gemini doesn't need them to speak headlines aloud).
+  Surfaces `news_feeds_bad_query` MeshDeny as a structured `bad query`
+  error so Gemini says "didn't catch the topic, sir" rather than
+  reading the error stack. Prompt updates: four few-shot examples
+  ("what's the latest on Iran" → `news_search({ query: 'Iran' })`,
+  "any news on wildfires", "tech news about OpenAI" with category,
+  "anything on the Lakers this week" with category), explicit "prefer
+  `news_search` over `news_recent` for topic-specific questions"
+  rule, and the anti-hallucination guardrail extended to empty search
+  results ("no coverage in the feed pool yet, sir" — never substitute
+  remembered headlines). See DECISIONS.md 2026-05-13.
+- **Two new manifest edges:** `shell → news_feeds.search` (reserved
+  for a future UI search bar inside the News app — not consumed in
+  this PR) and `raven → news_feeds.search` (consumed by the
+  `news_search` voice tool). Same multi-consumer-on-one-surface
+  pattern established by `news_feeds.recent`.
+- `nodes/news_feeds/schemas/search.json` — JSON Schema validated by
+  Core on every invocation. `query` is required (1–200 chars);
+  `limit` defaults to 20, max 50; `category` accepts a single string
+  or 1–7-element array against the same seven-category enum as
+  `recent`.
+
 - **Finance historical quotes via passive accumulation.** The finance
   node now writes every successful poll to a SQLite time series at
   `$HOMEOS_DATA_DIR/finance/history.db` (90-day rolling retention,

@@ -67,6 +67,10 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/news_feeds/schemas/recent.json
+      - name: search
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/news_feeds/schemas/search.json
 
   - id: finance
     runtime: local-process
@@ -121,6 +125,15 @@ relationships:
   # news_recent → mesh.invoke('news_feeds.recent') → reads top headlines.
   - from: raven
     to: news_feeds.recent
+
+  # News keyword search. Shell edge is reserved for a future UI search
+  # bar inside the News app (not consumed in the PR that introduces the
+  # surface). Raven consumes immediately via the news_search voice tool
+  # — "what's the latest on Iran" → FTS5 over the polled article pool.
+  - from: shell
+    to: news_feeds.search
+  - from: raven
+    to: news_feeds.search
 
   # The Finance app (renderer-side) reads the cached ticker grid via the
   # market_summary surface, and the per-symbol quote surface backs any

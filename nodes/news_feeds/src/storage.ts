@@ -11,11 +11,23 @@ export interface RecentQuery {
   categories?: Category[]
 }
 
+export interface SearchQuery {
+  /** FTS5 MATCH string. The handler is responsible for sanitising
+   * user input into a syntactically valid FTS5 query — see
+   * sanitiseFtsQuery() below. */
+  match: string
+  limit: number
+  /** Same shape as RecentQuery.categories: undefined / empty = no
+   * filter; otherwise restrict to articles whose category is in the
+   * list. */
+  categories?: Category[]
+}
+
 // Bump this when the schema changes. The constructor checks PRAGMA
 // user_version against this constant and applies forward-only migrations
 // when stored < current. No down-migration; we never need to roll a
 // node-local DB back to an older schema in this codebase.
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 // Thin wrapper around better-sqlite3. Writes are synchronous (sqlite is a
 // process-local file), batched in a single transaction per poll. Reads
@@ -31,10 +43,11 @@ export class ArticleStore {
     this.db.pragma('synchronous = NORMAL')
     // Fresh-install schema: applied verbatim when the DB is empty. The
     // category column is part of the table from v1 onward; migrations
-    // below patch older DBs that pre-date the column. The category
-    // index is created in migrate() only — adding it here would race
-    // an older DB whose articles table is missing the category column
-    // (CREATE INDEX IF NOT EXISTS still fails if the column is absent).
+    // below patch older DBs that pre-date the column. Column-dependent
+    // indexes and the FTS5 virtual table are created in migrate() only
+    // — adding them here would race a pre-migration DB (CLAUDE.md §10
+    // schema-migrations gotcha: column-dependent objects must live in
+    // the migration step, not the initial CREATE block).
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS articles (
         id TEXT PRIMARY KEY,
@@ -82,6 +95,79 @@ export class ArticleStore {
       })
       apply()
       v = 1
+    }
+
+    if (v < 2) {
+      // FTS5 keyword search. `content='articles', content_rowid='rowid'`
+      // makes articles_fts an external-content table — column data
+      // isn't duplicated, FTS5 reads source rows back from `articles`
+      // by rowid when it needs to. That contract requires the FTS5
+      // column names to MATCH the column names in `articles` (FTS5
+      // emits `SELECT col FROM articles WHERE rowid=?` against them
+      // during integrity / rebuild paths). So the FTS5 columns are
+      // named `title`, `summary`, `feed` — same as the articles
+      // table. The voice tool / schema rename `feed` to `source` on
+      // the way out for the spoken response; internally we keep names
+      // aligned. Naming them differently here (e.g. `source` on the
+      // FTS5 side, `feed` on the articles side) silently passes search
+      // queries but breaks `SELECT * FROM articles_fts` and any
+      // FTS5-internal rebuild — a foot-gun we're not introducing.
+      //
+      // Tokenizer: porter for stem-matching ("wildfire" → "wildfires",
+      // "report" → "reporting"). It does NOT stem aggressively across
+      // word families ("iran" ≠ "iranian"); accepted porter limit —
+      // anything fancier is the semantic-search world we're explicitly
+      // deferring (see DECISIONS.md 2026-05-13).
+      //
+      // The three sync triggers keep articles_fts in lockstep with
+      // articles. AFTER DELETE / UPDATE use the FTS5 'delete' command
+      // form (per sqlite docs §4.4.3 for external-content tables) so
+      // stale rows leave the index cleanly.
+      const apply = this.db.transaction(() => {
+        this.db.exec(`
+          CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
+            title,
+            summary,
+            feed,
+            content='articles',
+            content_rowid='rowid',
+            tokenize='porter'
+          );
+
+          CREATE TRIGGER IF NOT EXISTS articles_ai
+          AFTER INSERT ON articles BEGIN
+            INSERT INTO articles_fts(rowid, title, summary, feed)
+            VALUES (new.rowid, new.title, new.summary, new.feed);
+          END;
+
+          CREATE TRIGGER IF NOT EXISTS articles_ad
+          AFTER DELETE ON articles BEGIN
+            INSERT INTO articles_fts(articles_fts, rowid, title, summary, feed)
+            VALUES('delete', old.rowid, old.title, old.summary, old.feed);
+          END;
+
+          CREATE TRIGGER IF NOT EXISTS articles_au
+          AFTER UPDATE ON articles BEGIN
+            INSERT INTO articles_fts(articles_fts, rowid, title, summary, feed)
+            VALUES('delete', old.rowid, old.title, old.summary, old.feed);
+            INSERT INTO articles_fts(rowid, title, summary, feed)
+            VALUES (new.rowid, new.title, new.summary, new.feed);
+          END;
+        `)
+
+        // Backfill from existing articles. Safe on a fresh install too
+        // — selecting from an empty table yields no rows. Using
+        // INSERT INTO articles_fts(rowid, ...) SELECT ... is the
+        // documented bulk-load form for external-content FTS5 tables.
+        this.db.exec(`
+          INSERT INTO articles_fts(rowid, title, summary, feed)
+          SELECT rowid, title, summary, feed FROM articles;
+        `)
+
+        this.db.pragma(`user_version = 2`)
+      })
+      apply()
+      v = 2
     }
 
     if (v !== DB_VERSION) {
@@ -150,6 +236,32 @@ export class ArticleStore {
       FROM articles
       ${where}
       ORDER BY published_at DESC
+      LIMIT ?
+    `
+    positional.push(q.limit)
+    return this.db.prepare(sql).all(...positional) as Article[]
+  }
+
+  // FTS5 keyword search. Ranks by bm25 (FTS5's `rank` column, which is
+  // already negative-better-is-larger for ORDER BY), with published_at
+  // as a tiebreaker so two equally-relevant hits land newest-first.
+  // Category filter is applied as a regular WHERE on the joined
+  // articles row — FTS5 itself doesn't know about category.
+  search(q: SearchQuery): Article[] {
+    const whereParts: string[] = ['articles_fts MATCH ?']
+    const positional: unknown[] = [q.match]
+    if (q.categories && q.categories.length > 0) {
+      const placeholders = q.categories.map(() => '?').join(', ')
+      whereParts.push(`a.category IN (${placeholders})`)
+      positional.push(...q.categories)
+    }
+    const sql = `
+      SELECT a.id, a.feed, a.category, a.title, a.summary, a.url,
+             a.published_at, a.fetched_at
+      FROM articles_fts
+      JOIN articles a ON a.rowid = articles_fts.rowid
+      WHERE ${whereParts.join(' AND ')}
+      ORDER BY articles_fts.rank, a.published_at DESC
       LIMIT ?
     `
     positional.push(q.limit)

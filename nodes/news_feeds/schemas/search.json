@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "news_feeds.search",
+  "description": "Keyword search over the node's curated article pool (title / summary / feed name) backed by SQLite FTS5 with porter stemming. Returns articles ordered by FTS5 rank, then published_at desc as tiebreaker. Search scope is the polled feed pool only — off-feed topics return an empty list rather than reaching out to the open web.",
+  "type": "object",
+  "required": ["query"],
+  "additionalProperties": true,
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Free-text keyword query. The handler tokenises into individual words and combines them with FTS5 AND semantics; porter stemming matches plurals and common verb forms ('wildfire' matches 'wildfires', 'report' matches 'reporting'). Special FTS5 punctuation is stripped — pass plain words."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "description": "Maximum number of articles to return. Default 20 if omitted; clamped to 50."
+    },
+    "category": {
+      "description": "Optional category filter. A single category string, or an array of 1–7 unique category strings. Articles whose category is in the resulting set are returned. Omit to search across all categories.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["world", "us", "tech", "business", "sports", "science", "local"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["world", "us", "tech", "business", "sports", "science", "local"]
+          },
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true
+        }
+      ]
+    }
+  }
+}

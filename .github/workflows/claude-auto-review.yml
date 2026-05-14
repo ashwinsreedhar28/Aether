@@ -1,0 +1,92 @@
+name: Claude Auto Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  auto-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-sonnet-4-5-20250929
+          prompt: |
+            You are running mechanical, low-judgment review checks on this PR. Do not
+            re-architect. Do not propose alternative implementations. Do not score
+            quality. The Architect (a separate session) does the substantive review.
+            Your job is to catch the five concrete failure modes listed below so the
+            Architect's review round-trip is cheaper.
+
+            Output a single PR comment with this exact shape, one section per check,
+            using ✓ (pass), ⚠ (concern — describe specifically), or ⊘ (not applicable
+            for this PR — say why in one short clause). Each ⚠ gets one line per
+            issue, file-path-anchored where possible. No preamble, no closing summary.
+
+            ## Auto-review (mechanical checks)
+
+            **1. §7 self-review template completeness.** Verify the PR description
+            contains all eight headings from CLAUDE.md §7: `## What changed`,
+            `## Why`, `## How (high level)`, `## Risks / TODOs / Skipped`,
+            `## Out-of-scope work explicitly avoided`, `## Pre-PR heuristics`,
+            `## Verification`, `## Open questions for Architect`. A heading present
+            with empty body counts as missing — flag it. The "Pre-PR heuristics"
+            section must reference §11 explicitly (it's the prompt the heuristics
+            check is for).
+
+            **2. CHANGELOG.md updated.** Verify the PR adds at least one line under
+            `[Unreleased]` in CHANGELOG.md. If the PR is docs-only and the docs in
+            question are CHANGELOG.md itself, that counts. If the PR changes source
+            code, configs, or non-CHANGELOG docs without a CHANGELOG entry, flag it.
+            Pre-1.0 versioning per CLAUDE.md §6 — do not enforce semver here.
+
+            **3. DECISIONS.md ADR format.** If the PR adds an entry to DECISIONS.md,
+            verify the entry has all six required fields, in this order:
+            `**Status:**`, `**Decided by:**`, `**Context:**`, `**Decision:**`,
+            `**Consequences:**`, `**Alternatives considered:**`. A missing field or
+            an out-of-order field is a ⚠. If the PR does not touch DECISIONS.md,
+            mark this ⊘. Do not enforce on entries that already existed on `main`
+            (DECISIONS.md is append-only — historical entries are policy-preserved
+            verbatim, even if their shape diverges from the now-required template).
+
+            **4. Cross-doc consistency (CLAUDE.md §11.9).** When the PR's diff
+            includes a literal phrase, version number ("Current state (v0.x.0)"),
+            package name (`@homeos/*`, `@aether/*`), bundle identifier
+            (`com.aether.app`), env var (`AETHER_DATA_DIR`, `HOMEOS_DATA_DIR`),
+            preload-bridge global (`window.aether`, `window.homeOS`), Node version
+            requirement, or quickstart command (`git clone`, `cd <dir>`) that
+            appears in more than one of CLAUDE.md / MASTER_SYNTHESIS.md /
+            DECISIONS.md / CHANGELOG.md / README.md / docs/*.md, grep all of them
+            for the phrase and flag any divergence — UNLESS the divergence is in
+            DECISIONS.md or CHANGELOG.md entries dated before the change (those are
+            policy-preserved verbatim, ⊘ them with a note). One line per divergence,
+            with the literal mismatched strings and the file paths.
+
+            **5. Stealth-residual class (CLAUDE.md §10 identity-rename + workflow
+            YAML gotchas).** If this PR is an identity rename or touches workspace
+            scope / package names / bundle identifiers, verify the following
+            surfaces are also updated coherently: every `.github/workflows/*.yml`
+            (job names, `pnpm --filter <scope>` invocations, status-check names),
+            `package.json` `name:` fields across all workspaces, `pnpm-workspace.yaml`,
+            electron-builder `productName` + `appId`, preload bridge globals,
+            README badge URLs (image + link), README quickstart `git clone` and
+            `cd` commands, `.env.example`. A `pnpm --filter @<scope>/*` step that
+            matches zero packages is a ⚠ (CLAUDE.md §10 — `pnpm --filter` silently
+            exits 0 on zero-match). If the PR is not a rename and does not touch
+            identity surfaces, mark this ⊘.
+
+            ---
+
+            Closing note: keep the comment terse. Each ⚠ is one line. Each ⊘
+            includes one short clause on why it does not apply. Do not invent
+            checks beyond the five above. Do not gate the merge — your output is
+            advisory; the Architect and Director make the merge decision.

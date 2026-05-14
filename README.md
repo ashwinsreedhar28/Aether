@@ -6,10 +6,10 @@
 
 Personal-OS substrate. Holographic Electron shell on top of a signed mesh, with voice as a first-class participant.
 
-![CI](https://github.com/ashwinsreedhar28/homeOS/actions/workflows/ci.yml/badge.svg)
-[![Release](https://img.shields.io/github/v/tag/ashwinsreedhar28/homeOS?label=release)](https://github.com/ashwinsreedhar28/homeOS/tags)
+![CI](https://github.com/ashwinsreedhar28/Aether/actions/workflows/ci.yml/badge.svg)
+[![Release](https://img.shields.io/github/v/tag/ashwinsreedhar28/Aether?label=release)](https://github.com/ashwinsreedhar28/Aether/tags)
 
-> Project built under the working name **homeOS** through v0.3.x; renamed to **Aether** with the v0.4.0 line. The GitHub repository still lives at `ashwinsreedhar28/homeOS`; the rename to `aether` is a separate, later decision and GitHub's auto-redirect keeps existing URLs working.
+> Project built under the working name **homeOS** through v0.3.x; renamed to **Aether** with the v0.4.0 line. The GitHub repository still lives at `ashwinsreedhar28/Aether`; GitHub's auto-redirect keeps any older `homeOS` clone URLs working.
 
 ## What this is
 
@@ -17,23 +17,25 @@ Aether is a personal operating environment — a single shell where the user's d
 
 This repo is the workspace half (an Electron app on the developer's laptop). The eventual home-substrate half (an always-on box with peripherals as mesh nodes) shares the same codebase but deploys differently.
 
-## Current state (v0.3.0)
+## Current state (v0.5.0)
 
 - **Mesh substrate alive** (`v0.1.0`): RAVEN_MESH Core runs as a managed daemon; HMAC-signed envelopes; edge-graph authorization; nodes spawn under a lifecycle-aware supervisor with clean SIGTERM teardown.
 - **Voice arrived** (`v0.2.0`): raven-daemon supervises a Python orchestrator (Gemini Live API); time + memory + notify tools active; status pill, transcripts, and tool-call history visible in a Voice app.
 - **Voice meets mesh** (`v0.2.1`): raven registered as a mesh node; `notify(title, body)` routes through `host_notifications.notify` via mesh.invoke — first end-to-end voice ↔ mesh round-trip.
 - **Data realization** (`v0.3.0`): `news_feeds` node polls four RSS sources every 15min, dedupes by stable id, stores in SQLite (WAL). Single `news_feeds.recent` surface consumed by both the News app and the raven voice node — first multi-consumer surface on the mesh.
+- **Composers / multi-hop mesh** (`v0.4.0`): first composer node `digest` synthesizes `digest.morning()` / `digest.evening()` briefings by fanning out to upstream data nodes (`news_feeds`, `finance`, weather) in parallel via `Promise.allSettled` with per-upstream timeouts — proves the mesh-as-a-graph property (every prior node was a leaf). `BriefingSection[]` shape with voice-readable `summary` prose plus optional structured `items`.
+- **Identity inflection** (`v0.5.0`): project renamed homeOS → Aether (working name retired). New aurora-curtain app icon (cosmic-navy, Concept C). One-time idempotent userData migration on first boot (`~/Library/Application Support/homeOS` → `~/Library/Application Support/Aether`) preserves news / finance / memory state. Workspace package scope (`@homeos/*` → `@aether/*`), bundle identifier (`com.aether.app`), preload bridge global (`window.aether`), and env vars (`AETHER_DATA_DIR`) all updated coherently.
 - **Content apps**: Welcome, News (real RSS via mesh), Markdown viewer, Voice control, Mesh Dev Tools.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 ## Quickstart
 
-Requires macOS, Node 20.10+, pnpm 9.15+, Python 3.10+, and a Gemini API key for voice.
+Requires macOS, Node 22+, pnpm 9.15+, Python 3.10+, and a Gemini API key for voice.
 
 ```sh
-git clone --recursive https://github.com/ashwinsreedhar28/homeOS.git
-cd homeOS/shell
+git clone --recursive https://github.com/ashwinsreedhar28/Aether.git
+cd Aether/shell
 pnpm install
 export GEMINI_API_KEY="..."
 pnpm dev
@@ -102,6 +104,8 @@ Pre-1.0. Tags map to capability categories lighting up:
 | `v0.2.0`  | Voice arrives                                 |
 | `v0.2.1`  | Voice meets mesh                              |
 | `v0.3.0`  | Data realization (real data via mesh nodes)   |
+| `v0.4.0`  | Composers / multi-hop mesh                    |
+| `v0.5.0`  | Identity inflection (homeOS → Aether)         |
 
 ## License
 

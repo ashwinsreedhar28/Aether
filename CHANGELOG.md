@@ -303,6 +303,9 @@ CLAUDE.md §6 (honest pre-1.0 scheme).
   the migration-order gotcha from PR #16 (column-dependent indexes
   must be created inside the migration step, not the initial
   CREATE block).
+- CLAUDE.md §10 gains a "Worktrees and the GitHub CLI" subsection
+  capturing the `gh pr merge --delete-branch` collision pattern
+  when running from feature worktrees (bit PRs #12 and #18).
 
 ### Fixed
 

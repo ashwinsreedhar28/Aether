@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import RSSParser from 'rss-parser'
 import type { FeedSource } from './feeds'
+import type { Category } from './types'
 
 // rss-parser is permissive — both Atom and RSS shapes flow through with most
 // fields optional. We normalise here so storage + the recent surface see a
@@ -8,6 +9,7 @@ import type { FeedSource } from './feeds'
 export interface Article {
   id: string
   feed: string
+  category: Category
   title: string
   summary: string
   url: string
@@ -101,6 +103,7 @@ export async function fetchFeed(source: FeedSource): Promise<Article[]> {
     articles.push({
       id: stableId(source.name, item),
       feed: source.name,
+      category: source.category,
       title: truncate(title, 300),
       summary: pickSummary(item),
       url,

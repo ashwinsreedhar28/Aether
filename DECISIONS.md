@@ -602,7 +602,10 @@ field.
   Attaching context to every FunctionResponse is the closest feasible
   equivalent: the recap lands in Gemini's input stream alongside the
   tool payload on every round trip, and the static system prompt is
-  what carries the reference-resolution *rules*.
+  what carries the reference-resolution *rules*. Codified as a
+  standalone gotcha in CLAUDE.md §10 "Gemini Live: system_instruction
+  is set once per session" so future voice work starts with this
+  constraint baked in.
 - *Rely on Gemini Live's native conversation history.* The session
   does retain prior turns and tool results, and a stronger model
   would resolve most ordinals from that alone. Empirically the

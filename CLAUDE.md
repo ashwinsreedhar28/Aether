@@ -352,6 +352,17 @@ These are from `_ingest/NEXUS/AUDIT.md`. **Do not lift NEXUS code unfixed.**
 
 - **`gh pr merge --delete-branch` errors out when run from a feature worktree.** The remote merge completes, but gh's client-side cleanup tries to `git checkout main` in the current worktree to delete the local branch — which fails because `main` is already checked out in the primary worktree (git won't check out the same branch in two worktrees). Workaround: either run `gh pr merge` from the primary `~/homeOS` worktree, or drop `--delete-branch` and follow with `git push origin --delete <branch>` to clean up the remote independently. Local branch cleanup happens during worktree teardown (`git branch -D <branch>`). Bit twice — PR #12 (gotchas docs) and PR #18 (schema-migrations docs).
 
+### Gemini Live: system_instruction is set once per session
+
+The Gemini Live API's `system_instruction` field in `LiveConnectConfig` is set at session start and cannot be hot-swapped per turn. Sending a new `LiveConnectConfig` mid-session has no effect; the original system_instruction remains in force for the lifetime of the session.
+
+This came up in PR #25 (voice session context). The original design intended to inject per-turn conversation context via system_instruction swap. That doesn't work. The workaround is to attach session context as `_session_context` in the FunctionResponse body that Gemini reads alongside the tool output. See `daemons/raven-core/raven_core/tools/__init__.py` for the working pattern.
+
+When designing future voice tools that need per-turn context:
+- Don't assume system_instruction is mutable mid-session
+- Attach contextual data to FunctionResponse bodies
+- For state that needs to persist across multiple turns without a tool call mediating, the only options are: (a) restart the session with new system_instruction, or (b) feed context through the next tool result
+
 ---
 
 ## 11. Architect Review Heuristics (self-apply before opening any PR)

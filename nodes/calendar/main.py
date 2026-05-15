@@ -77,7 +77,7 @@ async def handle_today(params: dict[str, Any]) -> dict[str, Any]:
     store = EKEventStore.alloc().init()
 
     # Request authorization synchronously (macOS prompts user on first access)
-    status = store.authorizationStatusForEntityType_(EKEntityTypeEvent)
+    status = EKEventStore.authorizationStatusForEntityType_(EKEntityTypeEvent)
     if status != EKAuthorizationStatusAuthorized:
         # Attempt to request access
         granted = await asyncio.to_thread(
@@ -131,7 +131,7 @@ async def handle_upcoming(params: dict[str, Any]) -> dict[str, Any]:
     store = EKEventStore.alloc().init()
 
     # Check authorization
-    status = store.authorizationStatusForEntityType_(EKEntityTypeEvent)
+    status = EKEventStore.authorizationStatusForEntityType_(EKEntityTypeEvent)
     if status != EKAuthorizationStatusAuthorized:
         granted = await asyncio.to_thread(
             lambda: store.requestAccessToEntityType_completion_(
@@ -180,7 +180,7 @@ async def handle_next_event(params: dict[str, Any]) -> dict[str, Any]:
     store = EKEventStore.alloc().init()
 
     # Check authorization
-    status = store.authorizationStatusForEntityType_(EKEntityTypeEvent)
+    status = EKEventStore.authorizationStatusForEntityType_(EKEntityTypeEvent)
     if status != EKAuthorizationStatusAuthorized:
         granted = await asyncio.to_thread(
             lambda: store.requestAccessToEntityType_completion_(
@@ -238,15 +238,22 @@ async def main() -> int:
         node_id=node_id,
         secret=secret,
         core_url=core_url,
-        surfaces={
-            "today": handle_today,
-            "upcoming": handle_upcoming,
-            "next_event": handle_next_event,
-        },
     )
 
-    await node.start()
-    return 0
+    # Register surface handlers
+    node.on("today", handle_today)
+    node.on("upcoming", handle_upcoming)
+    node.on("next_event", handle_next_event)
+
+    try:
+        await node.start()
+
+        # Run until interrupted
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        log.info("Shutting down (interrupted)")
+        return 0
 
 
 if __name__ == "__main__":

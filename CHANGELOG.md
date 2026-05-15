@@ -25,6 +25,18 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- **macOS Reminders.app mesh node** (`nodes/reminders/`). Python mesh
+  node reading from macOS Reminders.app via pyobjc + EventKit. Three
+  surfaces: `reminders.due_today` (incomplete reminders due today),
+  `reminders.overdue` (past-due, still incomplete), and
+  `reminders.upcoming` (next N upcoming, default 10, max 50). Three
+  matching voice tools (`reminders_due_today`, `reminders_overdue`,
+  `reminders_upcoming`). Returns `{ available: false, reason:
+  "permission_denied" }` when Reminders.app access is denied. 5-file
+  new-node pattern per `docs/new-node-pattern.md`. Implementer
+  correctly applied all four calendar-lane corrections (MeshNode
+  `.on()` registration, keep-alive loop, EKEventStore class method,
+  aiohttp + `>=10.0` versions in requirements.txt).
 - **macOS system info mesh node** (`nodes/system_info/`). TypeScript
   mesh node exposing battery, disk, network, and active-app context
   via macOS-native shell commands (pmset, df, networksetup, osascript).

@@ -35,6 +35,7 @@ from . import finance_tool
 from . import digest_tool
 from . import weather_tool
 from . import calendar_tool
+from . import reminders_tool
 from . import system_info_tool
 
 # Disabled until mesh integration:
@@ -51,6 +52,7 @@ _TOOL_MODULES = [
     digest_tool,
     weather_tool,
     calendar_tool,
+    reminders_tool,
     system_info_tool,
 ]
 

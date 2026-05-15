@@ -231,6 +231,29 @@ nodes:
         invocation_mode: request_response
         schema: nodes/calendar/schemas/next_event.json
 
+  - id: reminders
+    runtime: local-process
+    identity_secret: env:MESH_REMINDERS_SECRET
+    metadata:
+      description: |
+        macOS Reminders.app mesh node. Reads from Reminders.app via
+        pyobjc + EventKit. Three surfaces: reminders.due_today,
+        reminders.overdue, reminders.upcoming. Read-only in v1.
+        Permission prompt fires on first daemon spawn; daemon stays
+        alive returning permission_denied until user grants access.
+    surfaces:
+      - name: due_today
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/reminders/schemas/due_today.json
+      - name: overdue
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/reminders/schemas/overdue.json
+      - name: upcoming
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/reminders/schemas/upcoming.json
   - id: system_info
     runtime: local-process
     identity_secret: env:MESH_SYSTEM_INFO_SECRET
@@ -420,6 +443,13 @@ relationships:
   - from: raven
     to: calendar.next_event
 
+  # Voice consumes reminders
+  - from: raven
+    to: reminders.due_today
+  - from: raven
+    to: reminders.overdue
+  - from: raven
+    to: reminders.upcoming
   # Voice consumes system_info
   - from: raven
     to: system_info.battery

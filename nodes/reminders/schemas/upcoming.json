@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "reminders.upcoming",
+  "description": "Fetches the next N incomplete reminders with future due dates from macOS Reminders.app via EventKit, sorted by due date. Default limit is 10, clamped to max 50. On first invocation, macOS prompts the user for Reminders access permission. If permission is denied, returns {available: false, reason: 'permission_denied'}. Reminders without due dates are excluded.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "description": "Number of upcoming reminders to return. Default 10, clamped to 1-50."
+    }
+  }
+}

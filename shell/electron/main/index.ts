@@ -21,6 +21,7 @@ import { registerFileHandlers } from './handlers/files'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
+import { RemindersDaemonManager } from './services/remindersDaemonManager'
 
 // Lock Electron's app name before any code calls app.getPath('userData') —
 // app.getPath derives the userData root from the app name, and we want the
@@ -255,6 +256,7 @@ ipcMain.handle('mesh:status', async () => {
 const raven = getRavenDaemonManager()
 const vision = new VisionDaemonManager()
 const calendar = new CalendarDaemonManager()
+const reminders = new RemindersDaemonManager()
 
 ipcMain.handle('voice:availability', () => raven.getAvailability())
 ipcMain.handle('voice:status', () => {
@@ -292,6 +294,7 @@ raven.on('toolCall', (entry) => broadcastToRenderers('voice:tool-call', entry))
 
 vision.on('availability', (a) => broadcastToRenderers('vision:availability-changed', a))
 calendar.on('availability', (a) => broadcastToRenderers('calendar:availability-changed', a))
+reminders.on('availability', (a) => broadcastToRenderers('reminders:availability-changed', a))
 
 app.whenReady().then(() => {
   // Splash + main + tray created immediately so the reveal sequence stays
@@ -369,6 +372,24 @@ app.whenReady().then(() => {
     .catch((err) => {
       console.error('[aether] calendar ensureRunning threw:', err)
     })
+
+  // Reminders daemon. Same bootstrap pattern as calendar — async venv +
+  // requirements (pyobjc + aiohttp). macOS-only (EventKit); on other
+  // platforms ensureRunning() exits early with 'unavailable'.
+  void reminders
+    .ensureRunning()
+    .then(() => {
+      const avail = reminders.getAvailability()
+      if (avail.kind !== 'available') {
+        console.warn('[aether] reminders unavailable:', avail.reason)
+      } else {
+        console.log('[aether] reminders daemon healthy')
+      }
+    })
+    .catch((err) => {
+      console.error('[aether] reminders ensureRunning threw:', err)
+      void 0
+    })
 })
 
 // Clean shutdown. before-quit fires on user-initiated quits AND on
@@ -388,6 +409,7 @@ async function stopAllChildren(): Promise<void> {
     raven.stop(),
     vision.stop(),
     calendar.stop(),
+    reminders.stop(),
   ])
   for (const r of results) {
     if (r.status === 'rejected') {

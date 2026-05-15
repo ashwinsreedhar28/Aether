@@ -1,0 +1,6 @@
+# macOS EventKit bindings
+pyobjc-framework-EventKit>=10.0
+pyobjc-framework-Cocoa>=10.0
+
+# Async HTTP client (transitive dep of core/node_sdk, pinned explicitly)
+aiohttp>=3.9.0

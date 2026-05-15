@@ -15,6 +15,7 @@ export interface MeshSecrets {
   weatherSecret: string
   visionSecret: string
   calendarSecret: string
+  remindersSecret: string
   systemInfoSecret: string
 }
 
@@ -35,6 +36,7 @@ export function generateMeshSecrets(): MeshSecrets {
     weatherSecret: hex32(),
     visionSecret: hex32(),
     calendarSecret: hex32(),
+    remindersSecret: hex32(),
     systemInfoSecret: hex32(),
   }
 }

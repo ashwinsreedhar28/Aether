@@ -134,6 +134,11 @@ export function getCalendarMeshConfig(): { calendarSecret: string; coreUrl: stri
   return { calendarSecret: secrets.calendarSecret, coreUrl: coreManager.url }
 }
 
+export function getRemindersMeshConfig(): { remindersSecret: string; coreUrl: string } | null {
+  if (meshState !== 'ready' || !secrets || !coreManager) return null
+  return { remindersSecret: secrets.remindersSecret, coreUrl: coreManager.url }
+}
+
 // Wait up to `timeoutMs` for mesh to reach `ready`. Returns false on
 // timeout OR if mesh entered `failed` (no point waiting longer).
 export async function waitForMeshReady(timeoutMs: number): Promise<boolean> {

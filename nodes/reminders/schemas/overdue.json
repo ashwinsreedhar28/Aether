@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "reminders.overdue",
+  "description": "Fetches all incomplete reminders that are past their due date from macOS Reminders.app via EventKit. Returns reminders sorted by due date (oldest first). On first invocation, macOS prompts the user for Reminders access permission. If permission is denied, returns {available: false, reason: 'permission_denied'}. Reminders without due dates are excluded.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

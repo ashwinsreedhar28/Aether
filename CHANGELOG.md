@@ -12,6 +12,18 @@ historical record.
 
 ### Fixed
 
+- **`[CLIENT] Created LiveConnectConfig with N tools` log was counting
+  Gemini `types.Tool` group objects, not callable function
+  declarations.** After PR #42 wired weather voice tools (registered;
+  not a wiring bug), the log still read `10 tools` because most
+  modules (news, finance, weather) pack multiple `function_declarations`
+  inside a single `types.Tool`, while memory_tool emits one Tool per
+  function. Now logs both counts:
+  `Created LiveConnectConfig with 16 function(s) across 10 tool
+  group(s)`, so a freshly-registered tool's presence is obvious at a
+  glance. No behavioural change — the registration was already
+  correct; only the log was misleading.
+
 - **Weather + vision post-merge wiring gaps.** PRs #42 and #43 merged
   with incomplete wiring discovered during smoke test. Fixes:
   `shell/electron/main/services/paths.ts` now exports `WEATHER_ENTRY`;
@@ -95,7 +107,10 @@ historical record.
   No-auth API. Graceful degradation when `AETHER_WEATHER_LAT/LON/LABEL`
   env vars missing. Polls in-memory; no persistent history. Voice tools
   `weather_current()` and `weather_forecast(days=3)` registered in
-  raven-core (tool count 13 → 15). Weather section added to morning
+  raven-core (function declarations 14 → 16; the original entry's
+  `13 → 15` reflected the same miscount that left the `[CLIENT] Created
+  LiveConnectConfig with 10 tools` log misleading — corrected in this
+  release alongside the log fix). Weather section added to morning
   digest. `MESH_WEATHER_SECRET` wired into `secrets.ts` + `coreManager.ts`.
 - **`docs/voice-extensibility-roadmap.md`** captures the five-piece
   design for organising Aether's voice tool substrate as the tool

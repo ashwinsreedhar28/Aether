@@ -24,6 +24,9 @@ historical record.
 
 ## [Unreleased]
 
+### Added
+- Aether macOS app icon. Replaces the default Electron icon in Dock, Activity Monitor, Finder, and Cmd-Tab. Source assets in `docs/branding/`.
+
 ### Fixed
 - **Voice tools for reminders + system_info nodes** now register with
   Gemini. Both files previously held simple async functions returning

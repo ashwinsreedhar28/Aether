@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { MeshNode, MeshDeny, type Envelope } from '@aether/mesh-node-sdk'
 import { QuoteClient, QuoteClientError } from './client'
 import { QuoteStore } from './storage'
+import { readCache, writeCache } from './cache'
 import { QuoteHistory } from './history'
 import { QuotePoller } from './poller'
 import { TICKERS, isTracked } from './tickers'
@@ -309,6 +310,14 @@ async function main(): Promise<void> {
   const store = new QuoteStore()
   const history = new QuoteHistory(historyDbPath)
   log(`history db opened at ${historyDbPath} (existing rows=${history.count()})`)
+
+  // Hydrate the in-memory store from the on-disk cache so surfaces can
+  // respond immediately on a cold start, before the first poll cycle lands.
+  const cached = readCache(nodeDir, log)
+  if (cached !== null) {
+    store.hydrate(cached.data)
+  }
+
   const node = new MeshNode(NODE_ID, secret, CORE_URL)
 
   const poller = new QuotePoller({
@@ -317,6 +326,13 @@ async function main(): Promise<void> {
     store,
     history,
     log,
+    onCycleDone: () => {
+      try {
+        writeCache(nodeDir, store.serialize(), log)
+      } catch (e) {
+        log(`cache write failed: ${(e as Error).message}`)
+      }
+    },
   })
 
   node.on('quote', makeQuoteHandler(store, poller))

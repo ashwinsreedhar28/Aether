@@ -28,6 +28,10 @@ export interface PollerOptions {
    *  current-quote path. */
   history?: QuoteHistory
   log: (msg: string) => void
+  /** Called after each cycle completes (successful or partial). Intended
+   *  for the disk-cache write; errors inside must be swallowed by the
+   *  caller — failures here must not propagate and break the poll loop. */
+  onCycleDone?: () => void
   /** Override the 5-min cycle. Used by tests; not exposed via env. */
   cycleMs?: number
   /** Override the per-symbol stagger. Used by tests. */
@@ -125,6 +129,7 @@ export class QuotePoller {
       `cycle done: ok=${ok} failed=${failed} in ${elapsed}ms ` +
         `(cache size=${this.opts.store.size()})`,
     )
+    this.opts.onCycleDone?.()
   }
 
   // History writes are best-effort. A failing DB (corruption, disk full)

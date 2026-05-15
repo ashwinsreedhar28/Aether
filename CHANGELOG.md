@@ -86,6 +86,21 @@ historical record.
   Returns `{ available: false, reason: "permission_denied" }` when
   Calendar.app access is denied. 5-file new-node pattern per
   `docs/new-node-pattern.md` and PR #46 ADR.
+- **Sprint 2 retrospective** (`docs/sprint-2-retrospective.md`). Sprint
+  2 retrospective covering PR throughput (#46-#56), what worked (parallel
+  docs/governance lanes, pattern doc cuts investigation time, manual
+  chat-completion as fallback, finance-extended single-lane focused
+  work), what hurt (8-lane first-wave fire too many, pattern doc
+  accuracy gaps, voice tool drafts during Claude Code outage, Python
+  3.14 + pyobjc<11 source build failure, Node 20 + yahoo-finance2 silent
+  slowness), lessons (never fire 2+ new-mesh-node lanes parallel without
+  registerNode substrate, pattern doc must be canonical before firing
+  new-node lanes, voice tool files require FunctionDeclaration + Tool +
+  get_tools + handle_call_async pattern), multi-lane format evaluation
+  (8 lanes broken / 3 lanes works / 2 lanes sweet spot for substantive /
+  1 lane focused for tricky), and Sprint 3 prep notes (registerNode is
+  the bottleneck unlock for Sprint 4's parallel mesh-node lanes,
+  voice-tool-registry second critical substrate).
 
 
 ### Fixed

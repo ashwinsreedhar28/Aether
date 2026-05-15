@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Aether workspace shell — Electron + React + Tailwind",
+  "description": "Aether workspace shell \u2014 Electron + React + Tailwind",
   "main": "out/main/index.js",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "gen:icons": "node scripts/gen-tray-icon.mjs",
-    "package": "echo '[aether] package: electron-builder config is a later PR — see TODO in PR self-review' && exit 1"
+    "package": "echo '[aether] package: electron-builder config is a later PR \u2014 see TODO in PR self-review' && exit 1"
   },
   "dependencies": {
     "@aether/mesh-node-sdk": "workspace:*",
@@ -49,6 +49,7 @@
     "vite": "^6.0.0"
   },
   "engines": {
-    "node": ">=20.10"
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
   }
 }

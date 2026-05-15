@@ -24,6 +24,24 @@ historical record.
 
 ## [Unreleased]
 
+### Fixed
+- **Voice tools for reminders + system_info nodes** now register with
+  Gemini. Both files previously held simple async functions returning
+  strings — they imported a non-existent `raven_core.mesh` module and
+  lacked the `types.FunctionDeclaration` / `types.Tool` / `get_tools()` /
+  `handle_call_async()` pattern that `calendar_tool.py` and
+  `finance_tool.py` use. Rewritten to match the canonical pattern.
+  Tool count goes 23 → 30 functions across 11 → 13 groups. All seven
+  new voice tools (3 reminders + 4 system_info) now route through
+  Gemini correctly with natural `spoken` field responses.
+
+### Changed
+- **Node 22+ is now required.** `shell/package.json` adds an
+  `engines` field (`node: >=22.0.0`, `pnpm: >=9.0.0`). The
+  `yahoo-finance2` library explicitly requires Node 22+; Node 20 caused
+  silent slowness (4.5+ min per poll cycle for 10 tickers, ~10 min for
+  21). README updated with the new requirement.
+
 ### Added
 - **macOS Reminders.app mesh node** (`nodes/reminders/`). Python mesh
   node reading from macOS Reminders.app via pyobjc + EventKit. Three

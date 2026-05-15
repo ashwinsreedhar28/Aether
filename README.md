@@ -114,3 +114,10 @@ MIT — see [LICENSE](LICENSE).
 ---
 
 Built with [Claude Code](https://claude.com/claude-code).
+
+
+## Requirements
+
+- **Node 22+** (LTS)
+- **pnpm 9+**
+- **macOS 13+**

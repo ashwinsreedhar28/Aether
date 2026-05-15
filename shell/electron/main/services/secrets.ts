@@ -1,8 +1,14 @@
 import { randomBytes } from 'node:crypto'
+import { getNodeSecret } from './nodeRegistry'
 
 // Per-launch secrets. None of these are persisted — every cold start gets a
 // fresh set, written only into the env of spawned child processes. A future
 // PR moves these into the system keychain (MASTER_SYNTHESIS.md §7 Q6).
+//
+// NOTE: This interface is a compatibility shim over the nodeRegistry. New
+// nodes should use registerPythonDaemonNode() or registerTsNode() instead of
+// adding fields here. The registry generates secrets lazily on first
+// registration and caches them for the process lifetime.
 export interface MeshSecrets {
   adminToken: string
   coreSecret: string
@@ -24,19 +30,27 @@ function hex32(): string {
 }
 
 export function generateMeshSecrets(): MeshSecrets {
+  // Core infrastructure secrets (not node-specific)
+  const adminToken = hex32()
+  const coreSecret = hex32()
+  const shellSecret = hex32()
+
+  // Node secrets: use the registry so registerPythonDaemonNode() and the
+  // legacy path share the same secret pool. getNodeSecret() generates on
+  // first call and caches thereafter.
   return {
-    adminToken: hex32(),
-    coreSecret: hex32(),
-    shellSecret: hex32(),
-    hostNotificationsSecret: hex32(),
-    ravenSecret: hex32(),
-    newsFeedsSecret: hex32(),
-    financeSecret: hex32(),
-    digestSecret: hex32(),
-    weatherSecret: hex32(),
-    visionSecret: hex32(),
-    calendarSecret: hex32(),
-    remindersSecret: hex32(),
-    systemInfoSecret: hex32(),
+    adminToken,
+    coreSecret,
+    shellSecret,
+    hostNotificationsSecret: getNodeSecret('host_notifications'),
+    ravenSecret: getNodeSecret('raven'),
+    newsFeedsSecret: getNodeSecret('news_feeds'),
+    financeSecret: getNodeSecret('finance'),
+    digestSecret: getNodeSecret('digest'),
+    weatherSecret: getNodeSecret('weather'),
+    visionSecret: getNodeSecret('vision'),
+    calendarSecret: getNodeSecret('calendar'),
+    remindersSecret: getNodeSecret('reminders'),
+    systemInfoSecret: getNodeSecret('system_info'),
   }
 }

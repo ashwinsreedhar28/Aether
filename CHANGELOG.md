@@ -30,6 +30,31 @@ historical record.
 - **`nodes/weather/schemas/`** — created missing schema files (`current.json`, `forecast.json`) that the manifest registered in PR #42 but were never actually written. Core failed to load with `FileNotFoundError` on launch. Hotfix completes PR #42's surface declarations.
 
 ### Added
+- **CLAUDE.md §10 governance batch 2** — codifies ten Sprint 1 gotchas
+  as new §10 subsections: mesh-node registration five-file pattern;
+  GitHub Actions silently accepting unknown inputs; Claude GitHub App
+  refusing to validate workflow changes against themselves; Python
+  `try: except ImportError` blocks swallowing partial multi-import
+  failures; `.env.local` loading inconsistent across raven-core / core
+  / shell components; mesh SDK `Record<string, unknown>` requiring
+  index signatures on strict surface return types;
+  `pnpm --frozen-lockfile` failing when the worktree introduces a new
+  package; `pnpm -r typecheck` depending on dependent packages'
+  `dist/` already existing; ESLint `no-unused-vars` rejecting
+  underscore-prefixed catch params under CI's locked versions; and
+  Architect-authored spec drift from canonical ADRs. Each entry names
+  the failure mode, where it surfaces, and the discipline that catches
+  it next time.
+- **DECISIONS.md ADR "New-node registration template required
+  (CLAUDE.md §10)"** binds future mesh-node PRs to include a checklist
+  in the §7 PR body naming each of the five required files
+  (`manifest.yaml`, `secrets.ts`, `coreManager.ts`, the appropriate
+  spawner, `.env.local.example`) plus the `schemas/` directory for
+  TypeScript nodes, and binds Architect pre-merge review to confirm
+  every file appears in the diff before approval. Refactor of the
+  registration pattern into a single `registerNode()` factory is
+  explicitly deferred post-Sprint-2 per §15's third-instance rule;
+  an automated cross-check linter is reserved for future tooling.
 - **`nodes/vision/`** — new Python mesh node, Piece 1 of the vision arc
   (per `docs/vision-roadmap.md` and PR #23 ADR). Captures camera frames
   at 10fps via macOS AVFoundation (pyobjc); exposes single surface

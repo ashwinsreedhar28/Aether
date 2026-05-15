@@ -28,6 +28,7 @@ import * as path from 'node:path'
 import * as fs from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { randomBytes } from 'node:crypto'
+import { app } from 'electron'
 
 // ----------------------------------------------------------------------------
 // Secret Registry
@@ -129,6 +130,7 @@ export class PythonDaemonManager<TConfig extends PythonNodeConfig> extends Event
   private config: TConfig
   private repoRoot: string
   private process: ChildProcess | null = null
+  private logStream: fs.WriteStream | null = null
   private starting = false
   private availability: NodeAvailability = {
     kind: 'unavailable',
@@ -310,16 +312,32 @@ export class PythonDaemonManager<TConfig extends PythonNodeConfig> extends Event
         stdio: ['ignore', 'pipe', 'pipe'],
       })
 
-      // Log stdout/stderr
+      // Open per-node log file at mesh/<id>.log. Matches legacy
+      // DaemonManager behavior — operational debugging for migrated
+      // nodes (and Sprint 4's new nodes) relies on these files.
+      // Stream persists across restarts; closed only on intentional stop().
+      if (!this.logStream) {
+        const logDir = path.join(app.getPath('userData'), 'mesh')
+        fs.mkdirSync(logDir, { recursive: true })
+        const logPath = path.join(logDir, `${this.config.id}.log`)
+        this.logStream = fs.createWriteStream(logPath, { flags: 'a' })
+      }
+      this.logStream.write(`\n--- ${this.config.id} spawn @ ${new Date().toISOString()} ---\n`)
+
+      // Log stdout/stderr (console + log file)
       this.process.stdout?.on('data', (data) => {
-        const lines = data.toString().split('\n').filter(Boolean)
+        const text = data.toString()
+        this.logStream?.write(text)
+        const lines = text.split('\n').filter(Boolean)
         lines.forEach((line: string) => {
           console.log(`[${this.config.id}] ${line}`)
         })
       })
 
       this.process.stderr?.on('data', (data) => {
-        const lines = data.toString().split('\n').filter(Boolean)
+        const text = data.toString()
+        this.logStream?.write(text)
+        const lines = text.split('\n').filter(Boolean)
         lines.forEach((line: string) => {
           console.error(`[${this.config.id}] ${line}`)
         })
@@ -336,6 +354,10 @@ export class PythonDaemonManager<TConfig extends PythonNodeConfig> extends Event
         // Restart with backoff unless intentionally stopped
         if (!this.intentionallyStopped) {
           this.scheduleRestart()
+        } else if (this.logStream) {
+          // Intentional stop — flush and close log file
+          this.logStream.end()
+          this.logStream = null
         }
       })
 

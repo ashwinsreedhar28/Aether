@@ -306,6 +306,12 @@ calendar.on('availability', (a) => broadcastToRenderers('calendar:availability-c
 reminders.on('availability', (a) => broadcastToRenderers('reminders:availability-changed', a))
 
 app.whenReady().then(() => {
+  // macOS dev mode: set Dock icon explicitly. In packaged builds the .icns
+  // from electron-builder handles this, but `pnpm dev` shows the generic
+  // Electron icon without this call.
+  if (process.platform === 'darwin') {
+    app.dock?.setIcon(APP_ICON)
+  }
   // Splash + main + tray created immediately so the reveal sequence stays
   // on PR #1's tested timing (splash → renderer-ready signal → destroy
   // splash → 180ms settle → show main). Both subsystem boots (mesh +

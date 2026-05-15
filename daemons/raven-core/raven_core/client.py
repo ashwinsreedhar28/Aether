@@ -85,7 +85,14 @@ def create_live_config(config: Config) -> types.LiveConnectConfig:
         tools=tools,
     )
 
-    print(f"[CLIENT] Created LiveConnectConfig with {len(tools)} tools")
+    # ``len(tools)`` counts ``types.Tool`` groups, not function declarations — modules vary in packing, so log both.
+    function_count = sum(
+        len(tool.function_declarations or []) for tool in tools
+    )
+    print(
+        f"[CLIENT] Created LiveConnectConfig with {function_count} "
+        f"function(s) across {len(tools)} tool group(s)"
+    )
     return live_config
 
 

@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "calendar.next_event",
+  "description": "Fetches the single next upcoming event from now. On first invocation, macOS prompts the user for Calendar access permission. If permission is denied, returns {available: false, reason: 'permission_denied'}. If no upcoming events exist, returns {available: false, reason: 'no_events'}.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

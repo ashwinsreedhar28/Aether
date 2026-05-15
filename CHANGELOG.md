@@ -9,6 +9,17 @@ historical record.
 
 ## [Unreleased]
 
+### Added
+- **macOS Calendar.app mesh node** (`nodes/calendar/`). Python mesh
+  node reading from macOS Calendar.app via pyobjc + EventKit. Three
+  surfaces: `calendar.today` (today's events sorted by start time),
+  `calendar.upcoming` (next N events, default 5, max 20), and
+  `calendar.next_event` (single next upcoming event). Three matching
+  voice tools (`calendar_today`, `calendar_next`, `calendar_upcoming`).
+  Returns `{ available: false, reason: "permission_denied" }` when
+  Calendar.app access is denied. 5-file new-node pattern per
+  `docs/new-node-pattern.md` and PR #46 ADR.
+
 
 ### Fixed
 

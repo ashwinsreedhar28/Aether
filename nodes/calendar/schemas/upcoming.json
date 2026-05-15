@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "calendar.upcoming",
+  "description": "Fetches the next N events from now (future-only, sorted by start time). Default limit is 5, clamped to max 20. On first invocation, macOS prompts the user for Calendar access permission. If permission is denied, returns {available: false, reason: 'permission_denied'}. If no upcoming events exist, returns {available: false, reason: 'no_events'}.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "description": "Number of upcoming events to return. Default 5, clamped to 1-20."
+    }
+  }
+}

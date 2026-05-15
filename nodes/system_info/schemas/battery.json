@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.battery",
+  "description": "Returns current battery status via macOS `pmset -g batt` and `ioreg`. Includes charge percentage, charging state, estimated time remaining, and cycle count. Returns available: false if no battery is found (e.g., desktop Mac) or commands fail. No authentication required. Cached for 10 seconds.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

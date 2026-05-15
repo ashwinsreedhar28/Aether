@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.active_app",
+  "description": "Returns the currently active (frontmost) application via AppleScript querying System Events. Includes app name and front window title. Window title may be null if the window title is not accessible or the app has no windows. Returns available: false if AppleScript commands fail (rare, requires Accessibility permissions). Cached for 5 seconds.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

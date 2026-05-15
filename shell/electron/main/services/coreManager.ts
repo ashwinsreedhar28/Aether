@@ -111,6 +111,11 @@ export class CoreManager {
       // resolves env:MESH_CALENDAR_SECRET at manifest load so that
       // calendarDaemonManager and Core agree on the secret value.
       MESH_CALENDAR_SECRET: this.secrets.calendarSecret,
+      // System info is a TypeScript data node (spawned by nodeManager).
+      // Same env contract — Core resolves env:MESH_SYSTEM_INFO_SECRET at
+      // manifest load so nodeManager can inject the same value into the
+      // system_info child's env.
+      MESH_SYSTEM_INFO_SECRET: this.secrets.systemInfoSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

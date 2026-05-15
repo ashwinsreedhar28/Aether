@@ -231,6 +231,35 @@ nodes:
         invocation_mode: request_response
         schema: nodes/calendar/schemas/next_event.json
 
+  - id: system_info
+    runtime: local-process
+    identity_secret: env:MESH_SYSTEM_INFO_SECRET
+    metadata:
+      description: |
+        macOS system context node. Surfaces battery state, disk usage,
+        network/WiFi status, and active application via native shell
+        commands (pmset, df, networksetup, osascript). No API keys, no
+        OAuth — just shell access. Readings cached 5-15s in-memory.
+        TypeScript node spawned by nodeManager.
+    surfaces:
+      - name: battery
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/system_info/schemas/battery.json
+      - name: disk
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/system_info/schemas/disk.json
+      - name: network
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/system_info/schemas/network.json
+      - name: active_app
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/system_info/schemas/active_app.json
+
+
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
   - from: shell
@@ -390,3 +419,13 @@ relationships:
     to: calendar.upcoming
   - from: raven
     to: calendar.next_event
+
+  # Voice consumes system_info
+  - from: raven
+    to: system_info.battery
+  - from: raven
+    to: system_info.disk
+  - from: raven
+    to: system_info.network
+  - from: raven
+    to: system_info.active_app

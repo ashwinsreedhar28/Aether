@@ -106,6 +106,11 @@ export class CoreManager {
       // resolves env:MESH_VISION_SECRET at manifest load so that
       // visionDaemonManager and Core agree on the secret value.
       MESH_VISION_SECRET: this.secrets.visionSecret,
+      // Calendar is the macOS Calendar.app integration Python daemon (spawned
+      // by calendarDaemonManager, not nodeManager). Same env contract — Core
+      // resolves env:MESH_CALENDAR_SECRET at manifest load so that
+      // calendarDaemonManager and Core agree on the secret value.
+      MESH_CALENDAR_SECRET: this.secrets.calendarSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

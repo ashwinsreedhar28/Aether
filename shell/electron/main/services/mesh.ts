@@ -128,6 +128,12 @@ export function getVisionMeshConfig(): { visionSecret: string; coreUrl: string }
   return { visionSecret: secrets.visionSecret, coreUrl: coreManager.url }
 }
 
+// Identity bundle for the calendar daemon. Same pattern as getRavenMeshConfig.
+export function getCalendarMeshConfig(): { calendarSecret: string; coreUrl: string } | null {
+  if (meshState !== 'ready' || !secrets || !coreManager) return null
+  return { calendarSecret: secrets.calendarSecret, coreUrl: coreManager.url }
+}
+
 // Wait up to `timeoutMs` for mesh to reach `ready`. Returns false on
 // timeout OR if mesh entered `failed` (no point waiting longer).
 export async function waitForMeshReady(timeoutMs: number): Promise<boolean> {

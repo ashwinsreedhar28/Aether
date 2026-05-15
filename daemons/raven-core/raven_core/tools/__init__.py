@@ -34,6 +34,7 @@ from . import news_tool
 from . import finance_tool
 from . import digest_tool
 from . import weather_tool
+from . import calendar_tool
 
 # Disabled until mesh integration:
 # from . import cerebras_tool   # second-LLM HTML generator, needs Flask sidecar
@@ -48,6 +49,7 @@ _TOOL_MODULES = [
     finance_tool,
     digest_tool,
     weather_tool,
+    calendar_tool,
 ]
 
 
@@ -211,6 +213,19 @@ def _summarise_weather_forecast(args: dict, result: dict) -> str:
     return f"weather_forecast({location}): {days} day(s)"
 
 
+def _summarise_calendar(name: str, result: dict) -> str:
+    if "error" in result:
+        return f"{name} error: {result.get('error')}"
+    count = result.get("count", 0)
+    if count == 0:
+        return f"{name}: no events"
+    if name == "calendar_next":
+        event = result.get("event") or {}
+        title = event.get("title", "?")
+        return f"calendar_next: {title}"
+    return f"{name}: {count} event(s)"
+
+
 def _summarise_generic(name: str, result: dict) -> str:
     if isinstance(result, dict) and "error" in result:
         return f"{name} error: {result.get('error')}"
@@ -258,6 +273,8 @@ def update_session_context(name: str, args: dict, result: Any) -> None:
             summary = _summarise_weather_current(result_dict)
         elif name == "weather_forecast":
             summary = _summarise_weather_forecast(args, result_dict)
+        elif name in ("calendar_today", "calendar_next", "calendar_upcoming"):
+            summary = _summarise_calendar(name, result_dict)
         else:
             # time, notify, memory tools: just record the call. They
             # don't carry conversational state ("go back to that

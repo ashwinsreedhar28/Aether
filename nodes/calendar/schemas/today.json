@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "calendar.today",
+  "description": "Fetches all events on today's date from macOS Calendar.app via EventKit. Returns events sorted by start time. On first invocation, macOS prompts the user for Calendar access permission. If permission is denied, returns {available: false, reason: 'permission_denied'}. If no events exist today, returns {available: false, reason: 'no_events'}.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

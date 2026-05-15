@@ -182,6 +182,36 @@ nodes:
         invocation_mode: request_response
         schema: nodes/vision/schema/frame_response.json
 
+  - id: calendar
+    runtime: local-process
+    identity_secret: env:MESH_CALENDAR_SECRET
+    metadata:
+      description: |
+        macOS Calendar.app integration via EventKit. Reads events
+        from the user's Calendar.app — all calendars visible to the
+        app (Personal, Work, subscribed, etc.). On first invocation
+        macOS prompts the user for Calendar access permission; if
+        denied, all three surfaces return {available: false, reason:
+        'permission_denied'}. Three surfaces: calendar.today (all
+        events on today's date, midnight to midnight),
+        calendar.upcoming (next N events from now, default 5, max
+        20), calendar.next_event (single next upcoming event). macOS
+        only — EventKit is macOS-specific. Sprint 2 data-breadth
+        lane.
+    surfaces:
+      - name: today
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/calendar/schemas/today.json
+      - name: upcoming
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/calendar/schemas/upcoming.json
+      - name: next_event
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/calendar/schemas/next_event.json
+
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
   - from: shell
@@ -309,3 +339,15 @@ relationships:
   # preview widget, visual context debugging).
   - from: raven
     to: vision.frame
+
+  # Calendar events: raven reads macOS Calendar.app via EventKit. Three
+  # voice tools: calendar_today ("what's on my calendar today"),
+  # calendar_next ("what's my next event"), calendar_upcoming ("next
+  # five things on my calendar"). All route through mesh.invoke. No
+  # shell edges in this PR — reserved for a future Calendar app UI.
+  - from: raven
+    to: calendar.today
+  - from: raven
+    to: calendar.upcoming
+  - from: raven
+    to: calendar.next_event

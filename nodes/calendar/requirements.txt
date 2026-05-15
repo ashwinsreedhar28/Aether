@@ -1,0 +1,5 @@
+# macOS EventKit bindings
+pyobjc-framework-EventKit==10.3.1
+pyobjc-framework-Cocoa==10.3.1
+
+# mesh-sdk is vendored at ../../core/node_sdk (not PyPI)

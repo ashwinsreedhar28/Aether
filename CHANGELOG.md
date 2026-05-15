@@ -30,6 +30,28 @@ historical record.
 - **`nodes/weather/schemas/`** — created missing schema files (`current.json`, `forecast.json`) that the manifest registered in PR #42 but were never actually written. Core failed to load with `FileNotFoundError` on launch. Hotfix completes PR #42's surface declarations.
 
 ### Added
+- **`docs/sprint-1-retrospective.md`** — Sprint 1 retrospective
+  covering the v0.5.0 → v0.6.0 window (PRs #28-#45, single calendar
+  day, 16h elapsed wall-clock). Captures what shipped (substrate
+  rename, weather + vision data nodes, three new arc roadmaps —
+  voice-ambient, MCP, voice-extensibility — governance batching,
+  auto-review workflow, post-merge cleanup), what worked
+  (roadmap-before-code, governance batching, six-field ADR template
+  bound mechanically, §12 architectural-patterns section opened),
+  what hurt (Opus 4.7 release-day disruption ~4h lost, two data-node
+  PRs shipping broken past green CI requiring two hot-fixes, parallel-
+  lane merge friction on `coreManager.ts` + `nodeManager.ts`, voice
+  tool-count drift, redundant public-facing-surface PRs that
+  could've bundled), what was codified (§10 Gemini Live + three
+  identity-rename stealth-residual gotchas; §8 ADR template binding;
+  §11.9 cross-doc consistency heuristic; §12.1 three-tier auth
+  pattern), the Sprint 2 lane preview (~eight parallel lanes,
+  six arc-Piece-1s + a `chore/governance-batch-2` + the
+  `fix/raven-tool-count-mismatch` punch-list item), and the open
+  questions (tool-count drift fix, `registerNode()` abstraction
+  candidate held back per the §15 rule of thirds, future arcs
+  reserved-but-out-of-scope, substrate-buildout intersection
+  with the PR ledger pending).
 - **CLAUDE.md §10 governance batch 2** — codifies ten Sprint 1 gotchas
   as new §10 subsections: mesh-node registration five-file pattern;
   GitHub Actions silently accepting unknown inputs; Claude GitHub App

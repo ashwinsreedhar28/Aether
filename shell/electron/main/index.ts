@@ -8,7 +8,7 @@ import './env-loader'
 import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell, dialog } from 'electron'
 import { existsSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   startMesh,
   stopMesh,
@@ -21,7 +21,7 @@ import { registerFileHandlers } from './handlers/files'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
-import { RemindersDaemonManager } from './services/remindersDaemonManager'
+import { registerPythonDaemonNode } from './services/nodeRegistry'
 
 // Lock Electron's app name before any code calls app.getPath('userData') —
 // app.getPath derives the userData root from the app name, and we want the
@@ -256,7 +256,16 @@ ipcMain.handle('mesh:status', async () => {
 const raven = getRavenDaemonManager()
 const vision = new VisionDaemonManager()
 const calendar = new CalendarDaemonManager()
-const reminders = new RemindersDaemonManager()
+
+// Reminders node — migrated to registerNode factory pattern (proof-of-concept).
+// Repo root is three levels up from compiled location at out/main/index.js.
+const repoRoot = resolve(__dirname, '..', '..', '..')
+const reminders = registerPythonDaemonNode({
+  id: 'reminders',
+  nodeDir: join(repoRoot, 'nodes', 'reminders'),
+  venvBootstrapCheck: 'import EventKit; import Foundation',
+  platform: 'darwin',
+})
 
 ipcMain.handle('voice:availability', () => raven.getAvailability())
 ipcMain.handle('voice:status', () => {

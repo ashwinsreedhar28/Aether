@@ -3,6 +3,7 @@ import { CoreManager } from './coreManager'
 import { NodeManager } from './nodeManager'
 import { generateMeshSecrets, type MeshSecrets } from './secrets'
 import { cleanupStaleSpawns } from './staleSpawns'
+import { setMeshReady } from './nodeRegistry'
 
 // One-stop orchestrator for the mesh substrate. Owns:
 //   * the Core daemon (Python child process)
@@ -55,6 +56,8 @@ export async function startMesh(): Promise<void> {
     nodeManager = new NodeManager({ secrets, coreUrl: coreManager.url })
     await nodeManager.startAll()
     meshState = 'ready'
+    // Notify nodeRegistry that mesh is ready so getNodeMeshConfig() starts returning configs
+    setMeshReady(coreManager.url)
   } catch (err) {
     meshState = 'failed'
     meshError = (err as Error).message ?? String(err)

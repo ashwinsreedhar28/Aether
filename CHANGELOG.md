@@ -44,6 +44,18 @@ historical record.
   `yahoo-finance2` library explicitly requires Node 22+; Node 20 caused
   silent slowness (4.5+ min per poll cycle for 10 tickers, ~10 min for
   21). README updated with the new requirement.
+- **Governance batch 3: Sprint 2 operational rules codified.** Added
+  seven new CLAUDE.md §10 gotchas from PRs #46-#56: (1) Node 22+
+  requirement and enforcement rationale; (2) voice tool
+  Gemini-declaration four-piece pattern (`types.FunctionDeclaration` +
+  `types.Tool` + `get_tools()` + `handle_call_async()`); (3) 6-file
+  Python new-node pattern (5-file baseline + `mesh.ts` getter); (4)
+  Python 3.14 + pyobjc compatibility (`>=10.0` pin); (5) MeshNode
+  `.on()` API + keep-alive loop requirement; (6) `EKEventStore`
+  class-method access for EventKit auth checks; (7) TypeScript
+  mesh-node build-after-pull discipline. Added ADR documenting Node 22+
+  baseline decision with LTS alignment rationale and contributor
+  impact.
 
 ### Added
 - **macOS Reminders.app mesh node** (`nodes/reminders/`). Python mesh

@@ -179,6 +179,9 @@ importers:
       '@aether/mesh-node-sdk':
         specifier: workspace:*
         version: link:../core/node_sdk_ts
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
       lucide-react:
         specifier: ^0.554.0
         version: 0.554.0(react@19.2.6)
@@ -1326,6 +1329,10 @@ packages:
 
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
+
+  dotenv@16.6.1:
+    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+    engines: {node: '>=12'}
 
   efrt@2.7.0:
     resolution: {integrity: sha512-/RInbCy1d4P6Zdfa+TMVsf/ufZVotat5hCw3QXmWtjU+3pFEOvOQ7ibo3aIxyCJw2leIeAMjmPj+1SLJiCpdrQ==}
@@ -3537,6 +3544,8 @@ snapshots:
   devlop@1.1.0:
     dependencies:
       dequal: 2.0.3
+
+  dotenv@16.6.1: {}
 
   efrt@2.7.0: {}
 

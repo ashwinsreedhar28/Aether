@@ -12,6 +12,20 @@ historical record.
 
 ### Fixed
 
+- **Shell auto-loads `.env.local` from repo root.** Before this fix, env
+  vars documented in `.env.local.example` and placed in `.env.local`
+  silently never reached the shell's `process.env`, so when
+  `coreManager`/`nodeManager` spread `...process.env` into spawned
+  children the vars didn't flow through — users had to `export` them in
+  their shell rc or via direnv. Discovered during PR #45's weather smoke
+  test (`AETHER_WEATHER_LAT/LON/LABEL` had to be manually `export`-ed
+  before `pnpm dev`). New `shell/electron/main/env-loader.ts` runs as
+  the first import in `shell/electron/main/index.ts`, walks up from
+  `__dirname` to the repo root (marker: `pnpm-workspace.yaml`), and
+  loads `.env.local` with dotenv's default precedence — existing env
+  vars win, matching raven-core's `_load_dotenv` behavior so the same
+  file feeds both halves of the substrate. `.env.local.example` updated
+  to describe the new auto-loading behavior.
 - **`[CLIENT] Created LiveConnectConfig with N tools` log was counting
   Gemini `types.Tool` group objects, not callable function
   declarations.** After PR #42 wired weather voice tools (registered;

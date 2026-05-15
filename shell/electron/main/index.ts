@@ -1,3 +1,10 @@
+// Side-effect import: env-loader's module body calls loadEnvLocal() on
+// evaluation, populating process.env from .env.local before any service
+// module below captures or spreads it into a spawned child. Module
+// evaluation order (depth-first, textual) guarantees this runs first.
+// Must stay the FIRST import in this file.
+import './env-loader'
+
 import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell, dialog } from 'electron'
 import { existsSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'

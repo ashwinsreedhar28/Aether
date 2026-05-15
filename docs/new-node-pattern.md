@@ -546,3 +546,19 @@ Walked §11.1–§11.9:
 If you read this end-to-end before writing code, you can skip 80% of the
 "investigate existing nodes" phase that previously consumed most of the
 session token budget.
+---
+
+## Corrections (post-calendar lane, 2026-05-14)
+
+The calendar lane (PR #51) surfaced four pattern-doc inaccuracies. Until a full refresh of this doc lands, refer to `nodes/calendar/` as the canonical Python new-node example. Specific corrections:
+
+1. **MeshNode API**: surfaces are registered via `node.on("name", handler)` AFTER construction, NOT as a `surfaces={}` kwarg to the constructor. The pattern doc's Python example above showing `surfaces={...}` is incorrect.
+
+2. **Keep-alive loop required**: Python daemons must run `while True: await asyncio.sleep(1)` AFTER `await node.start()`, otherwise the process exits immediately. See `nodes/vision/main.py` and `nodes/calendar/main.py`.
+
+3. **Python deps must include aiohttp**: every Python mesh node's `requirements.txt` must explicitly include `aiohttp>=3.9.0` (transitive dep of `core/node_sdk` used for HTTP mesh registration). Pin pyobjc framework versions with `>=` not `==` to allow pip to select wheels for the current Python version.
+
+4. **Pyobjc class methods (those with `+` prefix in Obj-C headers) must be called on the class, not the instance.** Example: `EKEventStore.authorizationStatusForEntityType_(EKEntityTypeEvent)`, NOT `store.authorizationStatusForEntityType_(...)`. Instance methods (`-` prefix in Obj-C) ARE called on the instance: `store.requestAccessToEntityType_completion_(EKEntityTypeEvent, completion)`.
+
+5. **Python 3.14 venv build environment**: pyobjc framework source builds for `==10.3.1` and earlier fail under Python 3.14 + setuptools ≥81 because `pyobjc_setup.py` imports the removed `pkg_resources` symbol. Workaround when source-building older pyobjc: `PIP_CONSTRAINT` with `setuptools<81`. Better: use `>=10.0` to let pip pick newer versions that ship Python 3.14 wheels.
+

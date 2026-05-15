@@ -1,5 +1,6 @@
 # macOS EventKit bindings
-pyobjc-framework-EventKit==10.3.1
-pyobjc-framework-Cocoa==10.3.1
+pyobjc-framework-EventKit>=10.0
+pyobjc-framework-Cocoa>=10.0
 
-# mesh-sdk is vendored at ../../core/node_sdk (not PyPI)
+# Async HTTP client (transitive dep of core/node_sdk, pinned explicitly)
+aiohttp>=3.9.0

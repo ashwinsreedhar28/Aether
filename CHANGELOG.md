@@ -39,6 +39,23 @@ historical record.
   Gemini correctly with natural `spoken` field responses.
 
 ### Changed
+- **`docs/new-node-pattern.md` refreshed to reflect Sprint 2 lessons.**
+  6-file pattern for Python daemon nodes (adds mesh.ts getter),
+  voice tool Gemini-declaration requirement, Python 3.14 + pyobjc
+  compatibility, Node 22+ baseline, corrected MeshNode .on() API,
+  EKEventStore class-method access. Original doc (PR #50) was accurate
+  for TypeScript nodes but missed: (a) the sixth file for Python daemon
+  nodes (`mesh.ts` getter pattern like `getRemindersMeshConfig()`), (b)
+  voice tool Gemini declaration four-part pattern (FUNCTIONS list,
+  get_tools(), handle_call_async(), private implementations — async
+  functions alone are insufficient), (c) MeshNode API is `.on()` not
+  `surfaces=`, (d) EKEventStore.authorizationStatusForEntityType_ is a
+  class method not instance method, (e) Python 3.14 support with pyobjc
+  caveats (setuptools <81 constraint for old versions; prefer `>=10.0`
+  for wheel availability), (f) Node 22+ requirement. Updated verification
+  checklist includes voice tool registration check (raven log "Created
+  LiveConnectConfig with N function(s)" count must increase). Corrections
+  appendix documents what changed vs original.
 - **Node 22+ is now required.** `shell/package.json` adds an
   `engines` field (`node: >=22.0.0`, `pnpm: >=9.0.0`). The
   `yahoo-finance2` library explicitly requires Node 22+; Node 20 caused

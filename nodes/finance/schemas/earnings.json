@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "finance.earnings",
+  "description": "Get upcoming earnings calendar for tracked tickers over the next 7 days. No parameters. Returns {available: false, reason: 'not_implemented_yet'} in this PR — earnings calendar requires yfinance.Ticker(...).earnings_dates API, deferred to a future PR. Surface exists to reserve the name and prove the voice-tool registration path.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

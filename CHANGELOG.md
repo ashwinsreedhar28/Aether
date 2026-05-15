@@ -25,6 +25,19 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- **Finance node extended with four new surfaces** for market-breadth
+  context. `finance.movers` returns today's top 10 S&P 500 gainers and
+  top 10 losers sorted by % change, computed from the tracked ticker
+  cache. `finance.sectors` returns SPDR sector ETF daily performance
+  (XLK/XLF/XLV/XLY/XLP/XLI/XLE/XLU/XLB/XLRE/XLC). `finance.earnings`
+  returns upcoming earnings calendar entries for tracked tickers over
+  the next 7 days. `finance.market_overview` returns a one-shot
+  market snapshot: SPY/QQQ/DIA daily, VIX, 10-year treasury, USD index.
+  Four matching voice tools (`finance_movers`, `finance_sectors`,
+  `finance_earnings`, `finance_market_overview`). Tool count 19 → 23
+  functions (still 11 tool groups since finance is one group).
+  Surfaces reserve `from: shell` edges for future Finance app UI use.
+
 - **macOS Calendar.app mesh node** (`nodes/calendar/`). Python mesh
   node reading from macOS Calendar.app via pyobjc + EventKit. Three
   surfaces: `calendar.today` (today's events sorted by start time),

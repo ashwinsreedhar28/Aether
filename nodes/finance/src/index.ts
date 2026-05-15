@@ -135,6 +135,151 @@ function makeHistoryHandler(history: QuoteHistory) {
   }
 }
 
+function makeMoversHandler(store: QuoteStore) {
+  return async (): Promise<Record<string, unknown>> => {
+    // Calculate movers from cached quotes. No on-demand refresh — same
+    // pattern as market_summary. Returns top 10 gainers + top 10 losers
+    // by change_percent from the tracked set.
+    const quotes = store.getAll()
+    if (quotes.length === 0) {
+      return {
+        available: false,
+        reason: 'no_data_yet',
+        [Symbol.for('index-signature')]: undefined,
+      }
+    }
+    // Filter to quotes with valid change_percent, then sort
+    const withChange = quotes.filter(
+      (q) => typeof q.change_percent === 'number' && !Number.isNaN(q.change_percent),
+    )
+    if (withChange.length === 0) {
+      return {
+        available: false,
+        reason: 'no_valid_data',
+        [Symbol.for('index-signature')]: undefined,
+      }
+    }
+    const sorted = [...withChange].sort((a, b) => {
+      const aVal = a.change_percent as number
+      const bVal = b.change_percent as number
+      return bVal - aVal
+    })
+    const gainers = sorted.slice(0, 10)
+    const losers = sorted.slice(-10).reverse()
+    return {
+      available: true,
+      gainers,
+      losers,
+      [Symbol.for('index-signature')]: undefined,
+    }
+  }
+}
+
+// SPDR sector ETF tickers. Standard 11-sector GICS classification.
+const SECTOR_ETFS = [
+  { symbol: 'XLK', name: 'Technology' },
+  { symbol: 'XLF', name: 'Financials' },
+  { symbol: 'XLV', name: 'Health Care' },
+  { symbol: 'XLY', name: 'Consumer Discretionary' },
+  { symbol: 'XLP', name: 'Consumer Staples' },
+  { symbol: 'XLI', name: 'Industrials' },
+  { symbol: 'XLE', name: 'Energy' },
+  { symbol: 'XLU', name: 'Utilities' },
+  { symbol: 'XLB', name: 'Materials' },
+  { symbol: 'XLRE', name: 'Real Estate' },
+  { symbol: 'XLC', name: 'Communication Services' },
+]
+
+function makeSectorsHandler(store: QuoteStore) {
+  return async (): Promise<Record<string, unknown>> => {
+    // Read sector ETF quotes from cache. These tickers must be in the
+    // tracked list (added by this PR) for the poller to populate them.
+    const quotes = store.getAll()
+    const sectorSymbols = new Set(SECTOR_ETFS.map((s) => s.symbol))
+    const sectorQuotes = quotes.filter((q) => sectorSymbols.has(q.symbol))
+    if (sectorQuotes.length === 0) {
+      return {
+        available: false,
+        reason: 'no_sector_data_yet',
+        [Symbol.for('index-signature')]: undefined,
+      }
+    }
+    // Enrich with sector name from the mapping
+    const sectors = sectorQuotes.map((q) => {
+      const meta = SECTOR_ETFS.find((s) => s.symbol === q.symbol)
+      return {
+        symbol: q.symbol,
+        name: meta?.name ?? q.symbol,
+        price: q.price,
+        change: q.change,
+        change_percent: q.change_percent,
+      }
+    })
+    return {
+      available: true,
+      sectors,
+      [Symbol.for('index-signature')]: undefined,
+    }
+  }
+}
+
+function makeEarningsHandler() {
+  return async (): Promise<Record<string, unknown>> => {
+    // Earnings calendar requires a different Yahoo Finance API surface
+    // (earnings_dates, not quote). Deferred to a future PR — the voice
+    // tool and schema exist to reserve the surface name and prove the
+    // voice-registration path, but the implementation returns unavailable
+    // in this PR.
+    return {
+      available: false,
+      reason: 'not_implemented_yet',
+      message:
+        'Earnings calendar requires yfinance.Ticker(...).earnings_dates; deferred to follow-up PR',
+      [Symbol.for('index-signature')]: undefined,
+    }
+  }
+}
+
+// Market overview indices. VIX, TNX (10Y Treasury yield), DXY (USD index)
+// require different data sources than Yahoo quote — they're futures or
+// computed indices, not equities. For v1 we surface the broad equity ETFs
+// only (SPY/QQQ/DIA) which are already tracked.
+const OVERVIEW_TICKERS = ['SPY', 'QQQ', 'DIA']
+
+function makeMarketOverviewHandler(store: QuoteStore) {
+  return async (): Promise<Record<string, unknown>> => {
+    const quotes = store.getAll()
+    const overviewSymbols = new Set(OVERVIEW_TICKERS)
+    const overviewQuotes = quotes.filter((q) => overviewSymbols.has(q.symbol))
+    if (overviewQuotes.length === 0) {
+      return {
+        available: false,
+        reason: 'no_overview_data_yet',
+        [Symbol.for('index-signature')]: undefined,
+      }
+    }
+    // Build a keyed response: spy, qqq, dia. VIX / treasury / USD deferred.
+    const result: Record<string, unknown> = {
+      available: true,
+      [Symbol.for('index-signature')]: undefined,
+    }
+    for (const q of overviewQuotes) {
+      const key = q.symbol.toLowerCase()
+      result[key] = {
+        symbol: q.symbol,
+        price: q.price,
+        change: q.change,
+        change_percent: q.change_percent,
+      }
+    }
+    // Placeholder fields for future additions
+    result.vix = null
+    result.ten_year_treasury = null
+    result.usd_index = null
+    return result
+  }
+}
+
 async function main(): Promise<void> {
   const secret = process.env.MESH_FINANCE_SECRET
   if (!secret) {
@@ -177,6 +322,10 @@ async function main(): Promise<void> {
   node.on('quote', makeQuoteHandler(store, poller))
   node.on('market_summary', makeMarketSummaryHandler(store))
   node.on('history', makeHistoryHandler(history))
+  node.on('movers', makeMoversHandler(store))
+  node.on('sectors', makeSectorsHandler(store))
+  node.on('earnings', makeEarningsHandler())
+  node.on('market_overview', makeMarketOverviewHandler(store))
 
   await node.start()
   log(`registered with core at ${CORE_URL}`)

@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "finance.sectors",
+  "description": "Get performance of all 11 SPDR sector ETFs (XLK Technology, XLF Financials, XLV Health Care, XLY Consumer Discretionary, XLP Consumer Staples, XLI Industrials, XLE Energy, XLU Utilities, XLB Materials, XLRE Real Estate, XLC Communication Services). No parameters. Reads from the node's in-memory cache; the poller refreshes sector ETFs on the same 5-minute cadence as equities.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

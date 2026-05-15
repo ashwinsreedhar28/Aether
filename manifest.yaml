@@ -99,7 +99,10 @@ nodes:
         per-symbol `quote`, full-grid `market_summary`, and
         accumulated `history`. Second real *data* node — proves the
         template established by news_feeds carries to API-shaped
-        sources, not just RSS.
+        sources, not just RSS. Extended in Sprint 2 with `movers`
+        (top gainers/losers), `sectors` (SPDR sector ETF performance),
+        `earnings` (upcoming earnings calendar, not-implemented stub),
+        and `market_overview` (broad market snapshot).
     surfaces:
       - name: quote
         type: tool
@@ -113,6 +116,22 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/finance/schemas/history.json
+      - name: movers
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/finance/schemas/movers.json
+      - name: sectors
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/finance/schemas/sectors.json
+      - name: earnings
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/finance/schemas/earnings.json
+      - name: market_overview
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/finance/schemas/market_overview.json
 
   - id: weather
     runtime: local-process
@@ -284,6 +303,26 @@ relationships:
     to: finance.quote
   - from: raven
     to: finance.history
+
+  # Sprint 2 finance extensions: movers, sectors, earnings, market_overview.
+  # Shell edges reserved for future Finance app UI enhancements. Raven
+  # consumes immediately via voice tools.
+  - from: shell
+    to: finance.movers
+  - from: shell
+    to: finance.sectors
+  - from: shell
+    to: finance.earnings
+  - from: shell
+    to: finance.market_overview
+  - from: raven
+    to: finance.movers
+  - from: raven
+    to: finance.sectors
+  - from: raven
+    to: finance.earnings
+  - from: raven
+    to: finance.market_overview
 
   # Voice tools: weather_current ("what's the weather") +
   # weather_forecast ("what's the forecast", "tomorrow's weather"). Both

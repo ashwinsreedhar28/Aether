@@ -15,46 +15,89 @@ running event loop without the run_until_complete deadlock that would
 hit a sync-wrapped async call.
 """
 
+import importlib
 import inspect
+import logging
+from pathlib import Path
 from typing import Any
 from google.genai import types
 
 from ..session_context import get_session_context
 
-# Import only the tool modules we ship enabled in Aether week-1.
-# Other VIEWER tools (cerebras_tool, silence_tool, system_tool) stay
-# vendored on disk but are NOT registered here, so they cannot be
-# called. They get re-enabled once voice is rebased onto the mesh and
-# the security model for shell-out (system_tool) / second-LLM
-# (cerebras_tool) is sorted.
-from . import time_tool
-from . import memory_tool
-from . import notify_tool
-from . import news_tool
-from . import finance_tool
-from . import digest_tool
-from . import weather_tool
-from . import calendar_tool
-from . import reminders_tool
-from . import system_info_tool
+logger = logging.getLogger(__name__)
 
-# Disabled until mesh integration:
-# from . import cerebras_tool   # second-LLM HTML generator, needs Flask sidecar
-# from . import silence_tool    # no_response gating, low priority for the demo
-# from . import system_tool     # macOS shell-out (open_url, open_app) — needs scoping
+# Auto-discover tool modules in this directory.
+# Any Python module with get_tools() and (handle_call or handle_call_async)
+# is registered automatically. Modules without those exports are skipped.
+# This replaces the manual import + list pattern — adding a new voice tool
+# is now a single-file change.
 
-_TOOL_MODULES = [
-    time_tool,
-    memory_tool,
-    notify_tool,
-    news_tool,
-    finance_tool,
-    digest_tool,
-    weather_tool,
-    calendar_tool,
-    reminders_tool,
-    system_info_tool,
-]
+_TOOL_MODULES = []
+
+# Disabled modules that should NOT be auto-discovered.
+# These are vendored on disk but excluded from registration until the
+# security model for shell-out (system_tool) / second-LLM (cerebras_tool)
+# is sorted, or until mesh integration completes (silence_tool).
+_DISABLED_MODULES = frozenset([
+    "cerebras_tool",  # second-LLM HTML generator, needs Flask sidecar
+    "silence_tool",   # no_response gating, low priority for the demo
+    "system_tool",    # macOS shell-out (open_url, open_app) — needs scoping
+])
+
+def _discover_tool_modules():
+    """
+    Discover and load all tool modules in the tools/ directory.
+
+    For each .py file (excluding __init__.py and base.py), attempt to import
+    the module. If it exports both get_tools() and at least one of
+    (handle_call, handle_call_async), add it to _TOOL_MODULES.
+
+    Modules in _DISABLED_MODULES are skipped even if they have the exports.
+    Failed imports raise immediately — a broken tool file is a real problem.
+    Modules missing the required exports are skipped silently.
+
+    Order is stable (alphabetical by module name) for predictable log output.
+    """
+    global _TOOL_MODULES
+    tools_dir = Path(__file__).parent
+    discovered = []
+
+    # List all .py files except __init__.py and base.py
+    py_files = sorted(tools_dir.glob("*.py"))
+    for py_file in py_files:
+        module_name = py_file.stem
+        if module_name in ("__init__", "base"):
+            continue
+
+        # Skip disabled modules
+        if module_name in _DISABLED_MODULES:
+            continue
+
+        # Import the module — let import errors propagate
+        try:
+            module = importlib.import_module(f".{module_name}", package=__package__)
+        except Exception:
+            logger.exception(f"[tools] failed to import {module_name}")
+            raise
+
+        # Check for required exports
+        has_get_tools = hasattr(module, "get_tools") and callable(module.get_tools)
+        has_sync_handler = hasattr(module, "handle_call") and callable(module.handle_call)
+        has_async_handler = hasattr(module, "handle_call_async") and callable(module.handle_call_async)
+
+        if has_get_tools and (has_sync_handler or has_async_handler):
+            discovered.append((module_name, module))
+
+    # Sort alphabetically by module name for stable ordering
+    discovered.sort(key=lambda x: x[0])
+    _TOOL_MODULES = [mod for _, mod in discovered]
+
+    # Log discovery result
+    module_names = [name for name, _ in discovered]
+    logger.info(f"[tools] registry discovered {len(module_names)} tool modules: {', '.join(module_names)}")
+
+# Run discovery at import time
+_discover_tool_modules()
 
 
 def get_all_tool_declarations() -> list[types.Tool]:

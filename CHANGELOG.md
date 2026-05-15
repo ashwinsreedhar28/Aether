@@ -27,6 +27,9 @@ historical record.
 ### Added
 - Aether macOS app icon. Replaces the default Electron icon in Dock, Activity Monitor, Finder, and Cmd-Tab. Source assets in `docs/branding/`.
 
+### Changed
+- Voice tool registry now auto-discovers tool modules in `daemons/raven-core/raven_core/tools/`. Modules with `get_tools()` and `handle_call_async()` exports are loaded automatically; `__init__.py` no longer needs manual edits per new tool. Adding a new voice tool is now a single-file change.
+
 ### Fixed
 - **Voice tools for reminders + system_info nodes** now register with
   Gemini. Both files previously held simple async functions returning

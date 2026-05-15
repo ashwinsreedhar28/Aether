@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "finance.market_overview",
+  "description": "Get a daily market snapshot: SPY (S&P 500), QQQ (Nasdaq 100), DIA (Dow Jones). VIX, 10-year Treasury yield, and USD index are placeholder nulls in this PR (require different Yahoo Finance surfaces than equity quote). No parameters. Reads from the node's in-memory cache.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

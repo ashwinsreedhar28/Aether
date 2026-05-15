@@ -4,9 +4,9 @@
 // doesn't pile up stale entries.
 //
 // Selection criteria: liquid US equities + the headline broad-market
-// ETFs (SPY/QQQ/DIA). Ten symbols fits a 3-col grid in ~4 rows on the
-// renderer without scroll, and at the 5-min × 30-s stagger cadence
-// uses ~2 req/min — polite for anonymous Yahoo / Stooq use.
+// ETFs (SPY/QQQ/DIA) + SPDR sector ETFs (XLK, XLF, etc.). 21 symbols at
+// 5-min cycle × 30-s stagger = ~4.2 req/min — still polite for anonymous
+// Yahoo / Stooq use.
 export interface TickerSource {
   /** US ticker symbol. UPPERCASE; the client normalises before
    *  request and the Quote.symbol is always upper. */
@@ -16,6 +16,7 @@ export interface TickerSource {
 }
 
 export const TICKERS: TickerSource[] = [
+  // Mag-7 + popular consumer equities
   { symbol: 'AAPL', name: 'Apple' },
   { symbol: 'MSFT', name: 'Microsoft' },
   { symbol: 'GOOGL', name: 'Alphabet' },
@@ -23,9 +24,22 @@ export const TICKERS: TickerSource[] = [
   { symbol: 'NVDA', name: 'Nvidia' },
   { symbol: 'TSLA', name: 'Tesla' },
   { symbol: 'META', name: 'Meta' },
+  // Broad market ETFs
   { symbol: 'SPY', name: 'S&P 500 ETF' },
   { symbol: 'QQQ', name: 'Nasdaq 100 ETF' },
   { symbol: 'DIA', name: 'Dow Jones ETF' },
+  // SPDR sector ETFs (added for finance.sectors surface)
+  { symbol: 'XLK', name: 'Technology Select Sector' },
+  { symbol: 'XLF', name: 'Financial Select Sector' },
+  { symbol: 'XLV', name: 'Health Care Select Sector' },
+  { symbol: 'XLY', name: 'Consumer Discretionary Select Sector' },
+  { symbol: 'XLP', name: 'Consumer Staples Select Sector' },
+  { symbol: 'XLI', name: 'Industrial Select Sector' },
+  { symbol: 'XLE', name: 'Energy Select Sector' },
+  { symbol: 'XLU', name: 'Utilities Select Sector' },
+  { symbol: 'XLB', name: 'Materials Select Sector' },
+  { symbol: 'XLRE', name: 'Real Estate Select Sector' },
+  { symbol: 'XLC', name: 'Communication Services Select Sector' },
 ]
 
 /** Quick membership check used by the per-symbol surface handler. */

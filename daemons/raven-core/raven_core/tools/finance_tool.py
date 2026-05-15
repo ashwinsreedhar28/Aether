@@ -1,10 +1,14 @@
 """Finance Tool - Stock quote readbacks via the mesh.
 
-Three tools, all routed through ``mesh_invoke`` to the finance node:
+Seven tools, all routed through ``mesh_invoke`` to the finance node:
 
   - ``finance_quote(symbol)``           → ``finance.quote(symbol)``
   - ``finance_market_summary()``        → ``finance.market_summary()``
   - ``finance_history(symbol, period?)`` → ``finance.history(...)``
+  - ``finance_movers()``                → ``finance.movers()``
+  - ``finance_sectors()``               → ``finance.sectors()``
+  - ``finance_earnings()``              → ``finance.earnings()``
+  - ``finance_market_overview()``       → ``finance.market_overview()``
 
 The pattern matches news_tool / notify_tool: declare the function for
 Gemini, implement as a thin ``await mesh_invoke(...)``, add edges in
@@ -33,7 +37,15 @@ from google.genai import types
 
 from ..mesh_client import MeshUnavailable, mesh_invoke
 
-FUNCTIONS = ["finance_quote", "finance_market_summary", "finance_history"]
+FUNCTIONS = [
+    "finance_quote",
+    "finance_market_summary",
+    "finance_history",
+    "finance_movers",
+    "finance_sectors",
+    "finance_earnings",
+    "finance_market_overview",
+]
 
 # Valid period values for finance_history. Mirrors VALID_PERIODS in
 # nodes/finance/src/index.ts and the history.json enum. Same order
@@ -224,6 +236,69 @@ async def _finance_market_summary() -> dict[str, Any]:
     return {"quotes": quotes, "count": len(quotes)}
 
 
+async def _finance_movers() -> dict[str, Any]:
+    try:
+        response = await mesh_invoke("finance.movers", {})
+    except MeshUnavailable as e:
+        return {"error": "mesh unavailable", "detail": str(e)}
+
+    if not isinstance(response, dict):
+        return {"error": "malformed response", "detail": "expected dict"}
+    if not response.get("available"):
+        reason = response.get("reason", "unknown")
+        return {"available": False, "reason": reason}
+
+    gainers = response.get("gainers") or []
+    losers = response.get("losers") or []
+    gainers_stripped = [_strip_quote(q) for q in gainers if _strip_quote(q)]
+    losers_stripped = [_strip_quote(q) for q in losers if _strip_quote(q)]
+    return {"available": True, "gainers": gainers_stripped, "losers": losers_stripped}
+
+
+async def _finance_sectors() -> dict[str, Any]:
+    try:
+        response = await mesh_invoke("finance.sectors", {})
+    except MeshUnavailable as e:
+        return {"error": "mesh unavailable", "detail": str(e)}
+
+    if not isinstance(response, dict):
+        return {"error": "malformed response", "detail": "expected dict"}
+    if not response.get("available"):
+        reason = response.get("reason", "unknown")
+        return {"available": False, "reason": reason}
+
+    sectors = response.get("sectors") or []
+    return {"available": True, "sectors": sectors}
+
+
+async def _finance_earnings() -> dict[str, Any]:
+    try:
+        response = await mesh_invoke("finance.earnings", {})
+    except MeshUnavailable as e:
+        return {"error": "mesh unavailable", "detail": str(e)}
+
+    if not isinstance(response, dict):
+        return {"error": "malformed response", "detail": "expected dict"}
+    # Earnings always returns available: false in this PR (not implemented yet)
+    return response
+
+
+async def _finance_market_overview() -> dict[str, Any]:
+    try:
+        response = await mesh_invoke("finance.market_overview", {})
+    except MeshUnavailable as e:
+        return {"error": "mesh unavailable", "detail": str(e)}
+
+    if not isinstance(response, dict):
+        return {"error": "malformed response", "detail": "expected dict"}
+    if not response.get("available"):
+        reason = response.get("reason", "unknown")
+        return {"available": False, "reason": reason}
+
+    # Response already has spy/qqq/dia keys plus placeholders
+    return response
+
+
 def get_tools() -> list[types.Tool]:
     """Return Gemini function declarations for all finance tools."""
     quote_func = types.FunctionDeclaration(
@@ -316,9 +391,83 @@ def get_tools() -> list[types.Tool]:
             required=["symbol"],
         ),
     )
+    movers_func = types.FunctionDeclaration(
+        name="finance_movers",
+        description=(
+            "Get today's biggest stock movers — top 10 gainers and top 10 "
+            "losers from the tracked ticker set, sorted by change_percent. "
+            "Use when the user asks 'what's moving today', 'biggest gainers', "
+            "'top losers', 'what stocks are up'. Returns two lists: gainers "
+            "(descending by change_percent) and losers (ascending). Read aloud "
+            "as a short summary — lead with the top 3-5 from each list. No "
+            "parameters."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={},
+        ),
+    )
+    sectors_func = types.FunctionDeclaration(
+        name="finance_sectors",
+        description=(
+            "Get performance of all 11 SPDR sector ETFs (Technology, Financials, "
+            "Health Care, Consumer Discretionary, Consumer Staples, Industrials, "
+            "Energy, Utilities, Materials, Real Estate, Communication Services). "
+            "Use when the user asks 'how are sectors doing', 'sector performance', "
+            "'what sector is leading', 'which sectors are down'. Returns a list "
+            "of sector quotes with name, price, change, change_percent. Read aloud "
+            "as a short summary — highlight the top and bottom performers. No "
+            "parameters."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={},
+        ),
+    )
+    earnings_func = types.FunctionDeclaration(
+        name="finance_earnings",
+        description=(
+            "Get upcoming earnings calendar for the next 7 days (tracked tickers "
+            "only). Use when the user asks 'any earnings this week', 'who reports "
+            "earnings', 'what's the earnings calendar'. Returns {available: false, "
+            "reason: 'not_implemented_yet'} in the current release — this is a "
+            "placeholder tool reserved for a future PR. If called, read the reason "
+            "aloud plainly ('Earnings calendar isn\\'t wired up yet, sir') rather "
+            "than substituting training-data earnings dates. No parameters."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={},
+        ),
+    )
+    overview_func = types.FunctionDeclaration(
+        name="finance_market_overview",
+        description=(
+            "Get a daily market snapshot: S&P 500 (SPY), Nasdaq 100 (QQQ), and "
+            "Dow Jones (DIA). VIX, 10-year Treasury yield, and USD index are "
+            "placeholder nulls in this release (require different Yahoo Finance "
+            "APIs). Use when the user asks 'market overview', 'how are the indices', "
+            "'give me a market snapshot'. Returns keyed fields: spy, qqq, dia "
+            "(each with price/change/change_percent), plus vix/ten_year_treasury/"
+            "usd_index (all null for now). Read aloud the three ETFs as a short "
+            "summary. No parameters."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={},
+        ),
+    )
     return [
         types.Tool(
-            function_declarations=[quote_func, summary_func, history_func]
+            function_declarations=[
+                quote_func,
+                summary_func,
+                history_func,
+                movers_func,
+                sectors_func,
+                earnings_func,
+                overview_func,
+            ]
         )
     ]
 
@@ -334,4 +483,12 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
             symbol=str(args.get("symbol", "")),
             period=str(args.get("period", DEFAULT_HISTORY_PERIOD)),
         )
+    if name == "finance_movers":
+        return await _finance_movers()
+    if name == "finance_sectors":
+        return await _finance_sectors()
+    if name == "finance_earnings":
+        return await _finance_earnings()
+    if name == "finance_market_overview":
+        return await _finance_market_overview()
     return None

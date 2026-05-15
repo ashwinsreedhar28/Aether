@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "finance.movers",
+  "description": "Get today's biggest gainers and losers from the tracked ticker set. Returns top 10 gainers and top 10 losers sorted by change_percent. No parameters. Calculates from the current in-memory cache; does not trigger new fetches.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.disk",
+  "description": "Returns root filesystem (/) disk usage via `df -k /`. Provides total capacity in GB, free space in GB, and used percentage. Returns available: false if command fails. No authentication required. Cached for 15 seconds.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

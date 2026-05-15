@@ -6,6 +6,7 @@ import {
   FINANCE_ENTRY,
   HOST_NOTIFICATIONS_ENTRY,
   NEWS_FEEDS_ENTRY,
+  SYSTEM_INFO_ENTRY,
   WEATHER_ENTRY,
   NODE_LOG_FILE,
   NODE_PID_FILE,
@@ -60,6 +61,7 @@ export class NodeManager {
       this.spawnFinance(),
       this.spawnDigest(),
       this.spawnWeather(),
+      this.spawnSystemInfo(),
     ])
   }
 
@@ -141,6 +143,24 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/weather build`',
       secretEnvName: 'MESH_WEATHER_SECRET',
       secretValue: this.secrets.weatherSecret,
+      extraEnv: { AETHER_DATA_DIR: dataDir },
+    })
+  }
+
+  private async spawnSystemInfo(): Promise<void> {
+    // System info node — exposes macOS system status (battery, disk,
+    // network, active app) via native shell commands. No API key. No
+    // special permissions required beyond standard shell access.
+    // AETHER_DATA_DIR is the writable root for the running marker
+    // (no persistent state — readings are cached in-memory 5-15s).
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'system_info',
+      entry: SYSTEM_INFO_ENTRY,
+      buildHint: '`pnpm --filter @aether/system-info build`',
+      secretEnvName: 'MESH_SYSTEM_INFO_SECRET',
+      secretValue: this.secrets.systemInfoSecret,
       extraEnv: { AETHER_DATA_DIR: dataDir },
     })
   }

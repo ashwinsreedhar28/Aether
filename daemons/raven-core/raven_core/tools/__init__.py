@@ -35,6 +35,7 @@ from . import finance_tool
 from . import digest_tool
 from . import weather_tool
 from . import calendar_tool
+from . import system_info_tool
 
 # Disabled until mesh integration:
 # from . import cerebras_tool   # second-LLM HTML generator, needs Flask sidecar
@@ -50,6 +51,7 @@ _TOOL_MODULES = [
     digest_tool,
     weather_tool,
     calendar_tool,
+    system_info_tool,
 ]
 
 

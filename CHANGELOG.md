@@ -25,6 +25,15 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- **macOS system info mesh node** (`nodes/system_info/`). TypeScript
+  mesh node exposing battery, disk, network, and active-app context
+  via macOS-native shell commands (pmset, df, networksetup, osascript).
+  Four surfaces (`system_info.battery`, `.disk`, `.network`,
+  `.active_app`) plus four voice tools (`system_battery`,
+  `system_disk`, `system_network`, `system_active_app`). Readings
+  cached 5-15s in-memory. No API keys; Automation permission for
+  System Events required only for active_app surface. 5-file pattern
+  per docs/new-node-pattern.md.
 - **Finance node extended with four new surfaces** for market-breadth
   context. `finance.movers` returns today's top 10 S&P 500 gainers and
   top 10 losers sorted by % change, computed from the tracked ticker

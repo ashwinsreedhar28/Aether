@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.network",
+  "description": "Returns current network status via `networksetup`, `wdutil`, `route`, and `ifconfig`. Includes WiFi SSID, signal strength (dBm), link rate (Mbps), active network interface, and IP address. WiFi fields may be null if WiFi is off, wdutil requires elevated permissions, or the active interface is not WiFi. Returns available: false if network commands fail. Cached for 10 seconds.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

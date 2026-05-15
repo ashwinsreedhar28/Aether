@@ -95,6 +95,9 @@ importers:
       typescript-eslint:
         specifier: ^8.20.0
         version: 8.59.3(eslint@9.39.4(jiti@2.7.0))(typescript@5.7.3)
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.19)(lightningcss@1.32.0)
 
   nodes/host_notifications:
     dependencies:

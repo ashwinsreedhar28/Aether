@@ -1,0 +1,64 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="meshGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4ff;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#0099ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7000ff;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="226" fill="#0a0a0f"/>
+
+  <!-- Mesh network lines forming an A shape -->
+  <g stroke="url(#meshGradient)" stroke-width="8" fill="none" opacity="0.6">
+    <!-- Left leg of A -->
+    <line x1="320" y1="768" x2="440" y2="256" />
+    <!-- Right leg of A -->
+    <line x1="704" y1="768" x2="584" y2="256" />
+    <!-- Crossbar of A -->
+    <line x1="400" y1="512" x2="624" y2="512" />
+
+    <!-- Network connections -->
+    <line x1="440" y1="256" x2="584" y2="256" />
+    <line x1="320" y1="768" x2="512" y2="640" />
+    <line x1="704" y1="768" x2="512" y2="640" />
+    <line x1="400" y1="512" x2="320" y2="768" />
+    <line x1="624" y1="512" x2="704" y2="768" />
+  </g>
+
+  <!-- Network nodes (connection points) -->
+  <g fill="url(#meshGradient)" filter="url(#glow)">
+    <!-- Top apex -->
+    <circle cx="512" cy="256" r="16" />
+
+    <!-- Upper corners -->
+    <circle cx="440" cy="256" r="12" />
+    <circle cx="584" cy="256" r="12" />
+
+    <!-- Crossbar endpoints -->
+    <circle cx="400" cy="512" r="14" />
+    <circle cx="624" cy="512" r="14" />
+
+    <!-- Middle connection -->
+    <circle cx="512" cy="640" r="12" />
+
+    <!-- Bottom endpoints -->
+    <circle cx="320" cy="768" r="16" />
+    <circle cx="704" cy="768" r="16" />
+  </g>
+
+  <!-- Additional mesh detail lines -->
+  <g stroke="url(#meshGradient)" stroke-width="4" fill="none" opacity="0.3">
+    <line x1="440" y1="256" x2="400" y2="512" />
+    <line x1="584" y1="256" x2="624" y2="512" />
+    <line x1="512" cy="256" x2="512" y2="640" />
+  </g>
+</svg>

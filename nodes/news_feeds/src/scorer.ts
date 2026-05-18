@@ -120,6 +120,7 @@ const TOPIC_URGENCY_WORDS: readonly string[] = [
 export interface UrgencyResult {
   score: number
   bucket: Urgency
+  reason: string
 }
 
 export interface ScorableArticle {
@@ -223,6 +224,82 @@ export function bucketFor(score: number): Urgency {
   return 'low'
 }
 
+// --- reason builder -------------------------------------------------------
+// Names the top 1-2 contributors to the urgency score so voice responses
+// can speak the *why* of urgency ("breaking prefix + <1h fresh") rather
+// than just article titles. Re-checks the same predicates the component
+// scorers used — small CPU cost, kept separate so the existing
+// scoreTitle / scoreRecency / scoreTopic signatures stay clean and pure.
+//
+// Each contributor is weighted by its raw point contribution; the top
+// two by weight are joined with " + ". Empty-signals articles (which
+// shouldn't reach the high bucket anyway) get "low signals" as a
+// fallback rather than an empty string.
+function buildReason(
+  article: ScorableArticle,
+  feed: ScorableFeed,
+  source: number,
+  titleScore: number,
+  recencyScore: number,
+  topicScore: number,
+): string {
+  const parts: Array<{ label: string; weight: number }> = []
+
+  // Recency tier
+  if (recencyScore === RECENCY_FRESH_BONUS) {
+    parts.push({ label: '<1h fresh', weight: recencyScore })
+  } else if (recencyScore === RECENCY_RECENT_BONUS) {
+    parts.push({ label: '<4h recent', weight: recencyScore })
+  } else if (recencyScore === RECENCY_STALE_BONUS) {
+    parts.push({ label: '<12h same-day', weight: recencyScore })
+  }
+
+  // Title signals
+  const hasBreaking = BREAKING_PREFIX_RE.test(article.title)
+  const hasAllCaps = isAllCapsTitle(article.title)
+  if (hasBreaking) {
+    parts.push({ label: 'breaking prefix', weight: TITLE_BREAKING_BONUS })
+  }
+  if (hasAllCaps && !hasBreaking) {
+    parts.push({ label: 'all-caps title', weight: TITLE_ALLCAPS_BONUS })
+  }
+  // Title keyword — name the first match for readability
+  const titleBody = hasBreaking ? article.title.replace(BREAKING_PREFIX_RE, '') : article.title
+  TITLE_WORDS_RE.lastIndex = 0
+  const titleMatch = TITLE_WORDS_RE.exec(titleBody)
+  if (titleMatch) {
+    parts.push({
+      label: `"${titleMatch[0].toLowerCase()}" keyword`,
+      weight: TITLE_WORD_BONUS,
+    })
+  }
+
+  // Topic — name the first match
+  TOPIC_WORDS_RE.lastIndex = 0
+  const topicMatch = TOPIC_WORDS_RE.exec(`${article.title} ${article.summary}`)
+  if (topicMatch) {
+    parts.push({
+      label: `${topicMatch[0].toLowerCase()} topic`,
+      weight: topicScore,
+    })
+  }
+
+  // Source tier (using the ADR's three-tier model: 30 wire, 20 major
+  // outlet, 10 aggregator). Below 15 is unscored — not noteworthy
+  // enough to mention as a reason contributor.
+  if (source >= 25) {
+    parts.push({ label: 'wire source', weight: source })
+  } else if (source >= 15) {
+    parts.push({ label: 'major outlet', weight: source })
+  }
+
+  // Sort by weight; take the top 2 strongest contributors
+  parts.sort((a, b) => b.weight - a.weight)
+  const top = parts.slice(0, 2)
+  if (top.length === 0) return 'low signals'
+  return top.map((p) => p.label).join(' + ')
+}
+
 // --- public entry point ---------------------------------------------------
 // Sums the four component scorers, clamps to [0, 100], and buckets.
 // Pure: same inputs → same output. `now` is injected (defaulting to
@@ -238,5 +315,6 @@ export function scoreUrgency(
   const recency = scoreRecency(article.published_at, now)
   const topic = scoreTopic(article.title, article.summary)
   const total = Math.max(0, Math.min(100, source + title + recency + topic))
-  return { score: total, bucket: bucketFor(total) }
+  const reason = buildReason(article, feed, source, title, recency, topic)
+  return { score: total, bucket: bucketFor(total), reason }
 }

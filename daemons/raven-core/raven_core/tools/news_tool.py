@@ -171,10 +171,12 @@ def _strip_article(raw: Any) -> dict[str, Any] | None:
     Drops url / id / fetched_at / published_at — Gemini doesn't need
     them to speak headlines aloud, and dropping them keeps the model's
     output focused on the readable fields rather than reciting URLs.
-    Category and urgency are included so the model can answer follow-up
-    questions about scope ("which were the urgent ones?") and so the
-    response payload carries enough context for any future renderer
-    that consumes the same shape.
+    Category, urgency, and urgency_reason are included so the model can
+    answer follow-up questions about scope ("which were the urgent
+    ones?"), speak the *why* of urgency for the news_breaking response
+    ("breaking from Reuters, fresh under an hour"), and so the response
+    payload carries enough context for any future renderer that consumes
+    the same shape.
     """
     if not isinstance(raw, dict):
         return None
@@ -183,6 +185,7 @@ def _strip_article(raw: Any) -> dict[str, Any] | None:
         "source": raw.get("feed", ""),
         "category": raw.get("category", ""),
         "urgency": raw.get("urgency", ""),
+        "urgency_reason": raw.get("urgency_reason", ""),
         "summary": raw.get("summary", ""),
     }
 
@@ -434,7 +437,12 @@ def get_tools() -> list[types.Tool]:
             "to news_recent with urgency='high' but named explicitly so "
             "the model can treat the 'breaking' phrasing as a single "
             "shortcut. Returns the same article shape as news_recent "
-            "(title, source, category, urgency, summary). An empty "
+            "(title, source, category, urgency, urgency_reason, summary). "
+            "Each item's urgency_reason names which scoring signals "
+            "made it breaking — e.g. 'breaking prefix + <1h fresh', "
+            "'wire source + war topic'. Weave the reason into the "
+            "spoken reading rather than quoting verbatim: 'Fed signals "
+            "rate cut — Reuters, breaking prefix and fresh.' An empty "
             "list means nothing in the curated feed pool currently "
             "clears the high-urgency threshold — say so plainly "
             "('nothing breaking in the feed pool right now, sir'), do "

@@ -50,7 +50,7 @@ export interface EntitySearchQuery {
 // user_version against this constant and applies forward-only migrations
 // when stored < current. No down-migration; we never need to roll a
 // node-local DB back to an older schema in this codebase.
-const DB_VERSION = 4
+const DB_VERSION = 5
 
 // Thin wrapper around better-sqlite3. Writes are synchronous (sqlite is a
 // process-local file), batched in a single transaction per poll. Reads
@@ -288,6 +288,39 @@ export class ArticleStore {
       // to a follow-up if observed empty-result rate is too high.
     }
 
+    if (v < 5) {
+      // v5 — urgency_reason column. Persists which scoring signals
+      // contributed most to each article's urgency bucket so voice
+      // responses can speak the *why* of urgency without re-running
+      // the scorer at read time. Computed by scorer.ts buildReason()
+      // at fetch time, propagated through parser.ts onto the Article
+      // shape, and overwritten on each UPSERT alongside urgency.
+      //
+      // Default 'pre-amendment' for pre-existing rows is a one-time
+      // inaccuracy that resolves on the next poll: the ON CONFLICT
+      // clause in upsertMany overwrites urgency_reason the same way
+      // it overwrites urgency. Within 15 min of next poll, every
+      // still-emitted article gets a real reason. Rows for feeds that
+      // have stopped emitting will keep 'pre-amendment' until they're
+      // re-emitted or pruned. CLAUDE.md §10 schema-migrations gotcha
+      // doesn't bite here — urgency_reason has no column-dependent
+      // index, so the ALTER TABLE can stand alone in this step.
+      const cols = this.db.prepare("PRAGMA table_info('articles')").all() as Array<{
+        name: string
+      }>
+      const hasReason = cols.some((c) => c.name === 'urgency_reason')
+      const apply = this.db.transaction(() => {
+        if (!hasReason) {
+          this.db.exec(
+            "ALTER TABLE articles ADD COLUMN urgency_reason TEXT NOT NULL DEFAULT 'pre-amendment'",
+          )
+        }
+        this.db.pragma(`user_version = 5`)
+      })
+      apply()
+      v = 5
+    }
+
     if (v !== DB_VERSION) {
       // Defensive: if a future bump lands and someone forgets to add a
       // step, fail loud rather than silently running with an out-of-date
@@ -313,14 +346,15 @@ export class ArticleStore {
     // gets the new bucket — pre-migration rows on the 'low' default
     // are re-scored within 15 min of next poll.
     const stmt = this.db.prepare(`
-      INSERT INTO articles (id, feed, category, urgency, title, summary, url, published_at, fetched_at)
-      VALUES (@id, @feed, @category, @urgency, @title, @summary, @url, @published_at, @fetched_at)
+      INSERT INTO articles (id, feed, category, urgency, urgency_reason, title, summary, url, published_at, fetched_at)
+      VALUES (@id, @feed, @category, @urgency, @urgency_reason, @title, @summary, @url, @published_at, @fetched_at)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         summary = excluded.summary,
         url = excluded.url,
         category = excluded.category,
         urgency = excluded.urgency,
+        urgency_reason = excluded.urgency_reason,
         fetched_at = excluded.fetched_at
     `)
     let inserted = 0
@@ -361,7 +395,7 @@ export class ArticleStore {
     }
     const where = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : ''
     const sql = `
-      SELECT id, feed, category, urgency, title, summary, url, published_at, fetched_at
+      SELECT id, feed, category, urgency, urgency_reason, title, summary, url, published_at, fetched_at
       FROM articles
       ${where}
       ORDER BY published_at DESC
@@ -390,7 +424,7 @@ export class ArticleStore {
       positional.push(...q.urgencies)
     }
     const sql = `
-      SELECT a.id, a.feed, a.category, a.urgency, a.title, a.summary, a.url,
+      SELECT a.id, a.feed, a.category, a.urgency, a.urgency_reason, a.title, a.summary, a.url,
              a.published_at, a.fetched_at
       FROM articles_fts
       JOIN articles a ON a.rowid = articles_fts.rowid
@@ -410,7 +444,7 @@ export class ArticleStore {
   // migration; reads stay sub-ms on the curated pool size.
   breaking(q: BreakingQuery): Article[] {
     const sql = `
-      SELECT id, feed, category, urgency, title, summary, url, published_at, fetched_at
+      SELECT id, feed, category, urgency, urgency_reason, title, summary, url, published_at, fetched_at
       FROM articles
       WHERE urgency = 'high'
       ORDER BY published_at DESC
@@ -460,7 +494,7 @@ export class ArticleStore {
     // search_by_entity) see the same Article shape regardless of the
     // surface they came in through.
     const sql = `
-      SELECT a.id, a.feed, a.category, a.urgency, a.title, a.summary, a.url,
+      SELECT a.id, a.feed, a.category, a.urgency, a.urgency_reason, a.title, a.summary, a.url,
              a.published_at, a.fetched_at
       FROM article_entities ae
       JOIN articles a ON a.id = ae.article_id

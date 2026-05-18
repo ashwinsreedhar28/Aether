@@ -12,6 +12,12 @@ export interface Article {
   feed: string
   category: Category
   urgency: Urgency
+  /** Short explanation of which scoring signals contributed most to
+   * the urgency bucket (e.g. "breaking prefix + <1h fresh"). Computed
+   * at fetch time alongside the bucket; persisted so voice responses
+   * can speak the *why* of urgency without re-scoring on every read.
+   * See scorer.ts buildReason(). */
+  urgency_reason: string
   title: string
   summary: string
   url: string
@@ -109,7 +115,7 @@ export async function fetchFeed(source: FeedSource): Promise<Article[]> {
     const finalTitle = truncate(title, 300)
     const summary = pickSummary(item)
     const publishedAt = pickPublished(item)
-    const { bucket } = scoreUrgency(
+    const { bucket, reason } = scoreUrgency(
       { title: finalTitle, summary, published_at: publishedAt },
       source,
       scoredAt,
@@ -119,6 +125,7 @@ export async function fetchFeed(source: FeedSource): Promise<Article[]> {
       feed: source.name,
       category: source.category,
       urgency: bucket,
+      urgency_reason: reason,
       title: finalTitle,
       summary,
       url,

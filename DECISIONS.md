@@ -738,6 +738,46 @@ the design intent.
 
 ---
 
+### Amendment 2026-05-17: urgency_reason field + voice speaks the why
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Smoke testing revealed Gemini speaks article titles for
+news_breaking but never explains *why* each item scored breaking. The
+scoring components have the answer; the result was discarding the
+breakdown after bucketing.
+**Decision:** Extend `UrgencyResult` with a `reason: string` field
+naming the top 1–2 score contributors by raw weight (e.g.
+`"breaking prefix + <1h fresh"`, `"wire source + war topic"`).
+Computed by a new pure helper `buildReason()` that re-checks the same
+predicates the four component scorers used — small CPU cost, kept
+separate so existing scorer signatures stay clean.
+
+The reason propagates: `Article` gains `urgency_reason: string`,
+captured at fetch. Schema bumps to `user_version=5` with a v4→v5
+migration adding `urgency_reason TEXT NOT NULL DEFAULT
+'pre-amendment'`. No new index — reason is read-out only, never a
+WHERE filter. `upsertMany` INSERT and the four read SELECTs
+(recent / search / breaking / searchByEntity) include the new column.
+ON CONFLICT UPDATE refreshes alongside `urgency`. `_strip_article` in
+`news_tool.py` propagates the field to Gemini; `news_breaking`'s
+description teaches Gemini to weave the reason into spoken reading
+rather than quoting verbatim.
+
+Existing scorer weights audited and left unchanged. The four-component
+design is sound; the gap was voice-speak-the-why, not weight tuning.
+Purely additive — no surface or tool count change.
+**Consequences:**
+- Voice "what's breaking" now carries headline + reason in one tool
+  call. No extra round-trip.
+- Audit story: bucket and reason live side-by-side per row; "why did
+  this rate high?" is answerable from stored data.
+- `'pre-amendment'` default appears in pre-poll reads until first poll
+  cycle re-scores. Resolves within 15 min of node startup.
+- Future weight tuning flows into reason explanations automatically —
+  `buildReason()` re-checks the same predicates, no parallel rebuild
+  needed.
+
 ## [2026-05-13] Voice session context for follow-up resolution
 
 **Status:** accepted

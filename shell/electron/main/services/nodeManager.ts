@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdirSync, writeFileSync, createWriteStream, type WriteStream } from 'node:fs'
 import { existsSync } from 'node:fs'
 import {
+  CLIPBOARD_HISTORY_ENTRY,
   DIGEST_ENTRY,
   FINANCE_ENTRY,
   HOST_NOTIFICATIONS_ENTRY,
@@ -62,6 +63,7 @@ export class NodeManager {
       this.spawnDigest(),
       this.spawnWeather(),
       this.spawnSystemInfo(),
+      this.spawnClipboardHistory(),
     ])
   }
 
@@ -161,6 +163,24 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/system-info build`',
       secretEnvName: 'MESH_SYSTEM_INFO_SECRET',
       secretValue: this.secrets.systemInfoSecret,
+      extraEnv: { AETHER_DATA_DIR: dataDir },
+    })
+  }
+
+  private async spawnClipboardHistory(): Promise<void> {
+    // Clipboard history node — polls macOS clipboard at 500ms via
+    // pbpaste, SHA-256 content-hash dedup via an in-memory ring buffer
+    // plus SQLite UNIQUE, per-node SQLite for persistence, retention
+    // 1000. AETHER_DATA_DIR is the writable root for the running marker
+    // + clipboard.db.
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'clipboard_history',
+      entry: CLIPBOARD_HISTORY_ENTRY,
+      buildHint: '`pnpm --filter @aether/clipboard-history build`',
+      secretEnvName: 'MESH_CLIPBOARD_HISTORY_SECRET',
+      secretValue: this.secrets.clipboardHistorySecret,
       extraEnv: { AETHER_DATA_DIR: dataDir },
     })
   }

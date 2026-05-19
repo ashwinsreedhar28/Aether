@@ -80,6 +80,22 @@ nodes:
         invocation_mode: request_response
         schema: nodes/news_feeds/schemas/search_by_entity.json
 
+  - id: clipboard_history
+    runtime: local-process
+    identity_secret: env:MESH_CLIPBOARD_HISTORY_SECRET
+    metadata:
+      description: |
+        macOS clipboard history. Polls pbpaste every 500ms, dedupes by
+        SHA-256 content hash via an in-memory ring buffer + SQLite UNIQUE
+        constraint, retains the most recent 1000 entries. Local SQLite at
+        $AETHER_DATA_DIR/clipboard_history/clipboard.db. text/plain only
+        for this lane; PNG / RTF / file refs deferred to Wave 3.
+    surfaces:
+      - name: recent
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/clipboard_history/schemas/recent.json
+
   - id: finance
     runtime: local-process
     identity_secret: env:MESH_FINANCE_SECRET
@@ -302,6 +318,12 @@ relationships:
   # news_recent → mesh.invoke('news_feeds.recent') → reads top headlines.
   - from: raven
     to: news_feeds.recent
+
+  # Voice tool clipboard_recent: "what's on my clipboard" / "what did I
+  # copy" → Gemini calls clipboard_recent → mesh.invoke('clipboard_history.recent')
+  # → reads the most recent pasteboard entries.
+  - from: raven
+    to: clipboard_history.recent
 
   # News keyword search. Shell edge is reserved for a future UI search
   # bar inside the News app (not consumed in the PR that introduces the

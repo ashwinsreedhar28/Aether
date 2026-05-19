@@ -56,6 +56,13 @@ export const SYSTEM_INFO_ENTRY: string = join(
   'dist',
   'index.js',
 )
+export const CLIPBOARD_HISTORY_ENTRY: string = join(
+  REPO_ROOT,
+  'nodes',
+  'clipboard_history',
+  'dist',
+  'index.js',
+)
 
 export function meshRuntimeDir(): string {
   return join(app.getPath('userData'), 'mesh')

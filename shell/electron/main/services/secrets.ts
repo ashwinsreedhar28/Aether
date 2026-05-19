@@ -23,6 +23,7 @@ export interface MeshSecrets {
   calendarSecret: string
   remindersSecret: string
   systemInfoSecret: string
+  clipboardHistorySecret: string
 }
 
 function hex32(): string {
@@ -52,5 +53,6 @@ export function generateMeshSecrets(): MeshSecrets {
     calendarSecret: getNodeSecret('calendar'),
     remindersSecret: getNodeSecret('reminders'),
     systemInfoSecret: getNodeSecret('system_info'),
+    clipboardHistorySecret: getNodeSecret('clipboard_history'),
   }
 }

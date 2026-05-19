@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clipboard_history.recent",
+  "title": "clipboard_history.recent",
+  "description": "Return the most recent clipboard entries, newest first.",
+  "type": "object",
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500,
+      "description": "Maximum number of entries to return. Default 50."
+    },
+    "since": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp; only return entries captured at or after this time."
+    }
+  },
+  "additionalProperties": false
+}

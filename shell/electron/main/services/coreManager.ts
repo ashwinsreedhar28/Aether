@@ -121,6 +121,11 @@ export class CoreManager {
       // manifest load so nodeManager can inject the same value into the
       // system_info child's env.
       MESH_SYSTEM_INFO_SECRET: this.secrets.systemInfoSecret,
+      // Clipboard history is a TypeScript data node (spawned by nodeManager).
+      // Same env contract — Core resolves env:MESH_CLIPBOARD_HISTORY_SECRET at
+      // manifest load so nodeManager can inject the same value into the
+      // clipboard_history child's env.
+      MESH_CLIPBOARD_HISTORY_SECRET: this.secrets.clipboardHistorySecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

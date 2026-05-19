@@ -49,6 +49,7 @@ jobs:
         run: |
           pnpm --filter @aether/mesh-node-sdk build
           pnpm --filter @aether/host-notifications build
+          pnpm --filter @aether/macos-applescript build
 
       - name: workspace — typecheck
         run: pnpm -r typecheck

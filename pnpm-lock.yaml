@@ -6,6 +6,24 @@ settings:
 
 importers:
 
+  core/macos_applescript:
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.18.0
+        version: 9.39.4
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      eslint:
+        specifier: ^9.18.0
+        version: 9.39.4(jiti@2.7.0)
+      typescript:
+        specifier: ~5.7.0
+        version: 5.7.3
+      typescript-eslint:
+        specifier: ^8.20.0
+        version: 8.59.3(eslint@9.39.4(jiti@2.7.0))(typescript@5.7.3)
+
   core/node_sdk_ts:
     devDependencies:
       '@eslint/js':
@@ -136,6 +154,37 @@ importers:
       '@eslint/js':
         specifier: ^9.18.0
         version: 9.39.4
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      eslint:
+        specifier: ^9.18.0
+        version: 9.39.4(jiti@2.7.0)
+      typescript:
+        specifier: ~5.7.0
+        version: 5.7.3
+      typescript-eslint:
+        specifier: ^8.20.0
+        version: 8.59.3(eslint@9.39.4(jiti@2.7.0))(typescript@5.7.3)
+
+  nodes/macos_mail:
+    dependencies:
+      '@aether/macos-applescript':
+        specifier: workspace:*
+        version: link:../../core/macos_applescript
+      '@aether/mesh-node-sdk':
+        specifier: workspace:*
+        version: link:../../core/node_sdk_ts
+      better-sqlite3:
+        specifier: ^11.5.0
+        version: 11.10.0
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.18.0
+        version: 9.39.4
+      '@types/better-sqlite3':
+        specifier: ^7.6.12
+        version: 7.6.13
       '@types/node':
         specifier: ^22.10.0
         version: 22.19.19

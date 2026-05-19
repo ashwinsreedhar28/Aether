@@ -63,6 +63,13 @@ export const CLIPBOARD_HISTORY_ENTRY: string = join(
   'dist',
   'index.js',
 )
+export const MACOS_MESSAGES_ENTRY: string = join(
+  REPO_ROOT,
+  'nodes',
+  'macos_messages',
+  'dist',
+  'index.js',
+)
 
 export function meshRuntimeDir(): string {
   return join(app.getPath('userData'), 'mesh')

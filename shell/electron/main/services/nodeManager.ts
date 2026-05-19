@@ -6,6 +6,7 @@ import {
   DIGEST_ENTRY,
   FINANCE_ENTRY,
   HOST_NOTIFICATIONS_ENTRY,
+  MACOS_MESSAGES_ENTRY,
   NEWS_FEEDS_ENTRY,
   SYSTEM_INFO_ENTRY,
   WEATHER_ENTRY,
@@ -64,6 +65,7 @@ export class NodeManager {
       this.spawnWeather(),
       this.spawnSystemInfo(),
       this.spawnClipboardHistory(),
+      this.spawnMacosMessages(),
     ])
   }
 
@@ -181,6 +183,25 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/clipboard-history build`',
       secretEnvName: 'MESH_CLIPBOARD_HISTORY_SECRET',
       secretValue: this.secrets.clipboardHistorySecret,
+      extraEnv: { AETHER_DATA_DIR: dataDir },
+    })
+  }
+
+  private async spawnMacosMessages(): Promise<void> {
+    // macos_messages node — reads ~/Library/Messages/chat.db read-only
+    // every 30s, per-chat watermark on date_delivered, composite
+    // (chat_id, message_id) dedup, per-node SQLite mirror. Needs Full
+    // Disk Access; the daemon stays up and logs gracefully on EACCES
+    // until permission is granted. AETHER_DATA_DIR is the writable root
+    // for the running marker + messages.db.
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'macos_messages',
+      entry: MACOS_MESSAGES_ENTRY,
+      buildHint: '`pnpm --filter @aether/macos-messages build`',
+      secretEnvName: 'MESH_MACOS_MESSAGES_SECRET',
+      secretValue: this.secrets.macosMessagesSecret,
       extraEnv: { AETHER_DATA_DIR: dataDir },
     })
   }

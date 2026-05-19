@@ -24,6 +24,7 @@ export interface MeshSecrets {
   remindersSecret: string
   systemInfoSecret: string
   clipboardHistorySecret: string
+  macosMessagesSecret: string
 }
 
 function hex32(): string {
@@ -54,5 +55,6 @@ export function generateMeshSecrets(): MeshSecrets {
     remindersSecret: getNodeSecret('reminders'),
     systemInfoSecret: getNodeSecret('system_info'),
     clipboardHistorySecret: getNodeSecret('clipboard_history'),
+    macosMessagesSecret: getNodeSecret('macos_messages'),
   }
 }

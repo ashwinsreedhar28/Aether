@@ -96,6 +96,25 @@ nodes:
         invocation_mode: request_response
         schema: nodes/clipboard_history/schemas/recent.json
 
+  - id: macos_messages
+    runtime: local-process
+    identity_secret: env:MESH_MACOS_MESSAGES_SECRET
+    metadata:
+      description: |
+        macOS iMessage/SMS mirror. Reads ~/Library/Messages/chat.db
+        read-only every 30s (better-sqlite3 readonly + 5s busy_timeout
+        to coexist with Messages.app), per-chat watermark on
+        date_delivered (Mac Absolute Time, ns since 2001-01-01),
+        composite UNIQUE(chat_id, message_id) dedup, INSERT OR IGNORE.
+        Local SQLite at $AETHER_DATA_DIR/macos_messages/messages.db.
+        Requires Full Disk Access; EACCES is logged once and returns
+        empty gracefully — the daemon stays up.
+    surfaces:
+      - name: recent
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/macos_messages/schemas/recent.json
+
   - id: finance
     runtime: local-process
     identity_secret: env:MESH_FINANCE_SECRET
@@ -324,6 +343,12 @@ relationships:
   # → reads the most recent pasteboard entries.
   - from: raven
     to: clipboard_history.recent
+
+  # Voice tool messages_recent: "what did <person> say" / "any new
+  # messages" → Gemini calls messages_recent → mesh.invoke('macos_messages.recent')
+  # → reads recent iMessage/SMS rows mirrored from chat.db.
+  - from: raven
+    to: macos_messages.recent
 
   # News keyword search. Shell edge is reserved for a future UI search
   # bar inside the News app (not consumed in the PR that introduces the

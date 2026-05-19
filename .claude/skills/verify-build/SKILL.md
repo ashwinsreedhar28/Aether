@@ -49,6 +49,21 @@ fi
 echo "=== verify-build: clean ==="
 ```
 
+## Additional clauses
+
+- Run `pnpm -r typecheck` from the repo root, not just `pnpm typecheck`
+  in `shell/`. CI runs the recursive form; local should match. (Lesson:
+  PR #75 passed shell-only typecheck locally, failed CI when
+  `pnpm -r typecheck` exposed unresolved types for a new workspace
+  package. See governance-log entry 7.)
+- After `pnpm install`, assert the lockfile is in a clean state before
+  proceeding to build/typecheck/lint:
+    `git diff --quiet pnpm-lock.yaml || (echo "lockfile uncommitted"; exit 1)`
+  This catches the order-of-operations bug where `git add -A` runs
+  before `pnpm install`, leaving lockfile changes unstaged. (Lesson:
+  PR #74 failed CI with `ERR_PNPM_OUTDATED_LOCKFILE`. See governance-log
+  entry 6.)
+
 ## Reporting
 
 Paste the full output to Director. Do NOT proceed to `ship-it` until Director says "clean, proceed."

@@ -9,6 +9,16 @@ Canonical ship sequence for the Aether repo.
 
 ## Preconditions
 
+- **Order:** Run `pnpm install` BEFORE `git add -A`. The install may
+  update `pnpm-lock.yaml`; that update must be staged in the same
+  commit as the dependency changes that triggered it. Reversing this
+  order leaves the lockfile change unstaged and CI fails with
+  `ERR_PNPM_OUTDATED_LOCKFILE` (see governance-log entry 6).
+- Before committing, assert the lockfile is staged if any
+  `package.json` files changed:
+    `git diff --cached --name-only | grep -qE "package\.json$" && \`
+    `git diff --cached --name-only | grep -q "pnpm-lock.yaml" || \`
+    `(echo "package.json changed but lockfile not staged"; exit 1)`
 - `verify-build` ran and returned clean.
 - Director typed "clean, proceed" or equivalent.
 - Lane has a GitHub Issue (`Closes #<N>`).

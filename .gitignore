@@ -47,3 +47,6 @@ Thumbs.db
 logs/
 *.log
 
+# Local session state files (Director planning notes, not committed)
+_session_state.md
+

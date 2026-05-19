@@ -159,3 +159,70 @@ The repetitive verify+commit+PR dance was being rewritten in every prompt. Extra
 ### GitHub Issues / PR template rationale
 
 Sprint 4 backlog lived in chat history and `_session_state.md` — neither visible to a returning Director or future Implementer session without onboarding. Issues make backlog repo-public. PRs with `Closes #N` close the loop automatically and produce navigable history.
+
+## Sprint 4 Wave 2 lessons banked (2026-05-18 through 2026-05-20)
+
+1. **`_ingest/` patterns are facts about source repos, not Aether facts.**
+   Drafted Wave 2 prompts inherited three structural assumptions from
+   Pulse (BrowserWindow IPC broadcast, global migration registry,
+   shell-services polling) that don't apply to Aether's daemon-per-node
+   architecture. Implementer caught two of the three in pre-flight on
+   #73; the third was caught manually during reshape. Rule: any lane that
+   references `_ingest/` patterns must read at least one existing Aether
+   node (canonical: `nodes/news_feeds/` or `nodes/clipboard_history/`)
+   alongside any pattern hoist.
+
+2. **aether-explorer scope ≤2 dimensions per invocation.** A 6-dimension
+   explorer call during Wave 2 prep ran for ~10 min, then stalled on its
+   second invocation, losing everything (subagents return only at end,
+   per §13). Rule: explorer calls are bounded; if a question has more
+   than 2 dimensions, split into multiple calls or read directly.
+
+3. **Subagent stalls lose all work; main-session stalls preserve partial.**
+   A subagent that stalls mid-execution returns nothing to the caller.
+   A main-session CC that stalls leaves partial writes in the worktree
+   (sometimes substantial — see lesson 10). Rule: when the read phase
+   is fragile, prefer main-session over subagent.
+
+4. **`git status` on a worktree is the first triage move, not the last.**
+   After PR #74's CC session "stalled," we assumed nothing was written.
+   Days later, `git status` on the worktree revealed 13 file touches
+   completed — the session had finished writes but hadn't reached
+   verify-build before the stall. Resulted in landing #74 in ~20 minutes
+   from a state we'd written off. Rule: always `git status` worktree
+   before assuming a stall produced nothing.
+
+5. **New CHOKE FILES discovered.** `manifest.yaml` (~530 lines, growing
+   ~25 per node), `docs/new-node-pattern.md` (~827 lines),
+   `shell/electron/main/services/coreManager.ts` (~250 lines, growing
+   ~10 per node), `.github/workflows/ci.yml` (~90 lines high-value).
+   Added to §13.3 CHOKE FILES list.
+
+6. **`pnpm install` MUST run before `git add -A` in ship sequences.**
+   PR #74 failed CI with `ERR_PNPM_OUTDATED_LOCKFILE` because the
+   manual ship script staged before installing, leaving the lockfile
+   update unstaged. Codified in `.claude/skills/ship-it/SKILL.md`.
+
+7. **`pnpm -r typecheck`, not just `pnpm typecheck` in shell.** PR #75
+   passed local verify (shell-only typecheck) but failed CI when
+   `pnpm -r typecheck` exposed unresolved types for the new
+   `@aether/macos-applescript` workspace package. Codified in
+   `.claude/skills/verify-build/SKILL.md`.
+
+8. **Three hardcoded package lists trap new SDK-shape workspace packages.**
+   `shell/package.json` prebuild filter, `.github/workflows/ci.yml`
+   pre-build step, and `shell/electron/main/services/staleSpawns.ts`
+   cleanup entries each maintain a hand-curated list of packages.
+   Adding `@aether/macos-applescript` missed all three; the CI list bit
+   #75. ADR proposes `pnpm -r build` before `pnpm -r typecheck` as the
+   forward path (see DECISIONS.md 2026-05-20).
+
+9. **Manual completion pattern is a viable hostile-API fallback.** Used
+   three times in Sprint 4 (clipboard #73 manual, messages #74 recovery,
+   mail #75 mid-lane recovery). ~30 min per node, Architect-dictated
+   cat-heredocs + Python patches. Documented in `docs/manual-completion.md`.
+
+10. **macOS case-insensitive FS + case-sensitive git index can shadow files.**
+    Encountered during Wave 1 cleanup when a lowercase file existed
+    alongside an UPPERCASE version in the git index. Watch for any
+    rename that only changes case.

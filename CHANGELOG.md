@@ -31,6 +31,16 @@ historical record.
 - Aether macOS app icon. Replaces the default Electron icon in Dock, Activity Monitor, Finder, and Cmd-Tab. Source assets in `docs/branding/`.
 
 ### Changed
+- Sprint 4 governance batch 4 — codifies ~10 lessons from Wave 2 (#73,
+  #74, #75). CLAUDE.md §13.3 CHOKE FILES list expanded (manifest.yaml,
+  docs/new-node-pattern.md, coreManager.ts, ci.yml). New §13.8 (Architect
+  pre-flight checklist) and §13.9 (Manual completion fallback). New
+  `docs/manual-completion.md` documents the proven Director-Architect
+  paste-and-write fallback used three times in Sprint 4. Skill files
+  updated: verify-build now runs `pnpm -r typecheck` and asserts
+  lockfile cleanliness; ship-it asserts `pnpm install` precedes
+  `git add -A`. New ADR (proposed) for `pnpm -r build` before typecheck
+  to auto-discover SDK-shape workspace packages. Closes #76.
 - **Sprint 4 process discipline codified.** New `CLAUDE.md` §13 sets the operations contract for Implementer prompts (lane-type tagging, mandatory pre-flight reads, large-file caution, pre-staging policy, verify-then-ship sequencing). Adds canonical prompt template, three subagents (`aether-implementer` on Opus, `aether-explorer` on Haiku, `aether-reviewer` on Sonnet), two skills (`verify-build`, `ship-it`), GitHub Issue + PR templates, and a new ADR. Docs-only — no source-code changes.
 - Splash window now gates dismissal on backend readiness (mesh + voice + renderer) instead of renderer-mount alone, with a 1.8s minimum-display floor and a 15s hard cap. Existing `splash.html` gains a dynamic status line + thin progress bar driven by a new `splashPreload.ts` IPC channel (`splash:phase` → `window.aetherSplash.onPhase`). Replaces the previous flow where the main window appeared before mesh and voice were ready, leaving the user staring at empty surfaces for 5–30 seconds on cold start. Vision, calendar, and reminders intentionally NOT phases — they degrade gracefully and their cold-start venv bootstraps would push splash duration beyond the 15s cap. Cache-hydration awareness (PR #65 tie-in) deferred to a follow-up until the finance node exposes a `hydratedFromCache` event.
 - News urgency scoring: added `urgency_reason` field to Article shape so voice responses speak the *why* of urgency (e.g. `"breaking prefix + <1h fresh"`, `"wire source + war topic"`). Existing scorer weights audited and left unchanged — the four-component design from the 2026-05-13 ADR is sound; the gap was voice-speak-the-why, not weight tuning. Schema bumps to `user_version=5` with a v4→v5 migration adding the column. `.breaking` surface and `news_breaking` voice tool unchanged in shape; new field is additive.

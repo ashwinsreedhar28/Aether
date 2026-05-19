@@ -21,7 +21,7 @@ import { registerFileHandlers } from './handlers/files'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
-import { registerPythonDaemonNode } from './services/nodeRegistry'
+import { registerPythonDaemonNode, waitForMeshReady } from './services/nodeRegistry'
 
 // Lock Electron's app name before any code calls app.getPath('userData') —
 // app.getPath derives the userData root from the app name, and we want the
@@ -57,6 +57,7 @@ migrateDataDirFromHomeOS()
 // Resources sit at the project root under shell/resources/.
 const RESOURCES_DIR = join(__dirname, '../../resources')
 const PRELOAD_PATH = join(__dirname, '../preload/index.js')
+const SPLASH_PRELOAD_PATH = join(__dirname, '../preload/splashPreload.js')
 const SPLASH_HTML = join(RESOURCES_DIR, 'splash.html')
 const TRAY_ICON = join(RESOURCES_DIR, 'icons/trayTemplate.png')
 const APP_ICON = join(__dirname, '../../assets/aether-icon.png')
@@ -96,6 +97,7 @@ function createSplash(): BrowserWindow {
     hasShadow: false,
     alwaysOnTop: true,
     webPreferences: {
+      preload: SPLASH_PRELOAD_PATH,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
@@ -106,6 +108,15 @@ function createSplash(): BrowserWindow {
     splashWindow = null
   })
   return win
+}
+
+// Push a boot-phase update to the splash. No-op once the splash has been
+// destroyed — revealMain races phases concurrently and we don't want a
+// late sendSplashPhase from a still-pending promise to throw after dismiss.
+function sendSplashPhase(label: string, index: number, total: number): void {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.webContents.send('splash:phase', { label, index, total })
+  }
 }
 
 function createMain(): BrowserWindow {
@@ -146,24 +157,78 @@ function createMain(): BrowserWindow {
   return win
 }
 
+// Floor — prevents flash-and-vanish on warm-cache startups where every
+// subsystem is already healthy by the time the splash has rendered.
+const MIN_SPLASH_MS = 1800
+// Hard cap — never hold the splash longer than this even if a subsystem
+// hangs. waitForMeshReady's own timeout argument enforces the mesh leg;
+// raven.ensureRunning() resolves either way (ready or degraded). The cap
+// is here as belt-and-braces so a misbehaving subsystem can't trap boot.
+const HARD_CAP_MS = 15000
+
 async function revealMain(): Promise<void> {
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = createMain()
   }
-  // Wait for React mount signal (capped at 2.5s) — the watchdog covers the
-  // case where the renderer crashes or never sends the signal in dev mode.
-  await Promise.race([
-    rendererReady,
-    new Promise<void>((resolve) => setTimeout(resolve, 2500))
-  ])
+
+  const startedAt = Date.now()
+  const phases: { label: string; promise: Promise<unknown> }[] = []
+
+  // Phase 1 — renderer-ready (kept; React still has to mount before show).
+  phases.push({
+    label: 'Renderer',
+    promise: Promise.race([
+      rendererReady,
+      new Promise<void>((resolve) => setTimeout(resolve, 2500))
+    ])
+  })
+
+  // Phase 2 — mesh ready. waitForMeshReady polls nodeRegistry's meshState
+  // until 'ready' or 'failed', or the timeout fires. The timeout is the
+  // hard cap, so the slowest the mesh leg can hold the splash is HARD_CAP_MS.
+  phases.push({
+    label: 'Mesh',
+    promise: waitForMeshReady(HARD_CAP_MS).catch(() => false)
+  })
+
+  // Phase 3 — voice daemon. ensureRunning resolves either way (healthy or
+  // 'unavailable'), so awaiting it means "voice has finished trying," not
+  // "voice is up." That's the right gate — Voice pill flips red after this
+  // resolves if it failed, but the rest of the shell stays usable.
+  phases.push({
+    label: 'Voice',
+    promise: raven.ensureRunning().catch(() => undefined)
+  })
+
+  const total = phases.length
+
+  // Announce each phase as it starts and again as it completes. Phases
+  // run concurrently — Promise.all is just a join; phase order in the
+  // status text reflects completion order, not array order.
+  await Promise.all(
+    phases.map(async (p, i) => {
+      sendSplashPhase(p.label, i, total)
+      await p.promise
+      sendSplashPhase(`${p.label} ready`, i + 1, total)
+    })
+  )
+
+  // Minimum-display floor. If everything was already warm and the phases
+  // resolved fast, hold the splash long enough that the user actually
+  // sees it instead of catching a flash of frame.
+  const elapsed = Date.now() - startedAt
+  if (elapsed < MIN_SPLASH_MS) {
+    await new Promise<void>((resolve) => setTimeout(resolve, MIN_SPLASH_MS - elapsed))
+  }
+
   // Destroy splash synchronously (no fade) so the two windows never overlap.
   if (splashWindow && !splashWindow.isDestroyed()) {
     splashWindow.destroy()
   }
   splashWindow = null
-  // Compositor settle. 180ms is generous — empirically enough on
-  // M-series to ensure the splash destroy has been composited before
-  // the main window's first paint lands. Without this, reveal jitters.
+  // 180ms compositor settle — empirically enough on M-series to ensure
+  // the splash destroy has been composited before the main window's
+  // first paint lands. Without this, reveal jitters.
   await new Promise<void>((resolve) => setTimeout(resolve, 180))
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show()

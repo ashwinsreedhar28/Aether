@@ -22,7 +22,15 @@ export default defineConfig({
     build: {
       outDir: 'out/preload',
       rollupOptions: {
-        input: { index: resolve(__dirname, 'electron/preload/index.ts') }
+        // Two preload entries — `index` is the main window's window.aether
+        // surface; `splashPreload` is a tiny script that only exposes
+        // window.aetherSplash so the boot-phase status line can update.
+        // electron-vite emits each input as `<key>.js` under outDir, which
+        // is what main/index.ts loads via SPLASH_PRELOAD_PATH.
+        input: {
+          index: resolve(__dirname, 'electron/preload/index.ts'),
+          splashPreload: resolve(__dirname, 'electron/preload/splashPreload.ts')
+        }
       }
     }
   },

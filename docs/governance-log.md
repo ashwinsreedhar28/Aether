@@ -125,3 +125,37 @@ Implementer specs can diverge from the binding ADR on subtle but load-bearing po
 - **TypeScript mesh nodes require build after fresh pull.** TypeScript mesh nodes (system_info, finance, news_feeds, weather) compile to `dist/` directories outside of `node_modules` and do not auto-rebuild on `pnpm install`. After cloning or pulling a fresh `main`, run `pnpm -r build` before starting Aether or the mesh will fail at node-spawn time with "system_info dist not found at /Users/.../dist/index.js". Future arc: a postinstall hook or build-if-missing gate in `nodeManager.ts` may automate this; for now it is a manual discipline.
 
 ---
+
+## Sprint 4 — Process Discipline Codification (post-#67)
+
+Sprint 4 accumulated more operational lessons than any prior sprint. This appendix records the rationale behind §13 of CLAUDE.md and its supporting infrastructure (`docs/implementer-prompt-template.md`, `.claude/agents/`, `.claude/skills/`, `.github/`).
+
+### Why a dedicated process lane
+
+Across PRs #64–#67 and several days of varying API conditions, the same friction patterns recurred:
+
+- **Read-phase stalls.** Sessions hit hostile-API windows during the initial multi-file read, before any write occurred. #65 and #66 required manual completion. #67 was resolved structurally by pre-staging the splash code inline — landed in 40 minutes after three prior failed attempts. Lesson: when API is hostile, the read phase is the bottleneck; pre-staging file content in the prompt removes the failure mode entirely.
+
+- **Wrong-scoped lanes.** Twice in Sprint 4, the Architect drafted a prompt without first grepping the codebase. Both lanes had to be re-scoped mid-session. Pre-flight grep by the Architect, captured explicitly in every prompt, makes this failure mode visible before the Implementer starts.
+
+- **Choke-file context drag.** `DECISIONS.md` (2148 lines) and `CHANGELOG.md` (1036 lines) became the new context-budget choke points after the §10 extraction in #64. Every prompt touching either now requires targeted grep + view line_range, never full-read.
+
+- **Verify-clean stall.** Sessions consistently stalled between running verify and opening the PR — sometimes 5+ minutes silent. Resolved by separating into two explicit skills (`verify-build` then `ship-it`) with a Director confirmation gate between them.
+
+- **State preservation across time gaps.** Director returning hours or days later asked "where are we"; reconstructing state from memory + git was fragile. Architect now writes `_session_state.md` (gitignored) at productive session ends.
+
+### Subagent rationale
+
+The read-phase problem is structural: Implementer's main context fills with raw file content during reads, then the same context has to hold the write plan. On hostile-API days the read phase stalls before the write begins. The subagent split fixes it:
+
+- `aether-explorer` (Haiku) reads in isolated context, returns a summary, never writes.
+- `aether-implementer` (Opus) is the canonical builder; first action is a write.
+- `aether-reviewer` (Sonnet) runs the §11 walk-through before the PR opens.
+
+### Skills rationale
+
+The repetitive verify+commit+PR dance was being rewritten in every prompt. Extracting `verify-build` and `ship-it` makes the sequence canonical and resolves the stall pattern via explicit two-phase commit with a Director gate.
+
+### GitHub Issues / PR template rationale
+
+Sprint 4 backlog lived in chat history and `_session_state.md` — neither visible to a returning Director or future Implementer session without onboarding. Issues make backlog repo-public. PRs with `Closes #N` close the loop automatically and produce navigable history.

@@ -1,0 +1,47 @@
+name: Lane
+description: A single Sprint lane (one PR, one merge)
+title: "<type>(<scope>): <imperative summary>"
+labels: ["lane"]
+body:
+  - type: dropdown
+    id: lane-type
+    attributes:
+      label: Lane type
+      options:
+        - TUNING
+        - NEW-SURFACE
+        - NEW-NODE
+        - REFACTOR
+        - CHORE
+        - DOCS
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: One-paragraph user-visible or system-visible outcome.
+      placeholder: After this lane lands, ...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope (files touched)
+      description: Best-effort list; revise in the PR if scope shifts.
+    validations:
+      required: false
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope / follow-ups
+      description: Things this lane explicitly does NOT do. Future lanes can pick them up.
+    validations:
+      required: false
+  - type: input
+    id: sprint
+    attributes:
+      label: Sprint / Wave
+      placeholder: Sprint 4 — Wave 2
+    validations:
+      required: true

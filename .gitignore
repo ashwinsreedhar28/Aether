@@ -30,7 +30,11 @@ __pycache__/
 # Editor / OS
 .vscode/
 .idea/
-.claude/
+# Ignore user-local Claude state (logs, settings, history) but track
+# shared subagents and skills per CLAUDE.md §13.
+.claude/*
+!.claude/agents/
+!.claude/skills/
 .DS_Store
 Thumbs.db
 

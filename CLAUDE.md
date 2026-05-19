@@ -411,4 +411,38 @@ When unsure, **ask Director in chat which of these it is.** Don't decide unilate
 
 ---
 
+## §13. Implementer Prompt Discipline
+
+Every Implementer prompt is drafted by the Architect against the canonical template at `docs/implementer-prompt-template.md` and MUST include:
+
+1. **Lane type tag** at the top: `LANE TYPE: TUNING | NEW-SURFACE | NEW-NODE | REFACTOR | CHORE | DOCS`. Orients the Implementer to the kind of work and reduces scope-drift risk.
+
+2. **Pre-flight reads completed by Architect** — Architect's grep/file findings BEFORE drafting the prompt. Captures architectural facts (e.g. "feature X already exists at file Y, lane re-scoped"). Skipping this step has, twice in Sprint 4, produced wrong-scoped prompts that wasted Implementer sessions (#66 news-urgency, #67 splash). Mandatory.
+
+3. **Large-file caution block** listing every file > 400 lines in scope, each with explicit `grep + view line_range` instructions. Full-reads of these files have been the single biggest cause of session retries during API-hostile periods. Known choke files (update when a new file breaches 400 lines):
+   - `DECISIONS.md` (~2150 lines as of Sprint 4)
+   - `CHANGELOG.md` (~1040 lines as of Sprint 4)
+   - `shell/electron/main/services/ravenDaemonManager.ts` (~720 lines)
+   - `shell/electron/main/services/nodeRegistry.ts` (~510 lines)
+
+4. **Pre-staged context** when ANY of the following is true: API symptoms in past 24h, lane requires 5+ file reads, or scope includes a known choke file. Architect dumps relevant file content inline so the Implementer's first action is a write, not a read.
+
+5. **Lane scoping rules**: split a lane when total files touched > 8, cumulative changes > 500 lines, or scope spans multiple unrelated subsystems.
+
+6. **Hard parallelism policy**: sequential Implementer sessions by default. Parallel sessions only after 24h of clean API readings.
+
+7. **Stall protocol**: 3+ minutes of silent tool calls = interrupt and assess. 5/10 retries in the read phase = let the session bail. 10/10 retries = preserve-or-restart decision.
+
+8. **Pulse/RAVEN hoisting language**: lanes that lift patterns from `_ingest/Pulse/` or `_ingest/RAVEN_MESH/` get explicit consult instructions naming the source files and the relevant pattern.
+
+9. **Session-end checkpoint discipline**: Architect writes a `_session_state.md` block to `~/aether/` at any productive session end. Gitignored. Survives time gaps.
+
+10. **Subagent delegation**: read-heavy exploration belongs to `aether-explorer` (Haiku). Build belongs to `aether-implementer` (Opus). Pre-PR review belongs to `aether-reviewer` (Sonnet). See `.claude/agents/`.
+
+11. **Verify-then-ship sequencing**: every Implementer prompt ends with the `verify-build` skill, then (only on Director's "clean, proceed") the `ship-it` skill. Sequential, not concurrent. Resolves the verify-clean stall pattern observed in #65–#67.
+
+12. **One issue per lane**: every lane opens a GitHub Issue using `.github/ISSUE_TEMPLATE/lane.yml`. PR body uses `Closes #<issue>`. Backlog visible in Issues, not buried in chat.
+
+---
+
 *End of CLAUDE.md. If you reached this line and something above contradicts itself, or doesn't cover a situation you hit, raise it in the next PR's description under "Open questions for Architect." This file is meant to grow.*

@@ -8,7 +8,7 @@ before submitting if you like; leaving them in is fine too.
 <!-- one paragraph — what's different about the codebase after this PR -->
 
 ## Why
-<!-- one paragraph — the goal from the task spec, and how this PR meets it -->
+<!-- one paragraph — the goal from the lane's GitHub Issue, and how this PR meets it -->
 
 ## How (high level)
 <!-- 2-4 bullets — the design decisions, not a file-by-file walkthrough -->
@@ -17,26 +17,29 @@ before submitting if you like; leaving them in is fine too.
 <!--
 honest list. If you skipped tests, say so. If you used a workaround, say so.
 If something obviously-related-but-out-of-scope is now load-bearing, say so.
-The point is to make life easy for Architect's review.
 -->
 
 ## Out-of-scope work explicitly avoided
 <!--
 list things you noticed could be improved but deliberately did not touch,
 with a one-line rationale each. Architect uses this to confirm scope
-discipline.
+discipline (CLAUDE.md §13.5).
 -->
 
 ## Pre-PR heuristics
 <!--
 Confirm you've considered each item in CLAUDE.md §11 Architect Review
-Heuristics. Note any that were skipped (with reason) or deliberately
-deviated from. "Considered" means thought about — most items will be N/A
-on most PRs, that's fine; the prompt is what matters.
+Heuristics. The `aether-reviewer` subagent (CLAUDE.md §13.10) can run
+this walk-through automatically.
 -->
 
 ## Verification
-<!-- how you tested this — commands run, what you saw, screenshots if visual. -->
+<!-- Output of the `verify-build` skill (CLAUDE.md §13.11). -->
+- `pnpm build` ✅
+- `pnpm typecheck` ✅
+- `pnpm lint` ✅
 
 ## Open questions for Architect
 <!-- if any. Be specific. "Should X be Y or Z?" not "thoughts on X?". -->
+
+Closes #<issue>

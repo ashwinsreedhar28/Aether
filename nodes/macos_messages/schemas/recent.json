@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "macos_messages.recent",
+  "title": "macos_messages.recent",
+  "description": "Return the most recent iMessage/SMS messages mirrored from the macOS Messages chat.db, newest first.",
+  "type": "object",
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500,
+      "description": "Maximum number of messages to return. Default 50."
+    },
+    "since": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp; only return messages delivered at or after this time."
+    }
+  },
+  "additionalProperties": false
+}

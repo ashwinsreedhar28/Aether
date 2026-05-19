@@ -126,6 +126,11 @@ export class CoreManager {
       // manifest load so nodeManager can inject the same value into the
       // clipboard_history child's env.
       MESH_CLIPBOARD_HISTORY_SECRET: this.secrets.clipboardHistorySecret,
+      // macOS messages is a TypeScript data node (spawned by nodeManager).
+      // Same env contract — Core resolves env:MESH_MACOS_MESSAGES_SECRET at
+      // manifest load so nodeManager can inject the same value into the
+      // macos_messages child's env.
+      MESH_MACOS_MESSAGES_SECRET: this.secrets.macosMessagesSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

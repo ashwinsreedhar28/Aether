@@ -115,6 +115,25 @@ nodes:
         invocation_mode: request_response
         schema: nodes/macos_messages/schemas/recent.json
 
+  - id: macos_mail
+    runtime: local-process
+    identity_secret: env:MESH_MACOS_MAIL_SECRET
+    metadata:
+      description: |
+        macOS Mail.app inbox mirror. Polls Mail.app every 60 seconds via
+        the @aether/macos-applescript bridge for the most recent 50
+        inbox messages. Dedupes by message UID with INSERT OR IGNORE;
+        persists subject / sender / date_received / read_status to
+        per-node SQLite at $AETHER_DATA_DIR/macos_mail/mail.db. Requires
+        Mail.app Automation permission (System Settings → Privacy &
+        Security → Automation); denial is logged once and the daemon
+        stays up, retrying silently until granted.
+    surfaces:
+      - name: recent
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/macos_mail/schemas/recent.json
+
   - id: finance
     runtime: local-process
     identity_secret: env:MESH_FINANCE_SECRET
@@ -349,6 +368,12 @@ relationships:
   # → reads recent iMessage/SMS rows mirrored from chat.db.
   - from: raven
     to: macos_messages.recent
+
+  # Voice tool mail_recent: "any new mail" / "what's in my inbox" →
+  # Gemini calls mail_recent → mesh.invoke('macos_mail.recent') → reads
+  # recent Mail.app inbox messages mirrored via the AppleScript bridge.
+  - from: raven
+    to: macos_mail.recent
 
   # News keyword search. Shell edge is reserved for a future UI search
   # bar inside the News app (not consumed in the PR that introduces the

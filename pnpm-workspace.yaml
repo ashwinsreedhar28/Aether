@@ -1,5 +1,5 @@
 packages:
   - 'shell'
-  - 'core/node_sdk_ts'
+  - 'core/*'
   - 'nodes/*'
   - 'daemons/raven-daemon'

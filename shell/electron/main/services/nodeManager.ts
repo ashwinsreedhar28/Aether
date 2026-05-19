@@ -6,6 +6,7 @@ import {
   DIGEST_ENTRY,
   FINANCE_ENTRY,
   HOST_NOTIFICATIONS_ENTRY,
+  MACOS_MAIL_ENTRY,
   MACOS_MESSAGES_ENTRY,
   NEWS_FEEDS_ENTRY,
   SYSTEM_INFO_ENTRY,
@@ -66,6 +67,7 @@ export class NodeManager {
       this.spawnSystemInfo(),
       this.spawnClipboardHistory(),
       this.spawnMacosMessages(),
+      this.spawnMacosMail(),
     ])
   }
 
@@ -202,6 +204,25 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/macos-messages build`',
       secretEnvName: 'MESH_MACOS_MESSAGES_SECRET',
       secretValue: this.secrets.macosMessagesSecret,
+      extraEnv: { AETHER_DATA_DIR: dataDir },
+    })
+  }
+
+  private async spawnMacosMail(): Promise<void> {
+    // macos_mail node — polls Mail.app inbox every 60s via the
+    // @aether/macos-applescript bridge, dedupes by message UID,
+    // mirrors to per-node SQLite. Requires Mail.app Automation
+    // permission; the daemon stays up and logs once on denial, then
+    // retries silently until permission is granted. AETHER_DATA_DIR
+    // is the writable root for the running marker + mail.db.
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'macos_mail',
+      entry: MACOS_MAIL_ENTRY,
+      buildHint: '`pnpm --filter @aether/macos-mail build`',
+      secretEnvName: 'MESH_MACOS_MAIL_SECRET',
+      secretValue: this.secrets.macosMailSecret,
       extraEnv: { AETHER_DATA_DIR: dataDir },
     })
   }

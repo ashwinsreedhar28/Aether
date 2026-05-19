@@ -1,0 +1,33 @@
+{
+  "name": "@aether/macos-applescript",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Thin TypeScript bridge around osascript. Used by macOS daemon nodes (Mail, Reminders, Notes, Calendar.app) to invoke AppleScript with structured error categorization.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.18.0",
+    "typescript": "~5.7.0",
+    "typescript-eslint": "^8.20.0"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}

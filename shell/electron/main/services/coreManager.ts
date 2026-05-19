@@ -131,6 +131,12 @@ export class CoreManager {
       // manifest load so nodeManager can inject the same value into the
       // macos_messages child's env.
       MESH_MACOS_MESSAGES_SECRET: this.secrets.macosMessagesSecret,
+      // macOS mail is a TypeScript data node (spawned by nodeManager).
+      // Uses the @aether/macos-applescript bridge for Mail.app inbox
+      // queries. Same env contract — Core resolves env:MESH_MACOS_MAIL_SECRET
+      // at manifest load so nodeManager can inject the same value into
+      // the macos_mail child's env.
+      MESH_MACOS_MAIL_SECRET: this.secrets.macosMailSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

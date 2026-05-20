@@ -1,11 +1,12 @@
 """System Info Tool - macOS system status readbacks via the mesh.
 
-Four tools, all routed through ``mesh_invoke`` to the system_info node:
+Five tools, all routed through ``mesh_invoke`` to the system_info node:
 
-  - ``system_battery()``       → ``system_info.battery()``
-  - ``system_disk()``          → ``system_info.disk()``
-  - ``system_network()``       → ``system_info.network()``
-  - ``system_active_app()``    → ``system_info.active_app()``
+  - ``system_battery()``                   → ``system_info.battery()``
+  - ``system_disk()``                      → ``system_info.disk()``
+  - ``system_network()``                   → ``system_info.network()``
+  - ``system_active_app()``                → ``system_info.active_app()``
+  - ``system_processes(limit?, sort_by?)`` → ``system_info.processes(...)``
 
 Pattern matches calendar_tool / news_tool / finance_tool: declare the
 function for Gemini, implement as a thin ``await mesh_invoke(...)``,
@@ -14,7 +15,8 @@ each tool has its own formatting logic.
 
 Battery/disk/network are obtained via shell commands (pmset, df,
 networksetup, wdutil). Active app requires Automation permission for
-System Events (prompted on first call via osascript).
+System Events (prompted on first call via osascript). Processes are
+obtained via ps and sorted by CPU% or memory.
 """
 from __future__ import annotations
 
@@ -24,7 +26,13 @@ from google.genai import types
 
 from ..mesh_client import MeshUnavailable, mesh_invoke
 
-FUNCTIONS = ["system_battery", "system_disk", "system_network", "system_active_app"]
+FUNCTIONS = [
+    "system_battery",
+    "system_disk",
+    "system_network",
+    "system_active_app",
+    "system_processes",
+]
 
 
 async def _system_battery() -> dict[str, Any]:
@@ -196,6 +204,58 @@ async def _system_active_app() -> dict[str, Any]:
     }
 
 
+async def _system_processes(limit: int, sort_by: str) -> dict[str, Any]:
+    """Fetch top processes by CPU or memory."""
+    clamped = max(1, min(limit, 20))
+    sort_key = sort_by if sort_by in ("cpu", "memory") else "cpu"
+
+    try:
+        response = await mesh_invoke(
+            "system_info.processes",
+            {"limit": clamped, "sort_by": sort_key},
+        )
+    except MeshUnavailable as e:
+        return {"error": "mesh unavailable", "detail": str(e)}
+
+    if not isinstance(response, dict):
+        return {"error": "malformed response"}
+
+    available = response.get("available", True)
+    if not available:
+        return {
+            "error": "unavailable",
+            "spoken": "Process information isn't available right now, sir.",
+        }
+
+    processes = response.get("processes", [])
+    if not processes:
+        return {
+            "processes": [],
+            "spoken": "Nothing notable in process activity, sir.",
+        }
+
+    top = processes[:5]
+    lines: list[str] = []
+    for p in top:
+        name = (p.get("name") or "unknown")[:30]
+        if sort_key == "cpu":
+            value = p.get("cpu_pct", 0)
+            lines.append(f"{name} at {value:.0f}%")
+        else:
+            value = p.get("memory_mb", 0)
+            lines.append(f"{name} using {value:.0f} megabytes")
+
+    metric = "CPU" if sort_key == "cpu" else "memory"
+    spoken = f"Top processes by {metric}, sir: " + "; ".join(lines)
+
+    return {
+        "processes": processes,
+        "count": len(processes),
+        "sort_by": sort_key,
+        "spoken": spoken,
+    }
+
+
 def get_tools() -> list[types.Tool]:
     """Return Gemini function declarations for all system_info tools."""
     battery_func = types.FunctionDeclaration(
@@ -260,10 +320,44 @@ def get_tools() -> list[types.Tool]:
         ),
     )
 
+    processes_func = types.FunctionDeclaration(
+        name="system_processes",
+        description=(
+            "Get the top processes by CPU or memory usage. Use when the user "
+            "asks 'what's hogging my CPU', 'what's eating my memory', 'top "
+            "processes', 'what's running'. Returns a list of processes with "
+            "name, cpu_pct, memory_mb, sorted by the requested key. Default "
+            "sorts by CPU, default limit 5, max 20. Read the spoken field "
+            "verbatim."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "limit": types.Schema(
+                    type=types.Type.INTEGER,
+                    description=(
+                        "Optional number of top processes to return. "
+                        "Default 5, clamped to 1-20."
+                    ),
+                ),
+                "sort_by": types.Schema(
+                    type=types.Type.STRING,
+                    description=(
+                        "Sort key: 'cpu' (default) for CPU% or 'memory' "
+                        "for memory_mb."
+                    ),
+                    enum=["cpu", "memory"],
+                ),
+            },
+            required=[],
+        ),
+    )
+
     return [
         types.Tool(
             function_declarations=[
-                battery_func, disk_func, network_func, active_app_func
+                battery_func, disk_func, network_func,
+                active_app_func, processes_func,
             ]
         )
     ]
@@ -279,4 +373,12 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
         return await _system_network()
     if name == "system_active_app":
         return await _system_active_app()
+    if name == "system_processes":
+        limit = args.get("limit", 5)
+        if not isinstance(limit, int):
+            limit = 5
+        sort_by = args.get("sort_by", "cpu")
+        if not isinstance(sort_by, str):
+            sort_by = "cpu"
+        return await _system_processes(limit, sort_by)
     return None

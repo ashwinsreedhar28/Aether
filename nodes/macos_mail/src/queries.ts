@@ -1,7 +1,15 @@
 // AppleScript invoked via @aether/macos-applescript. Queries Mail.app's
-// inbox for the most recent N messages and returns tab-separated values:
+// inbox for the 20 most recent messages and returns tab-separated values:
 //
 //   <message_id>\t<subject>\t<sender>\t<iso_date>\t<read_status>\n
+//
+// Scoped via `messages 1 thru 20 of inbox` rather than enumerating the
+// full inbox — Mail.app indexes the inbox newest-first by default, so
+// the range gives us the 20 most-recent without an explicit sort, and
+// avoids the 30s `runAppleScript` timeout on large mailboxes (the prior
+// "messages of inbox" form timed out on a 97k-message account). The
+// range operator caps at the available count when the inbox holds
+// fewer than 20.
 //
 // TSV is simpler than JSON-from-AppleScript (which is fragile across
 // macOS versions). The poller splits the output and INSERT OR IGNOREs
@@ -12,12 +20,8 @@ export const MAIL_RECENT_INBOX_QUERY = `
 on run
   tell application "Mail"
     set output to ""
-    set msgList to messages of inbox
-    set msgLimit to 50
-    set msgCount to 0
+    set msgList to messages 1 thru 20 of inbox
     repeat with msg in msgList
-      if msgCount >= msgLimit then exit repeat
-      set msgCount to msgCount + 1
       try
         set msgId to message id of msg
         set msgSubj to subject of msg

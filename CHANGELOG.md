@@ -69,6 +69,10 @@ historical record.
 - Voice tool registry now auto-discovers tool modules in `daemons/raven-core/raven_core/tools/`. Modules with `get_tools()` and `handle_call_async()` exports are loaded automatically; `__init__.py` no longer needs manual edits per new tool. Adding a new voice tool is now a single-file change.
 
 ### Fixed
+- `macos_mail` AppleScript scoped to 20 most recent inbox messages.
+  Previous enumeration of full inbox exceeded the 30s `runAppleScript`
+  timeout on large mailboxes (repro: 97k messages). Bridge timeout
+  unchanged. Output shape (5-field TSV) unchanged. Closes #100.
 - Voice tools were not wired for the four new Sprint 4 mesh surfaces (`clipboard_history.recent`, `macos_messages.recent`, `macos_mail.recent`, `system_info.processes`). The substrate was alive (Sprint 4 smoke test confirmed all daemons running and surfaces responding via Mesh Dev Tools), but raven had no `FunctionDeclaration`s for any of them — voice queries returned "cannot access that" for every Sprint 4 surface. Five voice tools added/modified in `daemons/raven-core/raven_core/tools/` per the canonical pattern from PR #56:
   - `clipboard_tool.py` (new) — `clipboard_recent`
   - `messages_tool.py` (new) — `messages_recent`

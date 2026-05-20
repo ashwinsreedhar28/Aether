@@ -13,9 +13,13 @@ exposes them on the Aether mesh.
 
 - Source: Mail.app, queried via AppleScript through the
   `@aether/macos-applescript` bridge (`runAppleScript`). The inline
-  script in `src/queries.ts` reads `messages of inbox` and emits up to
-  50 entries per call as tab-separated values, one record per line:
+  script in `src/queries.ts` reads `messages 1 thru 20 of inbox` and
+  emits up to 20 entries per call as tab-separated values, one record
+  per line:
   `<message id>\t<subject>\t<sender>\t<ISO date>\t<read flag 0|1>`.
+  Per-tick capture is scoped at the AppleScript layer to keep queries
+  fast on large mailboxes — enumerating the full inbox exceeded the
+  bridge's 30s timeout on a 97k-message account.
 - Cadence: 60s (`POLL_INTERVAL_MS` in `src/poller.ts`). AppleScript is
   slow (typically 1–3s per call against a populated inbox), so the
   cadence is intentionally coarser than the chat.db poller's 30s.
@@ -23,8 +27,8 @@ exposes them on the Aether mesh.
   `message id` is the source of truth. `INSERT OR IGNORE` collapses
   repeated reads.
 - Cold-start: the first tick is dropped (mirrors the macos_messages
-  pattern); the second tick captures the current top-50 inbox as the
-  baseline. Practically this means the very first 50 messages observed
+  pattern); the second tick captures the current top-20 inbox as the
+  baseline. Practically this means the very first 20 messages observed
   after a fresh start populate at the second cycle, ~120s in.
 
 ## TCC / permissions

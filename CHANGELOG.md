@@ -99,11 +99,15 @@ historical record.
   Tool count goes 23 → 30 functions across 11 → 13 groups. All seven
   new voice tools (3 reminders + 4 system_info) now route through
   Gemini correctly with natural `spoken` field responses.
+- Voice tool wiring follow-ups (v0.9.1 smoke test). Two defects landed in v0.9.1 that the smoke test surfaced:
+  - `time_tool.py` sent `format: "12h"` to the `time.now` surface, but the daemon's schema enum is `["iso", "human"]` with `additionalProperties: false`. Schema validator rejected the call → raven fell back to local time silently, ignoring the requested zone. Fix: send `format: "human"` so the daemon returns a pre-formatted speakable string ("2:32 PM EDT"), parse the daemon's actual response shape `{ time, zone, unix_ms }` directly, drop the 12h/24h voice-side toggle (daemon controls formatting). Adds a `_friendly_zone()` helper so "Asia/Tokyo" renders as "Tokyo" in the spoken response.
+  - `manifest.yaml` was missing the `raven → system_info.processes` edge. PR #84 added the substrate surface but not the raven edge (Sprint 4 wasn't voice-aware); the Sprint 4.5 voice-wiring lane didn't include manifest changes (a lane-spec gap). The `system_processes` voice tool routed correctly inside raven but mesh denied the invocation with `MeshUnavailable`. Fix: add the edge alongside the other `system_info` voice edges.
 
 ---
 
 *Older [Unreleased] entries (Sprint 1 through Sprint 3) are archived
 in [docs/archive/changelog-unreleased-pre-sprint-4.md](docs/archive/changelog-unreleased-pre-sprint-4.md).*
+
 
 ## [0.0.3] - 2026-05-12
 

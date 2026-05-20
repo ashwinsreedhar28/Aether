@@ -8,9 +8,9 @@
   "main": "out/main/index.js",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "predev": "pnpm --filter @aether/mesh-node-sdk build && pnpm --filter @aether/host-notifications build && pnpm --filter @aether/news-feeds build && pnpm --filter @aether/finance build && pnpm --filter @aether/digest build",
+    "predev": "pnpm -r --filter \"!aether-shell\" build",
     "dev": "electron-vite dev",
-    "prebuild": "pnpm --filter @aether/mesh-node-sdk build && pnpm --filter @aether/host-notifications build && pnpm --filter @aether/news-feeds build && pnpm --filter @aether/finance build && pnpm --filter @aether/digest build",
+    "prebuild": "pnpm -r --filter \"!aether-shell\" build",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",

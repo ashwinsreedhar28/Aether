@@ -40,16 +40,16 @@ jobs:
       - name: workspace — install
         run: pnpm install --frozen-lockfile
 
-      # @aether/mesh-node-sdk publishes types via dist/. shell + nodes
-      # consumers can't typecheck against the workspace alias until
-      # dist exists. Same for host_notifications (the shell spawns its
-      # compiled JS at runtime; building it now is the cheapest way to
-      # verify it still compiles).
-      - name: workspace — pre-build workspace packages
-        run: |
-          pnpm --filter @aether/mesh-node-sdk build
-          pnpm --filter @aether/host-notifications build
-          pnpm --filter @aether/macos-applescript build
+      # Build every workspace package in topological order. SDK-shape
+      # packages publish types via dist/; their consumers can't
+      # typecheck against the workspace alias until dist exists.
+      # Running `pnpm -r build` here auto-discovers new SDK-shape
+      # packages without further workflow edits, and also covers the
+      # full shell electron-vite build (main / preload / renderer)
+      # which proves the workspace deps wire correctly end-to-end.
+      # Enacts the 2026-05-20 ADR.
+      - name: workspace — build all
+        run: pnpm -r build
 
       - name: workspace — typecheck
         run: pnpm -r typecheck
@@ -65,8 +65,3 @@ jobs:
 
       - name: core/node_sdk_ts — round-trip test
         run: pnpm --filter @aether/mesh-node-sdk test
-
-      # Full shell build proves electron-vite renders main / preload /
-      # renderer with the workspace deps wired correctly.
-      - name: shell — build
-        run: pnpm --filter aether-shell build

@@ -44,6 +44,14 @@ historical record.
 - Aether macOS app icon. Replaces the default Electron icon in Dock, Activity Monitor, Finder, and Cmd-Tab. Source assets in `docs/branding/`.
 
 ### Changed
+- CI pre-build step replaced with workspace-wide `pnpm -r build`; the
+  hardcoded per-package `pnpm --filter` chain in `.github/workflows/ci.yml`
+  is gone, as is the now-redundant terminal `shell — build` step (covered
+  by `pnpm -r build` running in topological order). `shell/package.json`'s
+  `predev` and `prebuild` scripts likewise drop their hardcoded
+  five-package list in favor of `pnpm -r --filter "!aether-shell" build`,
+  auto-discovering shell's workspace dependencies. Enacts the 2026-05-20
+  ADR (Proposed → Accepted) that PR #75 and PR #85 both validated.
 - CHOKE FILE relief — split `DECISIONS.md` and `CHANGELOG.md` into
   archive files. Decisions dated 2026-05-13 and earlier moved to
   `docs/archive/decisions-pre-2026-05-14.md` (yielded ~455-line

@@ -10,7 +10,7 @@ are preserved verbatim as historical record.
 
 ## [2026-05-20] ADR: `pnpm -r build` before typecheck for SDK-shape workspace package auto-discovery
 
-**Status:** Proposed
+**Status:** Accepted (enacted 2026-05-19 — `.github/workflows/ci.yml` and `shell/package.json` updated; see CHANGELOG entry)
 
 **Decided by:** Architect + Director (Sprint 4 governance batch 4)
 

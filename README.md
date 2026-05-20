@@ -17,7 +17,7 @@ Aether is a personal operating environment — a single shell where the user's d
 
 This repo is the workspace half (an Electron app on the developer's laptop). The eventual home-substrate half (an always-on box with peripherals as mesh nodes) shares the same codebase but deploys differently.
 
-## Current state (v0.5.0)
+## Current state (v0.9.0)
 
 - **Mesh substrate alive** (`v0.1.0`): RAVEN_MESH Core runs as a managed daemon; HMAC-signed envelopes; edge-graph authorization; nodes spawn under a lifecycle-aware supervisor with clean SIGTERM teardown.
 - **Voice arrived** (`v0.2.0`): raven-daemon supervises a Python orchestrator (Gemini Live API); time + memory + notify tools active; status pill, transcripts, and tool-call history visible in a Voice app.
@@ -25,7 +25,11 @@ This repo is the workspace half (an Electron app on the developer's laptop). The
 - **Data realization** (`v0.3.0`): `news_feeds` node polls four RSS sources every 15min, dedupes by stable id, stores in SQLite (WAL). Single `news_feeds.recent` surface consumed by both the News app and the raven voice node — first multi-consumer surface on the mesh.
 - **Composers / multi-hop mesh** (`v0.4.0`): first composer node `digest` synthesizes `digest.morning()` / `digest.evening()` briefings by fanning out to upstream data nodes (`news_feeds`, `finance`, weather) in parallel via `Promise.allSettled` with per-upstream timeouts — proves the mesh-as-a-graph property (every prior node was a leaf). `BriefingSection[]` shape with voice-readable `summary` prose plus optional structured `items`.
 - **Identity inflection** (`v0.5.0`): project renamed homeOS → Aether (working name retired). New aurora-curtain app icon (cosmic-navy, Concept C). One-time idempotent userData migration on first boot (`~/Library/Application Support/homeOS` → `~/Library/Application Support/Aether`) preserves news / finance / memory state. Workspace package scope (`@homeos/*` → `@aether/*`), bundle identifier (`com.aether.app`), preload bridge global (`window.aether`), and env vars (`AETHER_DATA_DIR`) all updated coherently.
-- **Content apps**: Welcome, News (real RSS via mesh), Markdown viewer, Voice control, Mesh Dev Tools.
+- **Voice extensibility** (`v0.6.0`): voice tool substrate matured into a five-piece pattern — declarative tool declarations, mesh-routed dispatch, voice session context for follow-up resolution, tool-call history surfaces, persisted transcripts. News and finance voice tools rebuilt against the new substrate; the addition cost for new voice tools dropped from ~2 days to ~half a day.
+- **Substrate consolidation** (`v0.7.0`–`v0.8.0`): introduced the `registerNode` factory pattern (`shell/electron/main/services/nodeRegistry.ts`) as the canonical declarative shell-hook for spawning mesh nodes. Reminders + host-notifications migrated as the first POC; ad-hoc per-node daemon managers retired. New nodes now register through a single factory call instead of bespoke hooks across `secrets.ts`, `coreManager.ts`, and `nodeManager.ts`.
+- **Data breadth — macOS surfaces** (`v0.9.0`): three new TypeScript daemon nodes capture local macOS data — `clipboard_history` (pbpaste at 500ms, SHA-256 dedup, retention 1000), `macos_messages` (chat.db readonly mirror with per-chat watermarks, composite `(chat_id, message_id)` dedup), `macos_mail` (Mail.app inbox via AppleScript every 60s, dedup by message UID). Bonus: new `@aether/macos-applescript` shared bridge primitive in `core/macos_applescript/` exposing `runAppleScript(script, options)` with discriminated-union return type and full TCC permission-denied detection — intended for reuse by future Reminders, Notes, and Calendar.app daemons in Sprint 5+.
+- **Process discipline codified** (`v0.9.0`): CLAUDE.md §13 (Implementer Prompt Discipline, 12 points) plus three published subagent personas (`aether-implementer`, `aether-explorer`, `aether-reviewer`), two skills (`verify-build`, `ship-it`), and a documented manual-completion fallback (`docs/manual-completion.md`) for hostile-API days. 10 Wave 2 operational lessons banked in `docs/governance-log.md`. Architect pre-flight checklist (§13.8) and manual-completion fallback (§13.9) added in PR #77.
+- **Content apps**: Welcome, News (real RSS via mesh), Finance, Markdown viewer, Voice control, Mesh Dev Tools.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
@@ -49,16 +53,20 @@ First boot takes ~30s for the Python venv bootstrap. Subsequent boots are near-i
 shell/                    Electron shell (holographic theme, app discovery)
 ├─ electron/main/         Process supervision, mesh + raven daemon managers
 ├─ electron/preload/      window.aether bridge (mesh, files, voice)
-└─ src/apps/              Content apps (welcome, news, markdown, voice-control, mesh-devtools)
+└─ src/apps/              Content apps (welcome, news, finance, markdown, voice-control, mesh-devtools)
 
 core/                     Vendored RAVEN_MESH (Python broker + SDKs)
 ├─ core/                  Python broker (signed envelopes, SSE delivery)
+├─ macos_applescript/     AppleScript bridge primitive (used by macOS daemon nodes)
 ├─ node_sdk/              Python SDK (used by raven-core)
 ├─ node_sdk_ts/           TypeScript SDK (used by shell + nodes)
 └─ schemas/               Envelope + surface JSON Schemas
 
 nodes/                    Mesh nodes (one process each)
+├─ clipboard_history/     pbpaste polling, 500ms cadence; clipboard_history.recent
 ├─ host_notifications/    Native macOS notifications via osascript
+├─ macos_mail/            Mail.app inbox via AppleScript, 60s cadence; macos_mail.recent
+├─ macos_messages/        chat.db readonly mirror, 30s cadence; macos_messages.recent
 └─ news_feeds/            RSS polling + SQLite storage; news_feeds.recent surface
 
 daemons/                  Detached supervised processes
@@ -106,6 +114,9 @@ Pre-1.0. Tags map to capability categories lighting up:
 | `v0.3.0`  | Data realization (real data via mesh nodes)   |
 | `v0.4.0`  | Composers / multi-hop mesh                    |
 | `v0.5.0`  | Identity inflection (homeOS → Aether)         |
+| `v0.6.0`  | Voice extensibility (5-piece tool pattern)    |
+| `v0.7.0`–`v0.8.0` | Substrate consolidation (`registerNode` factory) |
+| `v0.9.0`  | Data breadth + process discipline             |
 
 ## License
 

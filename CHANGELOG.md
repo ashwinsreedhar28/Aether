@@ -31,6 +31,11 @@ historical record.
 - Aether macOS app icon. Replaces the default Electron icon in Dock, Activity Monitor, Finder, and Cmd-Tab. Source assets in `docs/branding/`.
 
 ### Changed
+- README updated to reflect current state (v0.9.0). Adds version bullets
+  for Sprints 2 through 4 (voice extensibility v0.6.0, substrate
+  consolidation v0.7.0–v0.8.0, data breadth + process discipline v0.9.0).
+  Architecture section updated to include the new `core/macos_applescript/`
+  bridge primitive and three new macOS daemon nodes. Closes #79.
 - Sprint 4 governance batch 4 — codifies ~10 lessons from Wave 2 (#73,
   #74, #75). CLAUDE.md §13.3 CHOKE FILES list expanded (manifest.yaml,
   docs/new-node-pattern.md, coreManager.ts, ci.yml). New §13.8 (Architect

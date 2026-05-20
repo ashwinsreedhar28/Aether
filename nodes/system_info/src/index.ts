@@ -331,21 +331,26 @@ async function fetchActiveApp(): Promise<ActiveAppResponse> {
   }
 }
 
-// Processes handler using ps -axo pid,comm,%cpu,%mem,etime
+// Processes handler using ps -axwwo pid,ucomm,%cpu,%mem,etime
 async function fetchProcesses(): Promise<ProcessesResponse> {
   try {
     const { stdout } = await execFileAsync(
       'ps',
-      ['-axo', 'pid,comm,%cpu,%mem,etime'],
+      ['-axwwo', 'pid,ucomm,%cpu,%mem,etime'],
       { maxBuffer: 10 * 1024 * 1024 },
     )
 
     // Parse output. ps emits a header row, then columnar lines like:
-    //   PID COMM              %CPU %MEM      ELAPSED
-    //     1 /sbin/launchd      0.3  0.1 112-02:36:27
-    // The `comm` field is column-truncated by ps (no -ww) so it typically
-    // contains no spaces; parse from the right to tolerate any embedded
-    // whitespace anyway.
+    //   PID UCOMM             %CPU %MEM      ELAPSED
+    //     1 launchd            0.3  0.1 112-02:36:27
+    // `ucomm` is the kernel's user command name (exec name with no path,
+    // capped at ~15 chars on macOS). Switched from `comm` because comm on
+    // macOS returns the path truncated to the column width — e.g.
+    // `/Applications/Arc.app/...` rendered as `/Applications/Ar`, so any
+    // path-leaf extraction downstream produced fragments like "Ar"
+    // instead of the real binary name. Some ucomm values still contain
+    // spaces (e.g., "Google Chrome H"); parse from the right to tolerate
+    // any embedded whitespace.
     const lines = stdout.split('\n').slice(1)
     const processes: ProcessRecord[] = []
     for (const raw of lines) {

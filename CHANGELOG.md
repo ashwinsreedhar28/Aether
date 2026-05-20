@@ -26,6 +26,17 @@ historical record.
 
 ### Added
 - `system_info.processes` surface — running-process snapshot via `ps -axo pid,comm,%cpu,%mem,etime`. Accepts `{ limit?: 1-200 (default 50), sort_by?: 'cpu' | 'memory' | 'pid' (default 'cpu') }`; returns `{ available, processes: [{ pid, command, cpu_pct, mem_pct, elapsed }], total_count }`. 5s in-memory cache shared across (limit, sort_by) inputs; `MeshDeny('invalid_argument', ...)` on out-of-bound limits or unknown sort keys. No new shell hooks (node already registered). Closes #83.
+- `time` mesh node — stateless timezone-aware clock. One surface
+  (`time.now`) returns the current wall-clock time in a requested IANA
+  zone via `Intl.DateTimeFormat`. Params: `{ zone?: string, format?: 'iso' |
+  'human' }`; returns `{ time, zone, unix_ms }`. Invalid IANA zones
+  return `MeshDeny('time_bad_zone')` (detected by catching `RangeError`
+  on `Intl.DateTimeFormat` construction). No SQLite, no poller — just
+  `Date.now()` and the standard `running` marker under
+  `$AETHER_DATA_DIR/time/`. TypeScript node spawned by `nodeManager`;
+  raven edge added so a future voice-tool rewire can fold the existing
+  local-only time tool into the mesh (rewire is a follow-up, not this
+  lane). Closes #82.
 - macOS `macos_mail` daemon node + `@aether/macos-applescript` bridge primitive — Mail.app inbox mirror polling via AppleScript at 60s cadence. The bridge (`core/macos_applescript/`) exposes a discriminated-result `runAppleScript` API with TCC permission-denied detection (both `(-1743)` and `not authorized` forms), timeout via SIGTERM, and syntax/unknown error classification; intended for reuse by future Reminders/Notes/Calendar.app daemons. Mail node parses tab-separated AppleScript output, dedupes by message UID via INSERT OR IGNORE, persists to per-node SQLite at `$AETHER_DATA_DIR/macos_mail/mail.db`. Requires Mail.app Automation permission; debounced log on denial (logs once, then silent until granted). Exposes `macos_mail.recent` mesh surface. Closes #70.
 - macOS `macos_messages` daemon node — reads `~/Library/Messages/chat.db` read-only every 30s (better-sqlite3 `{ readonly: true, fileMustExist: true }` + `PRAGMA busy_timeout = 5000`), per-chat watermark on `date_delivered` (Mac Absolute Time), composite `UNIQUE(chat_id, message_id)` dedup via INSERT OR IGNORE, cold-start arming seeds watermarks on the first tick. Per-node SQLite at `$AETHER_DATA_DIR/macos_messages/messages.db`. Requires Full Disk Access; EACCES is logged once and returns empty gracefully (daemon stays up). Exposes `macos_messages.recent` mesh surface. Closes #71.
 - macOS `clipboard_history` daemon node — polls clipboard at 500ms via pbpaste, SHA-256 content-hash dedup, per-node SQLite with `CREATE TABLE IF NOT EXISTS`, exposes `clipboard_history.recent` mesh surface. Closes #72.

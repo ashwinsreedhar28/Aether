@@ -77,6 +77,13 @@ export const MACOS_MAIL_ENTRY: string = join(
   'dist',
   'index.js',
 )
+export const TIME_ENTRY: string = join(
+  REPO_ROOT,
+  'nodes',
+  'time',
+  'dist',
+  'index.js',
+)
 
 export function meshRuntimeDir(): string {
   return join(app.getPath('userData'), 'mesh')

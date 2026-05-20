@@ -10,6 +10,7 @@ import {
   MACOS_MESSAGES_ENTRY,
   NEWS_FEEDS_ENTRY,
   SYSTEM_INFO_ENTRY,
+  TIME_ENTRY,
   WEATHER_ENTRY,
   NODE_LOG_FILE,
   NODE_PID_FILE,
@@ -68,6 +69,7 @@ export class NodeManager {
       this.spawnClipboardHistory(),
       this.spawnMacosMessages(),
       this.spawnMacosMail(),
+      this.spawnTime(),
     ])
   }
 
@@ -223,6 +225,23 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/macos-mail build`',
       secretEnvName: 'MESH_MACOS_MAIL_SECRET',
       secretValue: this.secrets.macosMailSecret,
+      extraEnv: { AETHER_DATA_DIR: dataDir },
+    })
+  }
+
+  private async spawnTime(): Promise<void> {
+    // time node — stateless timezone-aware clock. No SQLite, no
+    // poller — one Intl.DateTimeFormat per invocation. AETHER_DATA_DIR
+    // is the writable root for the running marker only (matches the
+    // daemon-node liveness pattern; no other persistence).
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'time',
+      entry: TIME_ENTRY,
+      buildHint: '`pnpm --filter @aether/time build`',
+      secretEnvName: 'MESH_TIME_SECRET',
+      secretValue: this.secrets.timeSecret,
       extraEnv: { AETHER_DATA_DIR: dataDir },
     })
   }

@@ -1,21 +1,6 @@
 # Changelog
 
-All n### Fixed\n- **Calendar node hotfix.** PR #51 (calendar mesh node) shipped with
-  four bugs discovered during smoke test: (a) `requirements.txt`
-  pinned `pyobjc-framework-EventKit==10.3.1` and `pyobjc-framework-Cocoa==10.3.1`
-  with no Python 3.14 wheel, forcing failing source build; loosened to
-  `>=10.0` and added missing `aiohttp>=3.9.0` (transitive dep of
-  `core/node_sdk`). (b) `main.py` used `MeshNode(surfaces={...})`
-  constructor kwarg that doesn't exist; corrected to `node.on(name, handler)`
-  registration after construction. (c) `main.py` lacked a keep-alive
-  loop after `node.start()`, causing immediate daemon exit; added
-  `while True: await asyncio.sleep(1)`. (d) `main.py` called
-  `store.authorizationStatusForEntityType_(...)` on an EKEventStore
-  instance, but it's a class method (`+` prefix in Obj-C headers);
-  corrected to `EKEventStore.authorizationStatusForEntityType_(...)`.
-  `docs/new-node-pattern.md` gets a Corrections section pending full
-  refresh.
-otable changes to Aether (working name homeOS through v0.3.x) are
+All notable changes to Aether (working name homeOS through v0.3.x) are
 documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning per
 CLAUDE.md §6 (honest pre-1.0 scheme). Entries dated before the rename PR
@@ -110,6 +95,24 @@ historical record.
 *Older [Unreleased] entries (Sprint 1 through Sprint 3) are archived
 in [docs/archive/changelog-unreleased-pre-sprint-4.md](docs/archive/changelog-unreleased-pre-sprint-4.md).*
 
+
+
+### Fixed
+- **Calendar node hotfix.** PR #51 (calendar mesh node) shipped with
+  four bugs discovered during smoke test: (a) `requirements.txt`
+  pinned `pyobjc-framework-EventKit==10.3.1` and `pyobjc-framework-Cocoa==10.3.1`
+  with no Python 3.14 wheel, forcing failing source build; loosened to
+  `>=10.0` and added missing `aiohttp>=3.9.0` (transitive dep of
+  `core/node_sdk`). (b) `main.py` used `MeshNode(surfaces={...})`
+  constructor kwarg that doesn't exist; corrected to `node.on(name, handler)`
+  registration after construction. (c) `main.py` lacked a keep-alive
+  loop after `node.start()`, causing immediate daemon exit; added
+  `while True: await asyncio.sleep(1)`. (d) `main.py` called
+  `store.authorizationStatusForEntityType_(...)` on an EKEventStore
+  instance, but it's a class method (`+` prefix in Obj-C headers);
+  corrected to `EKEventStore.authorizationStatusForEntityType_(...)`.
+  `docs/new-node-pattern.md` gets a Corrections section pending full
+  refresh.
 
 ## [0.0.3] - 2026-05-12
 

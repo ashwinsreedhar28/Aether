@@ -18,9 +18,18 @@ mesh.
 - Cadence: 30s (`POLL_INTERVAL_MS` in `src/poller.ts`).
 - Dedup: composite `UNIQUE(chat_id, message_id)` — chat.db ROWIDs are
   the source of truth, an INSERT OR IGNORE collapses repeated reads.
-- Per-chat watermark on `message.date_delivered` (Mac Absolute Time).
-  Each poll cycle iterates chats, queries only rows newer than the
-  watermark, and advances the watermark in the same transaction.
+- Per-chat watermark on the **effective message time**
+  `MAX(chat.db.message.date, chat.db.message.date_delivered)` (Mac
+  Absolute Time). chat.db's raw `date_delivered` is 0 for messages sent
+  *from* this Mac (Apple only populates the field on inbound APNS
+  delivery), so the scalar max lets self-sent messages cross the
+  watermark via `m.date` while inbound messages keep using `m.date_delivered`.
+  The `date_delivered` field on `macos_messages.recent` rows stores
+  this effective timestamp (the column name is preserved for
+  consumer compatibility; see `storage.ts` for the semantic-drift
+  note). Each poll cycle iterates chats, queries only rows newer
+  than the watermark, and advances the watermark in the same
+  transaction.
 - Cold-start: the first tick is dropped to avoid bulk-importing the
   entire chat history when the node first runs (watermarks are still
   initialised so the second tick captures only genuinely new traffic).

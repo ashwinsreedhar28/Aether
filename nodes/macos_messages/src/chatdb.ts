@@ -3,9 +3,10 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 // Apple Mac Absolute Time epoch: 2001-01-01T00:00:00Z. chat.db's
-// date_delivered column stores nanoseconds since that epoch (the older
-// pre-Sierra schema used seconds; we target High Sierra+ macOS where
-// nanoseconds is the universal form).
+// message.date and message.date_delivered columns both store
+// nanoseconds since that epoch (the older pre-Sierra schema used
+// seconds; we target High Sierra+ macOS where nanoseconds is the
+// universal form).
 const APPLE_EPOCH_OFFSET_SECONDS = 978307200
 
 export const CHAT_DB_PATH: string = join(
@@ -23,7 +24,12 @@ export interface MessageRow {
   chat_id: number
   message_id: number
   text: string | null
-  date_delivered: number
+  // Effective message time as Mac Absolute Time nanoseconds:
+  // MAX(message.date, message.date_delivered). chat.db's raw
+  // date_delivered is 0 for messages sent from this Mac (Apple only
+  // populates the field on inbound APNS delivery), so the raw value
+  // can't be used for ordering or watermarking.
+  effective_time: number
   is_from_me: number
   service: string | null
   sender_handle: string | null
@@ -61,39 +67,52 @@ export class ChatDb {
   // Canonical query (pinned in the lane spec). Returns messages
   // strictly newer than the given watermark (Mac Absolute Time
   // nanoseconds), oldest-first so the caller can apply each row's
-  // date_delivered as the new watermark without sorting. LIMIT 100
+  // effective_time as the new watermark without sorting. LIMIT 100
   // caps the per-cycle write amplification for a single chat.
+  //
+  // Effective time = MAX(m.date, m.date_delivered) — SQLite's 2-arg
+  // scalar MAX, not the aggregate. chat.db's raw date_delivered is 0
+  // for messages sent from this Mac (Apple only populates the field on
+  // inbound APNS delivery), so the raw value misses every self-sent
+  // message. Using the scalar max lets self-sent rows cross the
+  // watermark via m.date while inbound rows continue to use the (newer)
+  // m.date_delivered, preserving prior ordering for received messages.
   messagesSince(chatId: number, watermarkNanos: number): MessageRow[] {
     return this.db
       .prepare(
         `
         SELECT
-          cmj.chat_id, cmj.message_id, m.text, m.date_delivered,
+          cmj.chat_id, cmj.message_id, m.text,
+          MAX(m.date, m.date_delivered) AS effective_time,
           m.is_from_me, m.service, h.id AS sender_handle,
           c.chat_identifier, c.display_name AS chat_display_name
         FROM chat_message_join cmj
         JOIN message m ON m.ROWID = cmj.message_id
         LEFT JOIN handle h ON h.ROWID = m.handle_id
         JOIN chat c ON c.ROWID = cmj.chat_id
-        WHERE m.date_delivered > ?
+        WHERE MAX(m.date, m.date_delivered) > ?
           AND m.text IS NOT NULL AND m.text != ''
           AND cmj.chat_id = ?
-        ORDER BY m.date_delivered ASC
+        ORDER BY MAX(m.date, m.date_delivered) ASC
         LIMIT 100
         `,
       )
       .all(watermarkNanos, chatId) as MessageRow[]
   }
 
-  // Return the most recent message's date_delivered across all chats
-  // for a single chat, used during cold-start arming so the watermark
-  // starts at "now-ish" rather than zero (which would import the
-  // entire history on the next tick).
+  // Return the most recent effective_time (MAX(m.date, m.date_delivered))
+  // across all messages in a single chat, used during cold-start arming
+  // so the watermark starts at "now-ish" rather than zero (which would
+  // import the entire history on the next tick). Expression matches
+  // `messagesSince` exactly — if these drift, fresh installs over a
+  // chat.db with history will mis-seed and either over- or under-fetch
+  // on the first cycle. The outer MAX(...) is the aggregate; the inner
+  // MAX(m.date, m.date_delivered) is the scalar 2-arg form.
   latestDeliveredForChat(chatId: number): number {
     const row = this.db
       .prepare(
         `
-        SELECT MAX(m.date_delivered) AS d
+        SELECT MAX(MAX(m.date, m.date_delivered)) AS d
         FROM chat_message_join cmj
         JOIN message m ON m.ROWID = cmj.message_id
         WHERE cmj.chat_id = ?

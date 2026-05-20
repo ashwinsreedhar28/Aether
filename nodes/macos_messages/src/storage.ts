@@ -36,7 +36,8 @@ const DB_VERSION = 1
 
 // Thin wrapper around better-sqlite3. Two tables: messages_recent (the
 // mirrored rows we expose) and messages_watermarks (per-chat high-water
-// mark on chat.db's date_delivered, in Mac Absolute Time).
+// mark on the effective time MAX(chat.db.message.date,
+// chat.db.message.date_delivered), in Mac Absolute Time).
 export class MessagesStore {
   private readonly db: Database.Database
 
@@ -44,6 +45,15 @@ export class MessagesStore {
     this.db = new Database(dbPath)
     this.db.pragma('journal_mode = WAL')
     this.db.pragma('synchronous = NORMAL')
+    // The `date_delivered` column on `messages_recent` stores the
+    // effective message time: MAX(chat.db.message.date,
+    // chat.db.message.date_delivered) converted to Unix epoch
+    // milliseconds. chat.db's raw `date_delivered` is 0 for messages
+    // sent from this Mac (Apple only populates the field on inbound
+    // APNS delivery), so the raw value can't be used for ordering or
+    // watermarking. The column name is preserved for backwards
+    // compatibility with consumers reading the `macos_messages.recent`
+    // surface; a future migration may rename it to `effective_time`.
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS messages_recent (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,7 +100,7 @@ export class MessagesStore {
 
   // Insert a batch of message rows for a single chat inside one
   // transaction, then advance that chat's watermark to the max
-  // date_delivered observed in the batch. INSERT OR IGNORE collapses
+  // effective_time observed in the batch. INSERT OR IGNORE collapses
   // re-reads of the same (chat_id, message_id) pair so a watermark
   // reset can't double-count. Returns the number of rows actually
   // inserted (i.e. genuinely new messages).

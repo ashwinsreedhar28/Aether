@@ -420,8 +420,6 @@ Every Implementer prompt is drafted by the Architect against the canonical templ
 2. **Pre-flight reads completed by Architect** — Architect's grep/file findings BEFORE drafting the prompt. Captures architectural facts (e.g. "feature X already exists at file Y, lane re-scoped"). Skipping this step has, twice in Sprint 4, produced wrong-scoped prompts that wasted Implementer sessions (#66 news-urgency, #67 splash). Mandatory.
 
 3. **Large-file caution block** listing every file > 400 lines in scope, each with explicit `grep + view line_range` instructions. Full-reads of these files have been the single biggest cause of session retries during API-hostile periods. Known choke files (update when a new file breaches 400 lines):
-   - `DECISIONS.md` (~2150 lines as of Sprint 4)
-   - `CHANGELOG.md` (~1040 lines as of Sprint 4)
    - `shell/electron/main/services/ravenDaemonManager.ts` (~720 lines)
    - `shell/electron/main/services/nodeRegistry.ts` (~510 lines)
    - `manifest.yaml` (~530 lines, grows ~25 per new node). Discovered as a
@@ -438,6 +436,15 @@ Every Implementer prompt is drafted by the Architect against the canonical templ
      types — e.g. `@aether/mesh-node-sdk`, `@aether/macos-applescript`)
      requires a one-line addition to the pre-build step. Grep before
      drafting any lane that adds a `core/*` workspace package.
+
+   **Note:** `DECISIONS.md` and `CHANGELOG.md` were removed from this
+   list in the archive lane (PR #80). Pre-2026-05-14 decisions moved to
+   `docs/archive/decisions-pre-2026-05-14.md` and pre-Sprint-4
+   `[Unreleased]` entries moved to
+   `docs/archive/changelog-unreleased-pre-sprint-4.md`. Choke status
+   returns if either top-of-tree file grows past ~800 lines again —
+   currently `DECISIONS.md` is ~455 lines and `CHANGELOG.md` is
+   ~125 lines.
 
 4. **Pre-staged context** when ANY of the following is true: API symptoms in past 24h, lane requires 5+ file reads, or scope includes a known choke file. Architect dumps relevant file content inline so the Implementer's first action is a write, not a read.
 

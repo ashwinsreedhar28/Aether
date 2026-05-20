@@ -237,13 +237,18 @@ async def _system_processes(limit: int, sort_by: str) -> dict[str, Any]:
     top = processes[:5]
     lines: list[str] = []
     for p in top:
-        name = (p.get("name") or "unknown")[:30]
+        raw_name = p.get("command") or "unknown"
+        # ps -axo comm can return paths like '/sbin/launchd'; use the leaf
+        # for cleaner voice output.
+        if "/" in raw_name:
+            raw_name = raw_name.rsplit("/", 1)[-1]
+        name = raw_name[:30]
         if sort_key == "cpu":
             value = p.get("cpu_pct", 0)
-            lines.append(f"{name} at {value:.0f}%")
+            lines.append(f"{name} at {value:.1f}% CPU")
         else:
-            value = p.get("memory_mb", 0)
-            lines.append(f"{name} using {value:.0f} megabytes")
+            value = p.get("mem_pct", 0)
+            lines.append(f"{name} at {value:.1f}% memory")
 
     metric = "CPU" if sort_key == "cpu" else "memory"
     spoken = f"Top processes by {metric}, sir: " + "; ".join(lines)

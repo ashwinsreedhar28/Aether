@@ -8,6 +8,7 @@ TypeScript mesh node exposing macOS system status via native shell commands.
 - **system.disk** — Root filesystem capacity and usage
 - **system.network** — WiFi SSID, signal strength, active interface, IP address
 - **system.active_app** — Currently focused application and window title
+- **system.processes** — Running process snapshot (PID, command, CPU%, mem%, elapsed); accepts `{ limit?: 1-200 (default 50), sort_by?: 'cpu' | 'memory' | 'pid' (default 'cpu') }`
 
 All surfaces return `{ available: true, ... }` or `{ available: false, reason }` for graceful degradation.
 
@@ -17,6 +18,7 @@ All surfaces return `{ available: true, ... }` or `{ available: false, reason }`
 - **Disk**: `df -k /`
 - **Network**: `networksetup -getairportnetwork en0`, `wdutil info` (optional), `route -n get default`, `ifconfig`
 - **Active app**: AppleScript via `osascript`
+- **Processes**: `ps -axo pid,comm,%cpu,%mem,etime`
 
 ## Caching
 
@@ -24,6 +26,7 @@ All surfaces return `{ available: true, ... }` or `{ available: false, reason }`
 - Disk: 15s
 - Network: 10s
 - Active app: 5s
+- Processes: 5s (raw ps output cached; sort/slice applied per-request)
 
 ## Permissions
 

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { MeshNode } from '@aether/mesh-node-sdk'
+import { MeshNode, MeshDeny, type Envelope } from '@aether/mesh-node-sdk'
 
 const execFileAsync = promisify(execFile)
 const NODE_ID = 'system_info'
@@ -13,6 +13,13 @@ const BATTERY_CACHE_MS = 10_000 // 10s
 const DISK_CACHE_MS = 15_000 // 15s
 const NETWORK_CACHE_MS = 10_000 // 10s
 const ACTIVE_APP_CACHE_MS = 5_000 // 5s
+const PROCESSES_CACHE_MS = 5_000 // 5s
+
+// Processes surface bounds
+const PROCESSES_DEFAULT_LIMIT = 50
+const PROCESSES_MAX_LIMIT = 200
+const PROCESSES_SORT_OPTIONS = ['cpu', 'memory', 'pid'] as const
+type ProcessesSortBy = (typeof PROCESSES_SORT_OPTIONS)[number]
 
 // Surface return types — MUST include [key: string]: unknown for mesh SDK
 interface BatteryResult {
@@ -53,6 +60,22 @@ interface ActiveAppResult {
   [key: string]: unknown
 }
 
+interface ProcessRecord {
+  pid: number
+  command: string
+  cpu_pct: number
+  mem_pct: number
+  elapsed: string
+  [key: string]: unknown
+}
+
+interface ProcessesResult {
+  available: true
+  processes: ProcessRecord[]
+  total_count: number
+  [key: string]: unknown
+}
+
 interface UnavailableResponse {
   available: false
   reason: string
@@ -63,6 +86,7 @@ type BatteryResponse = BatteryResult | UnavailableResponse
 type DiskResponse = DiskResult | UnavailableResponse
 type NetworkResponse = NetworkResult | UnavailableResponse
 type ActiveAppResponse = ActiveAppResult | UnavailableResponse
+type ProcessesResponse = ProcessesResult | UnavailableResponse
 
 // Cache entries
 interface CacheEntry<T> {
@@ -74,6 +98,7 @@ let batteryCache: CacheEntry<BatteryResponse> | null = null
 let diskCache: CacheEntry<DiskResponse> | null = null
 let networkCache: CacheEntry<NetworkResponse> | null = null
 let activeAppCache: CacheEntry<ActiveAppResponse> | null = null
+let processesCache: CacheEntry<ProcessesResponse> | null = null
 
 function log(msg: string): void {
   process.stdout.write(`[${NODE_ID}] ${msg}\n`)
@@ -306,6 +331,52 @@ async function fetchActiveApp(): Promise<ActiveAppResponse> {
   }
 }
 
+// Processes handler using ps -axo pid,comm,%cpu,%mem,etime
+async function fetchProcesses(): Promise<ProcessesResponse> {
+  try {
+    const { stdout } = await execFileAsync(
+      'ps',
+      ['-axo', 'pid,comm,%cpu,%mem,etime'],
+      { maxBuffer: 10 * 1024 * 1024 },
+    )
+
+    // Parse output. ps emits a header row, then columnar lines like:
+    //   PID COMM              %CPU %MEM      ELAPSED
+    //     1 /sbin/launchd      0.3  0.1 112-02:36:27
+    // The `comm` field is column-truncated by ps (no -ww) so it typically
+    // contains no spaces; parse from the right to tolerate any embedded
+    // whitespace anyway.
+    const lines = stdout.split('\n').slice(1)
+    const processes: ProcessRecord[] = []
+    for (const raw of lines) {
+      const line = raw.trim()
+      if (!line) continue
+      const parts = line.split(/\s+/)
+      if (parts.length < 5) continue
+      const pid = parseInt(parts[0]!, 10)
+      const cpu_pct = parseFloat(parts[parts.length - 3]!)
+      const mem_pct = parseFloat(parts[parts.length - 2]!)
+      const elapsed = parts[parts.length - 1]!
+      if (Number.isNaN(pid) || Number.isNaN(cpu_pct) || Number.isNaN(mem_pct)) {
+        continue
+      }
+      const command = parts.slice(1, parts.length - 3).join(' ')
+      processes.push({ pid, command, cpu_pct, mem_pct, elapsed })
+    }
+
+    return {
+      available: true,
+      processes,
+      total_count: processes.length,
+    }
+  } catch (err) {
+    return {
+      available: false,
+      reason: `command_failed: ${(err as Error).message}`,
+    }
+  }
+}
+
 // Cached handlers with TTL
 function makeBatteryHandler() {
   return async (): Promise<Record<string, unknown>> => {
@@ -355,6 +426,71 @@ function makeActiveAppHandler() {
   }
 }
 
+function makeProcessesHandler() {
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
+    const payload = (env.payload ?? {}) as Record<string, unknown>
+
+    // Validate `limit`: optional, integer in [1, PROCESSES_MAX_LIMIT].
+    let limit = PROCESSES_DEFAULT_LIMIT
+    if (payload.limit !== undefined) {
+      const candidate = payload.limit
+      if (typeof candidate !== 'number' || !Number.isInteger(candidate)) {
+        throw new MeshDeny('invalid_argument', {
+          field: 'limit',
+          detail: 'must be an integer',
+        })
+      }
+      if (candidate < 1 || candidate > PROCESSES_MAX_LIMIT) {
+        throw new MeshDeny('invalid_argument', {
+          field: 'limit',
+          detail: `must be between 1 and ${PROCESSES_MAX_LIMIT}`,
+        })
+      }
+      limit = candidate
+    }
+
+    // Validate `sort_by`: optional, one of PROCESSES_SORT_OPTIONS.
+    let sortBy: ProcessesSortBy = 'cpu'
+    if (payload.sort_by !== undefined) {
+      const candidate = payload.sort_by
+      if (
+        typeof candidate !== 'string' ||
+        !(PROCESSES_SORT_OPTIONS as readonly string[]).includes(candidate)
+      ) {
+        throw new MeshDeny('invalid_argument', {
+          field: 'sort_by',
+          detail: `must be one of: ${PROCESSES_SORT_OPTIONS.join(', ')}`,
+        })
+      }
+      sortBy = candidate as ProcessesSortBy
+    }
+
+    // Refresh cache if stale; cache the raw (unsorted, unsliced) result so
+    // varied (limit, sort_by) inputs share a single ps invocation per window.
+    const now = Date.now()
+    if (!processesCache || now - processesCache.timestamp >= PROCESSES_CACHE_MS) {
+      const data = await fetchProcesses()
+      processesCache = { data, timestamp: now }
+    }
+    const cached = processesCache.data
+    if (!cached.available) {
+      return cached
+    }
+
+    const sorted = [...cached.processes].sort((a, b) => {
+      if (sortBy === 'cpu') return b.cpu_pct - a.cpu_pct
+      if (sortBy === 'memory') return b.mem_pct - a.mem_pct
+      return a.pid - b.pid
+    })
+
+    return {
+      available: true,
+      processes: sorted.slice(0, limit),
+      total_count: cached.total_count,
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const secret = process.env.MESH_SYSTEM_INFO_SECRET
   if (!secret) {
@@ -381,6 +517,7 @@ async function main(): Promise<void> {
   node.on('disk', makeDiskHandler())
   node.on('network', makeNetworkHandler())
   node.on('active_app', makeActiveAppHandler())
+  node.on('processes', makeProcessesHandler())
 
   await node.start()
   log(`registered with core at ${CORE_URL}`)

@@ -824,3 +824,32 @@ This doc was originally written for PR #50 (first pattern codification) and ship
 
 If you read the doc end-to-end after this refresh, you should no longer need to cross-reference `nodes/calendar/` or chase down "why doesn't my voice tool show up" — the canonical patterns are now in one place.
 
+## Hardcoded Package Lists
+
+Three locations maintain hand-curated lists of workspace packages.
+Adding a new SDK-shape workspace package (one consumed by other
+packages for types — e.g. `@aether/mesh-node-sdk`,
+`@aether/macos-applescript`) requires updating all three:
+
+1. **`.github/workflows/ci.yml`** — the `workspace — pre-build workspace
+   packages` step. SDK-shape packages must be added or `pnpm -r typecheck`
+   will fail in CI with `Cannot find module '@aether/<name>'` (bit PR #75).
+
+2. **`shell/package.json`** — the `prebuild` script's `pnpm --filter`
+   chain. Daemon-node packages that the shell will spawn at runtime
+   need to be here so `pnpm build` triggers their compilation. Today's
+   list (mesh-node-sdk, host_notifications, news_feeds, finance, digest)
+   doesn't include weather, system_info, clipboard_history, macos_messages,
+   macos_mail, or macos-applescript — those are built ad-hoc. Audit
+   pending in DECISIONS.md (proposed 2026-05-20 ADR).
+
+3. **`shell/electron/main/services/staleSpawns.ts`** — per-node
+   `cleanupOne()` calls. A daemon node missing its entry here won't
+   be auto-reaped on hard-crash recovery. Non-blocking for normal
+   operation; flag in PR notes if omitted.
+
+The proposed forward path (see DECISIONS.md 2026-05-20) is to replace
+the CI pre-build list with `pnpm -r build` so all SDK-shape packages are
+auto-discovered. shell/package.json's prebuild and staleSpawns.ts remain
+manual lists pending separate decisions.
+

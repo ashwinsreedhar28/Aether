@@ -424,6 +424,20 @@ Every Implementer prompt is drafted by the Architect against the canonical templ
    - `CHANGELOG.md` (~1040 lines as of Sprint 4)
    - `shell/electron/main/services/ravenDaemonManager.ts` (~720 lines)
    - `shell/electron/main/services/nodeRegistry.ts` (~510 lines)
+   - `manifest.yaml` (~530 lines, grows ~25 per new node). Discovered as a
+     choke during Sprint 4 Wave 2 when targeted-grep was the only viable read
+     strategy on hostile-API days.
+   - `docs/new-node-pattern.md` (~827 lines). Read in full once during the
+     initial new-node-pattern lane; subsequent lanes treat it as reference
+     via targeted grep.
+   - `shell/electron/main/services/coreManager.ts` (~250 lines, grows ~10
+     per node added via the env-secret pattern). Read once for pattern,
+     then targeted str_replace only.
+   - `.github/workflows/ci.yml` (~90 lines but high-value-density). Each
+     new SDK-shape workspace package (consumed by other packages for
+     types — e.g. `@aether/mesh-node-sdk`, `@aether/macos-applescript`)
+     requires a one-line addition to the pre-build step. Grep before
+     drafting any lane that adds a `core/*` workspace package.
 
 4. **Pre-staged context** when ANY of the following is true: API symptoms in past 24h, lane requires 5+ file reads, or scope includes a known choke file. Architect dumps relevant file content inline so the Implementer's first action is a write, not a read.
 
@@ -442,6 +456,59 @@ Every Implementer prompt is drafted by the Architect against the canonical templ
 11. **Verify-then-ship sequencing**: every Implementer prompt ends with the `verify-build` skill, then (only on Director's "clean, proceed") the `ship-it` skill. Sequential, not concurrent. Resolves the verify-clean stall pattern observed in #65–#67.
 
 12. **One issue per lane**: every lane opens a GitHub Issue using `.github/ISSUE_TEMPLATE/lane.yml`. PR body uses `Closes #<issue>`. Backlog visible in Issues, not buried in chat.
+
+## 13.8 Architect Pre-flight Checklist
+
+Before drafting any new-lane prompt, the Architect runs this checklist to
+surface the choke-file landscape and hardcoded-list traps that have bitten
+prior lanes (Sprint 4 #73, #74, #75 each missed one of these).
+
+Required pre-flight reads, in order:
+
+1. `ls .github/ISSUE_TEMPLATE/ .github/PULL_REQUEST_TEMPLATE/` — confirms
+   whether issue/PR templates exist before the prompt references them.
+2. `wc -l manifest.yaml docs/new-node-pattern.md` — confirms choke-file
+   status of the two largest non-data files in the repo.
+3. `wc -l shell/electron/main/services/*.ts | sort -rn | head -5` —
+   surfaces the five largest service files; anything over 200 lines is
+   choke-track.
+4. `grep -n "pnpm --filter" .github/workflows/*.yml` — surfaces the CI
+   pre-build list (currently bites every new SDK-shape package, see
+   PR #75 CI failure for the canonical case).
+5. `grep -n "pnpm --filter" shell/package.json` — surfaces the shell
+   prebuild filter; same maintenance trap as the CI workflow's pre-build.
+6. If the lane references `_ingest/` patterns, confirm at least one
+   existing Aether node was read alongside (per §13.4 — _ingest/ patterns
+   are facts about source repos, not facts about Aether, until verified).
+
+This checklist is a tax on the Architect, not the Implementer. The output
+shapes the prompt's LARGE-FILE CAUTION section, INITIAL READ list, and
+SHELL HOOKS list (which must include any hardcoded package lists discovered).
+
+## 13.9 Manual Completion Fallback
+
+When a CC session stalls in the read phase (per §13.7's 5/10 retry
+protocol) and a restart hits the same wall, manual completion is the
+documented fallback. Used three times in Sprint 4 (Wave 2 #73, #74
+recovery, #75 mid-lane recovery).
+
+The pattern:
+
+1. Director catches the stall (per §13.7 protocol).
+2. Director cats reference files to the Architect chat (typically: a
+   reference node's source files + the relevant shell hook files).
+3. Architect dictates the new files as `cat > path << 'EOF' ... EOF`
+   blocks and the shell hook patches as Python `str_replace` scripts.
+4. Director pastes blocks into the worktree, runs `verify-build`,
+   commits, pushes, opens PR.
+5. PR body's "Risks / TODOs / Skipped" section notes the lane was
+   completed manually due to CC unavailability.
+
+Cost: ~30 minutes per node. Reserved for hostile-API days when CC
+cannot land the work. NOT a default — CC remains the primary
+implementation channel. See `docs/manual-completion.md` for the
+full mechanics, including which file types convert cleanly to
+cat-heredocs and which require Python patches.
 
 ---
 

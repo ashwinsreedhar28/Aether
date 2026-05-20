@@ -553,6 +553,13 @@ relationships:
   - from: raven
     to: system_info.active_app
 
+  # Voice tool system_processes: "what's hogging my CPU" / "what's
+  # eating my memory" → Gemini calls system_processes →
+  # mesh.invoke('system_info.processes') → reads the current snapshot
+  # of running processes via macOS `ps -axo`.
+  - from: raven
+    to: system_info.processes
+
   # Voice tool time_now: "what time is it in Tokyo" → Gemini calls
   # time_now → mesh.invoke('time.now', { zone: 'Asia/Tokyo' }). The
   # existing local-only voice tool is NOT migrated in this lane; that's

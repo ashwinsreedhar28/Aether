@@ -1,0 +1,1834 @@
+# Decisions (archived) — pre-2026-05-14
+
+Decisions made before Aether reached Sprint 4. Active decisions
+remain in DECISIONS.md at the repository root; this file preserves
+the historical record for context-keepers and future archaeology.
+
+Cut date: 2026-05-13 inclusive and earlier (i.e., decisions from
+the bootstrap weeks through the start of the Sprint 4 data-breadth
+expansion).
+
+Archived in: PR #80 (chore: archive DECISIONS.md and CHANGELOG.md
+for CHOKE FILE relief). Update the PR number after PR creation.
+
+---
+
+## [2026-05-13] Digest engine: first multi-hop mesh composition
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Every mesh surface to date has been point-to-point: the
+shell or raven invokes a data node and reads back a single payload.
+The user's natural language increasingly asks for *synthesized*
+outputs — "give me a morning briefing", "wrap up the day" — that span
+multiple data nodes. Until now those would route to N back-to-back
+voice tool calls (`news_recent` then `finance_market_summary`), which
+(a) wastes a tool-call round trip per upstream, (b) couples the
+composition logic into raven's prompt rather than the mesh, and (c)
+gives no shared place for an opt-in scheduled-delivery path
+(`notify` at 7am with a briefing body). The mesh-as-a-graph property
+of RAVEN_MESH was unexercised — every node was a leaf.
+**Decision:** A dedicated mesh node, `digest`, that **composes**
+upstream nodes into a single briefing. It is a real mesh participant
+— its own identity secret (`MESH_DIGEST_SECRET`), its own process,
+its own outbound edges (`digest → news_feeds.breaking`,
+`digest → news_feeds.recent`, `digest → finance.market_summary`,
+`digest → finance.history`, `digest → host_notifications.notify`) —
+not a library import. Two inbound surfaces: `digest.morning()` and
+`digest.evening()`. Each returns
+`{briefing: BriefingSection[], generated_at, time_of_day}`; each
+section has a voice-readable `summary` and optional structured
+`items` for a future UI renderer.
+
+**Morning sources `news_feeds.breaking`; evening sources
+`news_feeds.recent`.** Morning briefings are about *what changed
+overnight that matters* — the urgency heuristic (DECISIONS.md
+"News urgency scoring via heuristic" below) gives us a real
+breaking-only feed, and the morning composer reads from there.
+Evening briefings are a day's wrap-up — the user wants the full
+chronological top-of-feed, not just urgency-filtered items, so the
+evening composer keeps `news_feeds.recent`. Empty breaking results
+are NOT an error: when the heuristic produces nothing high-urgency,
+the morning briefing's news section gracefully reads "All quiet on
+the feeds this morning, sir — nothing breaking." with
+`available: true`. That distinguishes "the call succeeded, content
+was empty by design" from "the upstream is broken" (which still
+yields `available: false`).
+
+The composer fans out to upstream surfaces in parallel via
+`Promise.allSettled` with a per-upstream 4s timeout. A single
+upstream failure does NOT fail the briefing — the affected section
+ships with `available: false` and a descriptive line ("News is
+unavailable right now…"). This is the same anti-hallucination /
+honest-empty pattern as the news-tool empty-list and
+finance-history insufficient-history paths: a structured negative is
+louder than missing keys.
+
+The renderer-side Digest **app** is deliberately deferred to a later
+PR (voice-only access in v1). The shell still gets the inbound edges
+(`shell → digest.{morning,evening}`) so a future UI can drop into the
+same surfaces without a manifest bump.
+
+Voice surface is a single tool `digest_briefing(time_of_day?)` —
+defaults to morning before noon / evening otherwise. It concatenates
+`BriefingSection.summary` fields into a single `spoken` paragraph
+that Gemini reads verbatim. The composer writes prose summaries so
+the voice tool stays a thin join. Critically, the voice surface
+exposes NO knowledge of the underlying urgency / entity / category
+signals — Gemini sees a single tool that returns a coherent
+briefing, and the composer's internal fan-out is invisible. That's
+the composer-node pattern: from the consumer's point of view, the
+composer is a single mesh surface.
+
+Opt-in scheduler (`DIGEST_SCHEDULED=true`) fires morning + evening
+briefings at the top of `DIGEST_MORNING_HOUR` (default 7) and
+`DIGEST_EVENING_HOUR` (default 18), delivering the lead section
+summary as the body of a `host_notifications.notify` call. Default
+off — a fresh install should not start firing notifications at users
+who didn't ask for them. Schedule state lives in process memory only;
+a restart during the firing window may re-fire — acceptable for v1
+(a persisted last-fired stamp under `HOMEOS_DATA_DIR/digest/` is the
+follow-up).
+
+This is the **first composer node** on the homeOS mesh. The pattern
+generalises to any future "synthesis across multiple data nodes"
+need: alerts ("notify me when AAPL drops 5%"), watchlists, planned
+narratives. Each composer adds its own mesh edges to its
+dependencies; the manifest graph grows organically, and the
+authorization model (edge present = allowed) handles permissions at
+the same granularity as point-to-point invocations.
+**Consequences:**
+- The mesh graph picks up its first non-leaf node. The composer
+  pattern is now legible to the next builder: dedicated process,
+  identity secret, outbound edges enumerated in the manifest,
+  consumer-facing surface that hides the internal fan-out.
+- Morning briefings depend on `news_feeds.breaking` being meaningful
+  — i.e. the urgency heuristic in PR #24 doing real work. Empty
+  breaking results are intentionally read as "nothing breaking" by
+  the composer (graceful copy, `available: true`), so a quiet news
+  cycle doesn't make the briefing look broken.
+- The composer's parallel-allSettled+timeout pattern gives us a
+  shared shape for any future fan-out: composer functions should
+  never throw on single-upstream failure. Each section either has
+  content or carries a structured negative.
+- The `available: false` shape on `BriefingSection` is now public
+  contract — voice and any future UI must handle both states.
+  `available: true` with empty `items[]` is also a valid shape and
+  carries the "succeeded but empty by design" semantics.
+- Opt-in scheduler is intentionally minute-resolution and process-
+  scoped. We'll re-evaluate if/when a second scheduler instance
+  shows up (CLAUDE.md §14: wait for the third instance before
+  extracting).
+**Alternatives considered:**
+- **Compose in the voice tool directly.** Tempting (no new node, no
+  new secret, no new edges). Rejected because it couples
+  composition logic to raven-core's Python tool registry instead of
+  placing it on the mesh. The renderer's future Digest app would
+  need to re-implement the same composition in TypeScript — wrong
+  shape.
+- **Compose in the shell.** Same coupling issue with a different
+  blast radius: every future composer would have to teach the shell
+  about a new aggregation. The shell is a mesh client, not a
+  composition hub.
+- **Make news_feeds and finance directly expose a briefing surface
+  each.** Wrong responsibility: data nodes shouldn't know about
+  briefing framing. A briefing is a user-facing concept that lives
+  one layer above the data nodes.
+- **Reuse the existing voice path with prompt-driven multi-tool
+  calls** (Gemini calls `news_recent` then `finance_market_summary`
+  back-to-back, narrates the result). Rejected because it adds N
+  round trips per briefing, gives the model latitude to forget a
+  section, and provides no scheduled-delivery path.
+- **Use `news_feeds.recent` for both morning and evening.** That's
+  what the v1 stub did before PR #24 (urgency) landed. Rejected
+  post-rebase because the morning briefing is supposed to surface
+  *what's actually important to know about overnight*, not just the
+  top-of-feed. Recent → breaking for morning was the whole reason
+  digest blocked on the urgency lane.
+
+---
+
+## [2026-05-13] News entity extraction via compromise
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director) — implementer deviated
+on library choice during implementation; see Alternatives.
+**Context:** Keyword search via FTS5 (DECISIONS.md "News search via
+SQLite FTS5" below) gives a strong baseline for topic-shaped questions
+("any news about wildfires") but misses the second-most-common voice
+query shape: proper-noun lookups for a named person, place, or
+organization ("what's the latest on Tim Cook", "any news about Apple",
+"what's happening in Ukraine"). FTS5 keyword matching only hits if
+those exact strings appear verbatim in title / summary / feed — it
+can't group "Apple's CEO", "Tim Cook", and "Cook said today" as
+references to the same entity, and porter stemming doesn't bridge
+proper-noun families. Voice users phrase a meaningful share of their
+news asks this way; without an entity dimension Gemini falls back to
+keyword search (which the prompt nudges toward `news_search`), and
+either returns weak matches or misses entirely on entities that don't
+surface in titles.
+**Decision:** Lightweight NER at fetch time, stored in a JOIN table,
+exposed via a new mesh surface alongside `news_feeds.search` /
+`news_feeds.breaking`. Each polled article runs through compromise's
+`.people()` / `.places()` / `.organizations()` matchers in the poller
+(after the article upsert); extracted entities land in
+`article_entities (article_id, entity_name, entity_kind, mentions)`
+with PRIMARY KEY `(article_id, entity_name)`. New surface
+`news_feeds.search_by_entity({entity, kind?, limit?})` returns
+articles ranked by `mentions DESC, published_at DESC`, with case-
+insensitive name match (`LOWER(entity_name) = LOWER(?)`). Voice tool
+`news_search_by_entity` and four new few-shot examples in the system
+prompt steer Gemini toward entity search for proper-noun queries and
+keyword search for topical phrases. Orthogonal to the v3 urgency
+column added by the news_urgency ADR below — `article_entities` joins
+`articles` on `id`, not on any urgency-related path; the two
+features layer cleanly.
+**Consequences:**
+- Re-extracting on every poll (idempotent — extractor is pure,
+  `replaceArticleEntities` is atomic delete-then-insert) keeps the
+  entity set in sync with re-titled / re-categorised articles. Cost
+  is ~10ms per article × ~300 articles per cycle = ~3s added to a
+  15-min poll. Acceptable.
+- Schema bumps to `user_version=4` (the v3→v4 step, layered on top
+  of the v2→v3 urgency column). CLAUDE.md §10 schema-migrations
+  gotcha applied — `CREATE TABLE article_entities` + index live
+  inside `migrate()`, not the initial CREATE block. Migration is
+  monotonic: v0→v1 (category) → v1→v2 (FTS5) → v2→v3 (urgency) →
+  v3→v4 (entities).
+- Extraction quality is limited by the library: English-only, misses
+  informal references and pronouns, occasionally mis-tags (compromise
+  uses a regex + lexicon approach, not a neural model). Acceptable
+  v1 — far better than nothing for entity-aware queries; the prompt
+  guardrails empty results so Gemini never invents headlines.
+- Existing articles polled before this migration have no entities
+  until their next poll cycle re-extracts. The first poll after a
+  fresh deploy backfills incrementally per-feed (15-min default
+  cycle). Same posture as the urgency migration. Documented in the
+  PR; a one-shot backfill job is deferred to a follow-up if the
+  empty-result rate proves bothersome.
+- PRIMARY KEY (article_id, entity_name) — the same surface form can
+  only carry one kind per article. The extractor collapses cross-
+  kind duplicates by ingestion order (person → place → organization;
+  first kind wins, later occurrences only increment `mentions`).
+  Within-article ambiguity ("Cook" the chef vs. Tim Cook the CEO)
+  is NOT resolved here — different articles can tag the same name
+  differently; voice / future UI must handle disambiguation if it
+  matters.
+- Voice tool count grows to 13 (was 12 in main after PR #24 added
+  `news_breaking` to function_descriptions and dispatch; the inline
+  numbered tool list in the system prompt had not been updated to
+  include `news_breaking`, so the rebase also fixes that omission
+  by re-numbering 1..13 with `news_breaking` at #9 and
+  `news_search_by_entity` at #10).
+- Conversation-context wiring (PR #25's `_session_context`) currently
+  populates `last_entity` only from `news_search` queries. Extending
+  it to also capture `news_search_by_entity` calls is a follow-up;
+  documented as a known limitation. Doesn't block this PR — the
+  immediate value is the entity surface itself.
+- Establishes a Pulse-style "analytical lift" pattern alongside FTS5
+  keyword search and urgency scoring: enrich at fetch time, store in
+  a JOIN table (or column), expose via a typed surface. Third
+  instance of this pattern now landed; future enrichments (sentiment,
+  topic clusters) should follow the same shape per CLAUDE.md §14.
+**Alternatives considered:**
+- *wink-nlp (originally specified)* — the task spec named wink-nlp +
+  `wink-eng-lite-web-model`. Verified during implementation that
+  wink-nlp's built-in NER only ships DATE / TIME / DURATION / MONEY /
+  PERCENT / EMAIL / URL / etc. — there is NO PERSON / ORG / LOC
+  output. The wink-eng-lite-web-model README confirms this: PERSON-
+  like coverage requires wink-nlp's *custom entities* mechanism,
+  which would have us re-implement what compromise gives for free.
+  Switched to compromise rather than build a custom lexicon. Spec
+  deviation flagged in the PR.
+- *LLM-based NER per article* — too slow (~33 feeds × 4 polls/hour
+  on a populated DB means thousands of LLM round-trips/day), too
+  expensive, and adds an external dependency. Revisit only if
+  compromise's recall is provably the bottleneck and the cost
+  trade-off shifts.
+- *Cloud NER (Google Cloud Natural Language, AWS Comprehend)* —
+  rejected for the same external-API cost / dependency concerns and
+  because it adds a new authentication surface (API keys,
+  rate-limits). Self-hosted libraries match the rest of the news
+  stack's data-locality contract.
+- *spaCy via a Python sidecar* — strongest accuracy of the
+  offline-capable options, but introduces a cross-language IPC seam
+  inside the node, doubles the runtime footprint, and increases the
+  surface area we'd have to ship and supervise. Held back; the
+  compromise → spaCy upgrade is a future PR if precision is the
+  binding constraint.
+- *LIKE-pattern matching on raw title/summary text* — rejected as a
+  search-by-entity backend; falls down on word-boundary issues
+  ("Apple" matches "pineapple") and gives no kind classification.
+  FTS5 keyword search already covers the loose-match case.
+- *Backfill existing articles on migration* — rejected for v1.
+  Running compromise across a populated DB inside the migration
+  transaction would block node startup; safer to backfill lazily
+  on the next poll cycle (same posture as the urgency migration in
+  the ADR below). Follow-up PR can add a one-shot job if empty-
+  result rate proves high.
+- *Fold entity extraction into the urgency scorer (single fetch-time
+  enrichment pass)* — considered briefly after PR #24 landed.
+  Rejected: the two enrichments are conceptually independent
+  (urgency answers "how newsworthy is this", entities answer "what
+  is this about"), share no state, and bundling them into one
+  module would coupling them artificially. Pattern is "many
+  independent fetch-time enrichments", not "one big enrichment".
+
+---
+
+## [2026-05-13] News urgency scoring via heuristic
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Director's smoke testing surfaced a real problem with the
+news stack: "what's the latest news" returns whatever is most recent,
+regardless of importance. The `news_feeds.recent` surface — and by
+extension the voice tool `news_recent` and the News app's category
+chips — collapse "recency" and "importance" into a single axis, which
+means filler items chronologically adjacent to a breaking story
+dominate the spoken read. Pulse had urgency scoring as a core feature
+of its news pipeline; this is the lift, adapted to homeOS's mesh shape.
+The use case shows up in voice especially clearly — "what's breaking"
+should not be a synonym for "what's most recent" — and an Urgent chip
+on the News app makes the same distinction visually.
+**Decision:** Every article gets a deterministic `urgency` bucket
+(`low` | `medium` | `high`) at fetch time, computed by a pure-function
+heuristic scorer in `nodes/news_feeds/src/scorer.ts`. No LLM, no
+external API calls — the scorer reads only fields the parser already
+has on hand. The 0–100 score sums four independently-capped
+components:
+
+- **Source weight (0–30)** — declared per-feed in `feeds.ts`. Three
+  tiers: 30 (Reuters breaking-news wires), 20 (major outlets), 10
+  (aggregators / blogs). Deliberately coarse — a finer gradation
+  would obscure the tier reasoning without changing bucket outcomes.
+- **Title language (0–30)** — `BREAKING:` / `URGENT:` prefix (+20),
+  ALL-CAPS title (+15, combined cap at +20 with the prefix to avoid
+  double-counting both signals when a publisher uses both), per-word
+  urgency vocabulary (+5 each, cap +15). Total capped at 30.
+- **Recency (0–25)** — brackets in ascending age: <1h → 25, 1–4h →
+  15, 4–12h → 5, older → 0. Recomputed at score time so an article
+  that scored low in its first poll cycle will not later transition
+  upward purely from cooling recency (scoring happens at fetch only).
+- **Topic keywords (0–15)** — small hardcoded vocabulary of
+  always-urgent subjects (war, attack, shooting, earthquake,
+  hurricane, wildfire, evacuation, recall, outbreak, tsunami).
+  Matched in title + summary with word boundaries (so "fire" in
+  "firefox" does not trigger). Per-hit +5, cap +15.
+
+Buckets: low (0–39), medium (40–69), high (70+). The HIGH_THRESHOLD
+is tuned so an article needs at least two strong signals to clear it
+— a clean Reuters breaking-news headline within the hour about an
+always-urgent topic typically lands in the 75–90 range.
+
+The urgency dimension surfaces three ways:
+
+- `news_feeds.recent` and `news_feeds.search` gain an optional
+  `urgency` parameter (single bucket or 1–3-bucket array). AND-
+  combines with the category filter and the search match clause.
+- New `news_feeds.breaking({limit?})` surface returns the high
+  bucket only, ordered newest-first. Convenience surface — strictly
+  equivalent to `recent({urgency:'high'})` but named explicitly so
+  the voice tool and any future "what's breaking" UI can address it
+  directly.
+- New voice tool `news_breaking(limit?)`, alongside `urgency`
+  parameters on the existing `news_recent` and `news_search` tools.
+  Prompt updates teach Gemini to map "what's breaking" / "anything
+  urgent" / "any major news" → `news_breaking()`, and
+  "what's important in tech" → `news_recent(category='tech',
+  urgency='high')`.
+- News app gains an "Urgent" chip in the filter row (sits between
+  All and the category chips; uses the breaking-red palette so the
+  filter and the article badges are visually tied), and article
+  cards show a red "Breaking" badge for high-urgency items and an
+  amber "Major" badge for medium. Low is intentionally suppressed —
+  visual quiet for the routine case keeps the list scannable.
+
+Schema bumps to `user_version=3`. The v2→v3 migration adds an
+`urgency TEXT NOT NULL DEFAULT 'low'` column and a compound
+`(urgency, published_at DESC)` index, both inside the same
+transactional `migrate()` step (CLAUDE.md §10 schema-migrations
+gotcha — column-dependent indexes never live in the initial CREATE
+block). Pre-existing rows get the 'low' default until the UPSERT
+re-scores them within 15 minutes of the next poll.
+
+All weight and threshold constants are exported from `scorer.ts` for
+transparency, and each weight's rationale is documented inline so
+future tuning has a single dial-board to adjust without re-deriving
+the design intent.
+**Consequences:**
+- Scoring adds no I/O to the poll cycle — it's synchronous CPU only,
+  using fields the parser already has. Negligible per-article cost.
+- Buckets are coarse on purpose. An article scoring 41 (medium-low
+  edge) and another scoring 68 (medium-high edge) are both "medium"
+  even though they're nearly 30 points apart. The audit story —
+  "why did this rate medium?" — is easier when the answer reduces
+  to "which signals fired" rather than "which decimal of the
+  cumulative range."
+- The vocabularies (TITLE_URGENCY_WORDS, TOPIC_URGENCY_WORDS) are
+  small and intentionally hard-coded. Pulse's vocab was larger; we
+  pruned to terms whose presence reliably signals significance,
+  accepting that some legitimately urgent items may not match any
+  word. The cap on per-word contributions prevents a single
+  sensational headline from gaming the score with five keywords;
+  the source-weight + recency components are what carry a clean
+  wire-service headline into the high bucket.
+- The `news_feeds.breaking` surface is redundant with
+  `news_feeds.recent({urgency: 'high'})`. We added it anyway so the
+  voice tool name and the prompt's mental model line up — "what's
+  breaking" → `news_breaking()` reads cleaner than "what's
+  breaking" → `news_recent` with two arguments. Future maintenance
+  cost is low: both surfaces share `storage.breaking()` / the
+  `(urgency, published_at)` index.
+- The 'low' default backfill is a one-time inaccuracy ≤15 minutes
+  wide. Same trade as the category migration in PR #16, accepted.
+- Voice tool count grows to 12 (was 11). The system prompt
+  enumeration is now meaningfully large; if it grows further (Phase
+  3 expansion) we should reconsider how the prompt presents the
+  tool list — but not yet.
+**Alternatives considered:**
+- *LLM-based urgency classification* (call Gemini / Claude per
+  article to assign an urgency score) — rejected for three reasons:
+  cost (15-minute poll × ~33 feeds × ~30 articles each = ~1000
+  inference calls per poll), latency added to the poll cycle, and
+  determinism (a heuristic gives the same answer twice; an LLM
+  doesn't). The heuristic catches the obvious cases well; the
+  long-tail "this is urgent for non-obvious reasons" case is rare
+  enough that the cost trade-off doesn't pay. Revisit if a
+  cheap-enough local classifier appears or if the heuristic's
+  miss-rate becomes load-bearing.
+- *User-tunable weight sliders* (let the Director adjust source
+  weights / vocabularies in a Settings app) — rejected for now.
+  There is no Settings app yet, and adding a per-user-config layer
+  to a node that's still proving its template is premature. The
+  exported constants in `scorer.ts` make tuning a code change
+  rather than a setting; that's the right granularity until we
+  have evidence a single global tuning isn't sufficient.
+- *Urgency-driven notifications* (fire `host_notifications.notify`
+  when an article crosses into high while the shell is running) —
+  rejected as out of scope for this PR. Belongs in the future
+  "digest engine" lane along with quiet hours, dedup-across-feeds,
+  and notification rate-limiting. The data is in place for that
+  future work to consume.
+- *Per-article continuous urgency score (0–100) instead of three
+  buckets* — rejected. The voice and UI consumers don't benefit
+  from gradation finer than "should I mention this aloud / show a
+  badge"; the bucket abstraction is what callers want, and storing
+  only the bucket keeps the schema simple. The raw score is
+  recomputed-on-demand if needed for debugging.
+- *Storing urgency only on the breaking surface, not on the
+  articles row* — rejected. Recomputing the score at every query
+  time scales worse than the one-time-per-fetch path, and the
+  index on `(urgency, published_at DESC)` is what makes the
+  breaking surface fast.
+
+---
+
+### Amendment 2026-05-17: urgency_reason field + voice speaks the why
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Smoke testing revealed Gemini speaks article titles for
+news_breaking but never explains *why* each item scored breaking. The
+scoring components have the answer; the result was discarding the
+breakdown after bucketing.
+**Decision:** Extend `UrgencyResult` with a `reason: string` field
+naming the top 1–2 score contributors by raw weight (e.g.
+`"breaking prefix + <1h fresh"`, `"wire source + war topic"`).
+Computed by a new pure helper `buildReason()` that re-checks the same
+predicates the four component scorers used — small CPU cost, kept
+separate so existing scorer signatures stay clean.
+
+The reason propagates: `Article` gains `urgency_reason: string`,
+captured at fetch. Schema bumps to `user_version=5` with a v4→v5
+migration adding `urgency_reason TEXT NOT NULL DEFAULT
+'pre-amendment'`. No new index — reason is read-out only, never a
+WHERE filter. `upsertMany` INSERT and the four read SELECTs
+(recent / search / breaking / searchByEntity) include the new column.
+ON CONFLICT UPDATE refreshes alongside `urgency`. `_strip_article` in
+`news_tool.py` propagates the field to Gemini; `news_breaking`'s
+description teaches Gemini to weave the reason into spoken reading
+rather than quoting verbatim.
+
+Existing scorer weights audited and left unchanged. The four-component
+design is sound; the gap was voice-speak-the-why, not weight tuning.
+Purely additive — no surface or tool count change.
+**Consequences:**
+- Voice "what's breaking" now carries headline + reason in one tool
+  call. No extra round-trip.
+- Audit story: bucket and reason live side-by-side per row; "why did
+  this rate high?" is answerable from stored data.
+- `'pre-amendment'` default appears in pre-poll reads until first poll
+  cycle re-scores. Resolves within 15 min of node startup.
+- Future weight tuning flows into reason explanations automatically —
+  `buildReason()` re-checks the same predicates, no parallel rebuild
+  needed.
+
+## [2026-05-13] Voice session context for follow-up resolution
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Gemini Live's native-audio model handles single-shot tool
+queries well ("what's AAPL at" → finance_quote → spoken answer) but
+struggles with the second turn of a real conversation. Ordinal
+references ("the second one", "tell me about number three"), topic
+inheritance ("how about last week" after a finance question), and
+explicit anaphora ("go back to that") all fail intermittently — the
+model has the full prior tool result in its conversation history but
+does not reliably index into JSON arrays by ordinal nor re-ground on
+a previously-mentioned ticker without a strong nudge. Voice without
+follow-ups is a transactional command shell, not a conversational
+partner; closing this gap is a prerequisite for treating the voice
+loop as anything more than a smarter Siri.
+
+**Decision:** Add an in-memory, per-session `SessionContext`
+(daemons/raven-core/raven_core/session_context.py) that tracks the
+last five user utterances, the last five tool calls (with one-line
+recaps), the most recent topical state (last_ticker, last_category,
+last_entity), and the cached article and quote lists from the most
+recent news_*/finance_market_summary call. The context is updated
+after each tool call (in tools/__init__.py:update_session_context)
+and after each user-side transcript fragment arrives
+(orchestrator._on_user_transcript, fed by Gemini Live's
+input_audio_transcription stream). A compact summary of the context
+is injected into every FunctionResponse under the `_session_context`
+key; the system prompt is extended with explicit
+reference-resolution rules and few-shot examples that read from that
+field.
+
+**Consequences:**
+- Follow-up phrases ("tell me more about the second one", "how about
+  last week", "anything new on that") now have a deterministic
+  resolution path that does not depend on Gemini's array-indexing
+  habits.
+- Every tool round-trip carries the context recap, so prefix size on
+  the Gemini input stream grows modestly per turn (capped — see deque
+  maxlen and per-utterance truncation in session_context.py). The
+  context window compression that already runs at 25.6k tokens still
+  governs the total session footprint; the per-turn add is small
+  enough not to push compression noticeably sooner.
+- input_audio_transcription is now enabled in LiveConnectConfig.
+  This is a Gemini-side billable feature on some tiers; the project
+  already uses gemini-2.5-flash-native-audio-preview which includes
+  it at no extra cost on the dev key, but downstream tier changes
+  should re-check.
+- Daemon transcript channel now carries `user`-spoken text alongside
+  the existing `raven`-spoken text. The renderer-side transcript view
+  (Voice app) gets both speakers without further changes; if any
+  consumer assumed only `raven` flowed, it must be adjusted (none
+  observed in this PR).
+- Long-term user memory (memory_tool's remember_note) is untouched —
+  that captures user-authored facts, this captures implicit
+  conversational state. The two are separate by design.
+
+**Alternatives considered:**
+- *Per-turn system_instruction rewrite.* The natural shape would be
+  to reformat the system prompt with the latest context before every
+  user turn. Gemini Live's `LiveConnectConfig.system_instruction` is
+  set once at `client.aio.live.connect(...)` and cannot be hot-swapped
+  mid-session. The only way to "update" it is to reconnect, which
+  interrupts the live audio stream — fatal for a conversational UX.
+  Attaching context to every FunctionResponse is the closest feasible
+  equivalent: the recap lands in Gemini's input stream alongside the
+  tool payload on every round trip, and the static system prompt is
+  what carries the reference-resolution *rules*. Codified as a
+  standalone gotcha in CLAUDE.md §10 "Gemini Live: system_instruction
+  is set once per session" so future voice work starts with this
+  constraint baked in.
+- *Rely on Gemini Live's native conversation history.* The session
+  does retain prior turns and tool results, and a stronger model
+  would resolve most ordinals from that alone. Empirically the
+  current model does not, often enough that an explicit injection
+  pays off; this also makes the behaviour testable and debuggable
+  (we can print the context, replay it, and not depend on opaque
+  model state).
+- *RAG over a per-session transcript store.* Premature — the search
+  is over five-deep deques, not a vector index. If sessions get long
+  enough that five is too few, the answer is to bump the cap, not
+  introduce a retrieval system.
+- *Cross-session persistence.* Out of scope. Voice sessions today
+  start fresh each time the voice control flips on; long-running
+  conversational memory belongs to remember_note. Persisting
+  conversational context would also surface a privacy question
+  (what gets stored to disk vs. evaporates with the process) that
+  is not the right question to answer in this PR.
+- *Sidecar text channel — push a "context update" via
+  `send_client_content(turn_complete=False)` before each turn.*
+  Possible but disruptive: the audio model interprets injected user
+  text as if the user said it, which produces spurious turns and is
+  hard to time around realtime VAD. FunctionResponse augmentation
+  doesn't have this problem because the response is always Gemini's
+  own next-step input.
+
+---
+
+## [2026-05-13] News search via SQLite FTS5
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** With ~33 feeds polling every 15 minutes, the curated article
+pool routinely holds 800–2,000 rows. The `news_feeds.recent` surface
+returns the top of the chronological feed; it can't answer "what's the
+latest on Iran" without the caller scanning everything. Voice users
+ask topic-shaped questions ("any news on wildfires", "anything on the
+Lakers") often enough that the missing capability shows up as Gemini
+hallucinating headlines from training data — the exact failure mode the
+news-tool prompt was added to prevent. We need a keyword surface
+backed by the same curated pool the rest of the news stack already
+trusts.
+**Decision:** Keyword search powered by SQLite **FTS5** (porter
+tokenizer) over the existing `articles` table. New surface
+`news_feeds.search({query, limit?, category?})` returns articles
+matching the FTS5 query, ranked by bm25 with `published_at` as
+tiebreaker. The renderer-side News app gets the edge but does not yet
+consume it (UI search bar is a follow-up); the voice tool `news_search`
+consumes it immediately and the system prompt nudges Gemini toward it
+for any topic-specific question.
+
+FTS5 is wired as a contentless external-content virtual table
+(`content='articles', content_rowid='rowid'`) with three sync triggers
+keeping it in lockstep with `articles`. Backfill from existing rows
+runs once inside the v1→v2 migration step (CLAUDE.md §10
+schema-migrations gotcha — virtual table + triggers + backfill all
+live inside `migrate()`, not the initial CREATE block).
+
+User input is **sanitised before reaching FTS5 MATCH** — tokenised into
+bare alphanumeric runs and wrapped as literal phrases so stray
+punctuation or accidental FTS5 syntax (`*`, `NEAR`, unbalanced quotes)
+can't break the query. Stemming still applies inside the quoted
+single-token form.
+**Consequences:**
+- Searches are bounded to the polled feed pool. Topics outside the
+  curated feeds return empty — the system prompt explicitly tells
+  Gemini to say "no coverage in the feed pool yet, sir" rather than
+  substitute remembered headlines (an anti-hallucination guardrail
+  extending the news-recent / finance-quote pattern).
+- Porter stemming matches plurals and common verb forms ("wildfire"
+  → "wildfires", "report" → "reporting"). It does NOT bridge word
+  families: "iran" ≠ "iranian", "obama" ≠ "obamas's". Accepted.
+- Schema bumps to `user_version=2`. The migration is forward-only and
+  idempotent: a v1 install gets the virtual table + triggers + backfill
+  in one transaction; a v2 install (or fresh) is a no-op for the v1
+  branch and just sets up FTS5. Smoke-tested against the v0.3.1 DB
+  with 822 existing articles before commit.
+- Establishes a "search" surface name on data nodes. If finance ever
+  grows a search-by-name capability, the same surface name + sanitiser
+  pattern applies.
+**Alternatives considered:**
+- *Live Bing / Google web search via MCP* — rejected for week 1. Open-
+  web search belongs in MCP territory (future Phase 3 work in
+  MASTER_SYNTHESIS §6) and would change the anti-hallucination
+  contract: results wouldn't share the curated-feed provenance the
+  user already trusts. Revisit when MCP lands.
+- *Semantic / vector search (embeddings, ANN index)* — rejected as
+  premature. Adds a model dependency, a separate index store, and
+  re-embedding on every poll. Keyword search via FTS5 satisfies the
+  voice use case ("latest on X") at zero new dependencies. Revisit
+  when keyword recall is provably the bottleneck.
+- *LLM entity extraction at index time* (tag each article with
+  entities/topics before storing, then query the tag set) — rejected
+  as future enrichment work, not a v1 prerequisite. Belongs alongside
+  the broader article-enrichment story (full-text scraping, summary
+  rewriting, sentiment tags).
+- *LIKE-based substring search* — rejected; no stemming, no ranking,
+  and slower at scale than FTS5 on the same row count.
+
+---
+
+## [2026-05-12] Top-down build strategy in week 1
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Two viable build orders for the homeOS skeleton:
+*bottom-up* (vendor RAVEN_MESH first, write the TS SDK, manifest validator,
+ship Core, only then build a renderer) or *top-down* (visible Electron shell
+on Day 1, fake the backend, add real services behind the fakes incrementally).
+Director attention is the project's binding constraint, not Claude Code
+throughput — plumbing-first work gives nothing to react to for days and kills
+momentum.
+**Decision:** Top-down for week 1. Build the Electron shell first, fake the
+backend, wake the mesh ("the spine") on Day 5+ once there are actually
+multiple things to connect. The visible surface drives direction; direction
+drives architecture.
+**Consequences:**
+- We deviate from `MASTER_SYNTHESIS.md §6`'s phase ordering for week 1.
+  That ordering remains correct for a production push and we converge once
+  the shell has multiple surfaces. This ADR records the divergence.
+- `core/`, `manifest.yaml`, `nodes/` (per CLAUDE.md §4 target layout) stay
+  unbuilt until earned.
+- Acceptable risk: the eventual mesh-everywhere refactor will touch the
+  shell's IPC surface. Mitigation: keep the renderer/main contract tiny
+  (currently two channels — `shell:renderer-ready`, `shell:metadata`) so the
+  refactor is mechanical.
+**Alternatives considered:**
+- *Bottom-up* — rejected for the attention-bottleneck reason above.
+- *Parallel* (shell + Core in lockstep, two PRs/week) — rejected as too
+  ambitious for a solo dev in week 1.
+
+---
+
+## [2026-05-12] Package manager: pnpm
+
+**Status:** accepted
+**Decided by:** Architect (codified in CLAUDE.md §10)
+**Context:** Three viable choices — npm, yarn, pnpm. Pulse uses npm; VIEWER
+uses pnpm; NEXUS uses npm.
+**Decision:** pnpm. Activated via Node 20's built-in `corepack` (no global
+install required); the `packageManager` field in `shell/package.json` pins
+the version (`pnpm@9.15.0`).
+**Consequences:**
+- Faster installs, deterministic lockfile, easier monorepo evolution when
+  `nodes/` and `core/` arrive.
+- Contributors need `corepack enable` once. Documented in the PR's
+  "Verification" notes.
+**Alternatives considered:**
+- *npm* — slower for monorepos and the lockfile churn is worse. Rejected.
+- *yarn* — no advantage over pnpm for our shape. Rejected.
+
+---
+
+## [2026-05-12] Holographic theme adopted from VIEWER
+
+**Status:** accepted
+**Decided by:** Architect (specified in CLAUDE.md §11)
+**Context:** The shell needs a coherent visual identity from Day 1
+(CLAUDE.md §14: "the holographic theme is not decoration — it is the thing
+Director will stare at while directing"). VIEWER already ships a fully
+worked-out holographic palette (`#0a0a0f` background, `#4a9eff` accent,
+`rgba(100,150,255,0.2)` borders, etc.) under MIT.
+**Decision:** Adopt VIEWER's CSS-variable palette verbatim:
+`--holo-bg`, `--holo-text`, `--holo-muted`, `--holo-accent`, `--holo-border`,
+`--holo-panel`, `--holo-glow`, `--holo-accent-rgb`. The five required by
+CLAUDE.md §11 plus the three that VIEWER's idioms reference together.
+File: `shell/src/theme/holographic.css` carries the attribution comment.
+**Consequences:**
+- Apps lifted from VIEWER (per `MASTER_SYNTHESIS.md` §3.3 — `markdown-editor`,
+  `terminal`, `kanban`, `agent-manager`, etc.) drop in without re-derivation.
+- Brand cohesion across surfaces (tray icon dot, splash dot, welcome window
+  accent all use `--holo-accent`).
+- Acceptable risk: if homeOS later diverges visually from VIEWER, this ADR
+  is superseded by a new one defining the homeOS palette.
+**Alternatives considered:**
+- *Derive a fresh palette from scratch* — rejected as week-1 over-investment;
+  VIEWER's values are already polished.
+- *Use Tailwind defaults only* — rejected; reads as "dev tool", not "Jarvis."
+
+---
+
+## [2026-05-12] Tray click behaviour deferred until background mode
+
+**Status:** accepted
+**Decided by:** Architect
+**Context:** PR #1 ships a tray icon whose click handler currently re-opens
+the welcome window. Because window-all-closed quits the app in week 1, a
+tray click after window close is effectively startup.
+**Decision:** Leave current behaviour as-is for v0.0.x. When a future PR
+introduces "background mode" (app survives all windows closed), tray click
+must change to focus-or-reopen-without-restart semantics rather than full
+process restart.
+**Consequences:** A small tray-handler refactor when background mode lands.
+Flagged here so it's not forgotten.
+**Alternatives considered:** Implementing background mode in this PR —
+rejected as out of scope per CLAUDE.md §11 DON'T list.
+
+---
+
+## [2026-05-12] `_ingest/` adopted as git submodules
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Previous ADRs deferred this question (PR #1 gitignored
+`_ingest/`, planned to revisit "if drift bites"). Drift bites now — every
+new task spec cites file paths and line numbers under `_ingest/`, and
+those citations rot the moment any of the four upstreams move. Two
+viable alternatives, both worse: *vendor* the repos (strip inner `.git`,
+commit everything — bloats homeOS history with ~thousands of files and
+re-creates the drift problem manually) or *keep ignored* (current state
+— Director and collaborator end up at different upstream SHAs, MASTER_SYNTHESIS.md
+citations diverge silently). Submodules pin specific SHAs in homeOS history;
+clone + `git submodule update --init --recursive` reproduces the exact
+reference state on any machine.
+**Decision:** Convert `_ingest/{Pulse, RAVEN_MESH, NEXUS, VIEWER}` to
+git submodules pinned to these SHAs:
+
+| Submodule | URL | Pinned SHA |
+|---|---|---|
+| `_ingest/Pulse` | `https://github.com/ashwinsreedhar28/Pulse.git` | `842a8bde7a9c3aee8b7b154d3e631f56a0588791` |
+| `_ingest/RAVEN_MESH` | `https://github.com/coltonkirsten/RAVEN_MESH.git` | `464ee80911739019663589d75bd2d6f58a45afee` |
+| `_ingest/NEXUS` | `https://github.com/R-A-V-E-N-delegate/nexus.git` | `4d2a6f6d271ccd6b977e6ecfba39dbc4cc60b473` |
+| `_ingest/VIEWER` | `https://github.com/R-A-V-E-N-delegate/viewer.git` | `9c58664ec652c836595ac48e9f75d2439272657e` |
+
+All four URLs are HTTPS (no SSH-key requirement on collaborator's
+machine), all four upstreams are public at the time of this decision
+(Pulse was made public by Director during the PR — previously private).
+**Consequences:** Clone workflow gains a step:
+`git clone <homeOS> && cd <homeOS> && git submodule update --init --recursive`.
+Documented in this PR's Verification block. `.gitignore` no longer hides
+`_ingest/`; `.gitmodules` at repo root holds the four submodule entries.
+**Accepted risk:** If an upstream force-pushes or rewrites history past
+our pinned SHA, our pointer orphans and `submodule update` fails for
+anyone who hasn't already fetched. *Mitigation:* if any source proves
+fragile, fork it into our own org as a follow-up PR and re-point the
+submodule URL there. None of the four show any sign of doing this today.
+**Alternatives considered:**
+- *Vendor (strip inner .git, commit everything)* — rejected: ~thousands
+  of files of bloat in homeOS history, and re-introduces drift manually
+  every time we want to refresh.
+- *Keep gitignored* (the previous state) — rejected: every citation in
+  `MASTER_SYNTHESIS.md` and future task specs is effectively meaningless
+  across machines.
+
+---
+
+## [2026-05-12] App-discovery system: VIEWER pattern adopted, single-window for now
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Shell needs more than one surface — every future content app
+(finance, sports, markdown editor, agent-manager, …) has to be a folder
+drop, not a core refactor. VIEWER already ships exactly the pattern we
+need: `import.meta.glob('./*/index.ts', { eager: true })` against
+`src/apps/`, each app folder exporting `app: AppDefinition`. The full
+VIEWER registry layers on file-type routing, dynamic register/unregister,
+and a per-app `AppContext` / `AppWrapper` for window + tab state —
+load-bearing for VIEWER's multi-window workspace, all out-of-scope for
+us today.
+**Decision:** Adopt VIEWER's `import.meta.glob` + `AppDefinition`
+pattern, simplified ruthlessly:
+- `AppDefinition` keeps `id`, `name`, `icon`, `component`, optional
+  `defaultSize`. No `fileTypes` (no file-based apps yet). Component is
+  zero-arg (no `AppProps` — single-window, no per-instance props).
+- Registry exposes only `getApps()` and `getApp(id)`. No
+  `getAppForFile`, no `getFileTypeMapping`, no `registerApp` /
+  `unregisterApp`.
+- A tiny Zustand store (`useActiveApp`) holds a single `activeAppId`
+  string. Default `'welcome'`. State is non-persistent — resets to
+  default on relaunch.
+- A thin top-nav in `App.tsx` lists discovered apps and swaps the
+  active component on click. Previous app unmounts when the active
+  switches (no keep-alive yet).
+**Consequences:**
+- Adding an app is now a folder drop. Verified end-to-end in PR #5 by
+  staging a `test-app` stub, confirming it appeared in the renderer
+  bundle after a build, then deleting before commit.
+- Multi-window, tabs, drag-resize, persisted active-app state — all
+  later PRs.
+- Active app's `getMetadata` (Welcome) IPC will re-fire on every
+  switch-back. Acceptably cheap (a single in-process IPC call); the
+  alternative (caching layer / hoisted state) is YAGNI for week 1.
+**Alternatives considered:**
+- *Route-based (react-router)* — rejected: pulls in a router for what
+  amounts to a single conditional render. More mass than needed.
+- *Full VIEWER port (windows / tabs / file routing / AppContext)* —
+  rejected as week-1 over-investment. VIEWER's multi-window stack is
+  what we converge to, not what we start with.
+
+**Future directions:** Icon resolution currently routes through an
+`ICON_MAP` keyed by lucide-react icon name string. At ~10 apps, migrate
+to per-app `ComponentType` imports — every app's `index.ts` imports its
+own icon directly, `AppDefinition.icon` becomes
+`ComponentType<{ size?: number }>` rather than `string`, and the central
+map disappears. Eliminates the registry-update friction of adding each
+new icon.
+
+---
+
+## [2026-05-12] PR comments adopted as primary review channel; review heuristics codified
+
+**Status:** accepted
+**Decided by:** Director (acting on Architect's proposal)
+**Context:** PRs #1–#5 routed every Architect note through Director-as-
+postal-service: Architect's chat reply → Director paste into the next
+chat with Claude Code → Claude Code reads → fix → push → Director relays
+again. Friction compounded across review rounds. Director wanted
+attention reserved for direction, visual verification, and merge — not
+relay duties. At the same time, recurring review patterns (nav ordering,
+traffic-light insets, comment/code drift, destructive-op pre-flight,
+git-status column semantics) kept surfacing post-PR rather than
+pre-PR — every one a saveable round-trip.
+**Decision:** Two changes shipping together:
+- Architect chat replies → Director paste as a single PR comment →
+  Claude Code reads via `gh pr view <n> --comments`. Review
+  *conversation* lives on the PR; chat between Director and Architect
+  reserved for direction-level decisions and visual-test feedback.
+- Review heuristics extracted from PR #1–#5 feedback patterns and
+  added to CLAUDE.md §11 (replacing the now-shipped First Task spec)
+  for self-application before opening any PR. §7 self-review template
+  gains a "Pre-PR heuristics" prompt so the checklist is run for real.
+**Consequences:**
+- Director paste-load drops by ~half on clean PRs and more on
+  review-cycle PRs.
+- Architect's review history lives on the PR (better audit trail; one
+  click instead of chat-scrolling).
+- Heuristics list grows as patterns recur — each future entry is a
+  follow-up PR, not an upfront design exercise.
+- §11 slot reused, not inserted. Section numbering after §11 unchanged.
+**Alternatives considered:**
+- *Status quo* — rejected, friction compounds across review rounds.
+- *GitHub Action wiring Architect chat → PR comment directly* —
+  rejected as week-1 over-investment. Revisit when paste load becomes
+  a measurable bottleneck again.
+
+---
+
+## [2026-05-12] File-based apps pattern: `fileTypes` on `AppDefinition`, `fileApi` on preload
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** `MASTER_SYNTHESIS.md §1.4` establishes file-as-source-of-truth
+as a doctrine homeOS inherits from VIEWER — content apps shouldn't own their
+data, they should render files on disk. The previous app-discovery ADR
+explicitly deferred this ("no `fileTypes` — week 1 has no file-based apps")
+because the markdown viewer hadn't landed. It now has, and future content
+apps (JSON viewer, ticker `.csv` view, PDF reader, the morning-brief
+output) all want the same shape. Doing this once, now, is cheaper than
+retrofitting four apps later.
+**Decision:**
+- Extend `AppDefinition` with `fileTypes?: string[]` (lowercase extensions
+  without leading dot, e.g. `['md', 'markdown']`) and a forward-looking
+  `iconForFile?: (path) => string` (per-file icon override; no consumer
+  reads it yet but file-based apps can declare it now).
+- Add `getAppsForFileType(ext): AppDefinition[]` to `app-registry.ts`,
+  sorted by `order` so the first entry is the eventual default
+  renderer. Case-insensitive, leading-dot tolerated.
+- Expose a `window.homeOS.files` namespace on the preload:
+  - `openDialog({ filters? }): Promise<string | null>` — native open-file
+    dialog, returns absolute path or null on cancel.
+  - `readText(path): Promise<string>` — UTF-8 read with a 1 MiB cap
+    (stat-then-read so oversized files reject precisely instead of
+    OOMing), enforcing an allowlist of `os.homedir()`, `app.getPath('userData')`,
+    `app.getPath('downloads')`, `app.getPath('temp')`. Path resolved with
+    `path.resolve` and prefix-checked with `sep` boundary to defeat
+    `..` segments and sibling-prefix tricks.
+- No file-router consumer wired yet. The helper exists so the future file
+  explorer / drag-drop surface needs no app-side change to route opens.
+**Consequences:**
+- Any future file-based app declares its `fileTypes` and uses the same
+  `homeOS.files` surface — no per-app IPC.
+- The 1 MiB cap is the renderer's load-bearing contract. Larger files
+  need a lazy/virtualised rendering layer (future PR) before the cap
+  raises.
+- The dialog acts as the trust boundary for user-chosen files; the
+  allowlist is the defence-in-depth against direct `readText` calls
+  (DevTools console, future buggy callers). The Open Question in the
+  task spec is resolved in favour of the broader allowlist
+  (home + userData + downloads + temp) rather than the narrower
+  home-only variant — `/tmp` and `~/Downloads` are normal places to
+  drop a markdown file.
+- Renderer bundle grew from ~250 KB to ~953 KB (react-markdown +
+  unified + remark-gfm). Code-split deferred deliberately: parse/exec
+  is <100 ms on M-series from local disk, and a `React.lazy` boundary
+  needs holographic loading-state design that isn't worth picking up
+  now. Revisit as a single dep-audit / code-split PR at ~3 MB total
+  or if first-paint feels slow (whichever comes first); voice (Lane 3)
+  is the next likely weight bump.
+**Alternatives considered:**
+- *File-explorer-as-router* (the router resolves extensions at open
+  time and ignores `fileTypes` on apps) — rejected: premature without
+  an explorer, and apps still need to advertise what they can render.
+- *Hardcoded routing per-app* (no `fileTypes`, file explorer maintains
+  its own map) — rejected: doesn't scale past three apps, and forks
+  ownership of the mapping out of the app folder.
+- *Narrow allowlist (home + userData only)* — rejected per the task
+  spec's open question: `/tmp` and `~/Downloads` are normal user-pick
+  locations. Allowlist is now home + userData + downloads + temp.
+
+---
+
+## [2026-05-12] CI infrastructure: GitHub Actions for trivial checks, manual branch protection for policy enforcement
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Director described a "pipeline of constant reviewing" —
+PRs #1–#5 had Claude Code running `pnpm typecheck`, `pnpm lint`, and
+`pnpm build` manually for every PR, and Architect chasing the output
+during review. That's wasteful when a CI runner does it for free on
+every push. Separately, CLAUDE.md §5 says "you never push to `main`
+directly" — currently a convention, not enforced. GitHub branch
+protection rules are the standard mechanism for mechanical
+enforcement, but they are not repo-file configurable (no YAML in the
+repo can set them — the rules live in repo settings, set via UI or
+the GitHub API).
+**Decision:** Two pieces, shipping together:
+- GitHub Actions for the automated runs. Single workflow
+  (`.github/workflows/ci.yml`), single job `checks`, steps for
+  `shell/` install + typecheck + lint + build. A conditional
+  `core/node_sdk_ts/` block lights up automatically once Lane 1 adds
+  that package.
+- Branch protection rules configured **manually** through the GitHub
+  UI per `docs/BRANCH_PROTECTION.md`. The doc captures the exact
+  settings (require PR, require `checks` green, no force push, no
+  bypass even for admins) so reproduction is one pass.
+**Consequences:**
+- Every PR gets auto-checked from open onward; failing checks block
+  merge once branch protection is on. Architect review concentrates
+  on design, not "did typecheck pass."
+- Adding a future package under `core/` or elsewhere requires
+  extending the workflow (additive — name new steps clearly to keep
+  the file readable).
+- Branch protection setup is a one-time Director action, not in
+  Claude Code's scope. Documented in `docs/BRANCH_PROTECTION.md` so
+  it's reproducible across machines / future repos.
+- PR template (`.github/pull_request_template.md`) auto-fills CLAUDE.md
+  §7's self-review structure on every new PR — fewer "you forgot the
+  template" review rounds.
+**Alternatives considered:**
+- *Pre-commit hooks (husky / lefthook)* — rejected: easy to bypass
+  with `git commit --no-verify`, runs only on the contributor's
+  machine, and doesn't catch on the canonical branch. CI on the
+  remote is the right enforcement boundary.
+- *CircleCI / other runners* — rejected: GitHub Actions is free for
+  this repo's tier and we're already on GitHub. No reason to add a
+  second vendor.
+- *Setting branch protection from a workflow* — rejected as
+  impossible: GitHub branch protection rules cannot be configured by
+  a repo file (the protection settings live in repo metadata, not
+  source). The closest options (a workflow that calls the GitHub API
+  on every push) introduce a chicken-and-egg problem and are worse
+  than a five-minute UI setup.
+
+---
+
+## [2026-05-12] Mesh awakened: minimum end-to-end skeleton
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** The shell now has multiple surfaces (Welcome / News / Mesh)
+and the next wave of capabilities — real data feeds, voice, agents —
+each need permissioned IPC. The top-down strategy from PR #1's ADR
+deferred the mesh until "Day 5+ once there are actually multiple things
+to connect." That bar is met. RAVEN_MESH's edge-graph authorization
+(manifest line ⇒ permitted; no line ⇒ denied — `MASTER_SYNTHESIS.md §1.2`,
+`_ingest/RAVEN_MESH/docs/PHILOSOPHY.md §1`) is the load-bearing primitive
+every future capability will sit on; waking it now with one trivial node
+end-to-end proves the spine and gates v0.1.0.
+
+**Decision:** Adopt RAVEN_MESH protocol unchanged (`_ingest/RAVEN_MESH`
+SHA `464ee809…`) and vendor its protocol layer to `core/`. Port the
+Python SDK to TypeScript at `core/node_sdk_ts/` so the Electron main
+process and Node.js mesh nodes can speak the wire format. Use a
+daemon-manager pattern (lifted from
+`_ingest/VIEWER/apps/viewer/electron/main/services/daemonManager.ts`)
+to spawn the Python Core + each Node.js node from the shell's
+`app.whenReady`. Declare the topology in a single `manifest.yaml` at
+repo root with three nodes — `shell`, `host_notifications`, and the
+implicit reserved `core` — and one edge: `shell → host_notifications.notify`.
+Ship the first real node (`nodes/host_notifications/`) firing native
+macOS notifications via `osascript`, plus a `mesh-devtools` app on the
+canvas to drive a round-trip from the renderer.
+
+**Consequences:**
+- Mesh boot runs in parallel with the splash → reveal sequence; it
+  is NOT on the critical path. The shell remains usable for non-mesh
+  apps (Welcome / News / Markdown) even if Core fails to start —
+  the Mesh Dev Tools status pill shows `starting` / `online` /
+  `failed` / `offline`, and an error dialog surfaces on failure
+  without quitting the app. The earlier "hard-depend, quit on
+  failure" sequencing was reversed during smoke-test (Architect
+  feedback on PR #10) when it regressed PR #1's splash → reveal
+  timing.
+- Identity secrets live in process env vars per RAVEN_MESH defaults; the
+  shell generates fresh hex-32 values per cold start (`coreSecret`,
+  `shellSecret`, `hostNotificationsSecret`, plus `ADMIN_TOKEN`) and
+  injects them into spawned children. Not persisted across runs. Keychain
+  integration is a follow-up (`MASTER_SYNTHESIS.md §7 Q6`).
+- Renderer ↔ main IPC stays on `contextBridge` (`shell:metadata`,
+  `mesh:invoke`, `mesh:status`). Mesh is for main-process-and-out, not
+  for renderer-to-main hot paths — matches `MASTER_SYNTHESIS.md §4.1`.
+- Vendored Core requires `aiohttp`, `pyyaml`, `jsonschema` from system
+  Python; coreManager surfaces a clear failure message if missing.
+  Documented in `core/README.md`.
+- Cross-platform debt: `host_notifications` is macOS-only this PR
+  (returns `MeshDeny` on other platforms). The collaborator's Windows
+  tree handles the Windows path in their own PR (CLAUDE.md §11 #7).
+- The TypeScript SDK port lives at `core/node_sdk_ts/`. ~370 LOC across
+  canonical / types / MeshNode / index files; longer than the Python's
+  310 LOC mostly because of explicit type declarations and the hand-
+  rolled SSE consumer that replaces aiohttp's `r.content.readline()`.
+  The round-trip vitest boots Core in a subprocess and proves the wire
+  is HMAC-signature-identical to the Python SDK.
+
+**Alternatives considered:**
+- *Keep IPC-only (no mesh)* — rejected: no auth, no edge model, won't
+  scale to agents or third-party nodes. `MASTER_SYNTHESIS.md §3.2`.
+- *Mesh-everywhere including renderer↔main* — rejected per
+  `MASTER_SYNTHESIS.md §4.1` recommendation. The renderer/main hot path
+  doesn't need HMAC overhead or graph mediation; everything else does.
+- *Spawn Core on-demand via supervisor* — `core/core/supervisor.py` is
+  vendored but not wired up. Always-spawned-by-shell is simpler for
+  v0.1.0; revisit when multi-mesh or detached substrate machines arrive
+  (`MASTER_SYNTHESIS.md §6`).
+- *Adopt RAVEN_MESH as a runtime dep instead of vendoring* — rejected:
+  the protocol is the contract, and we want the freedom to bump the
+  vendored SHA in dedicated chore PRs without merging upstream's commit
+  cadence into our history.
+- *Embed Python Core via PyO3 / Pyodide-in-Electron* — rejected as
+  premature optimization. Subprocess spawn is fast enough (Core warm
+  in ~200ms in dev) and matches RAVEN_MESH's deployment model.
+- *Persist secrets to disk in `data/`* — rejected for this PR; ephemeral
+  per-launch secrets are strictly safer until Keychain integration lands.
+
+---
+
+## [2026-05-12] Voice via daemon pattern; mesh rebase deferred
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director); flagged by Implementer
+**Context:** Voice has a tight latency budget (sub-second feel), needs
+to own audio devices and an LLM session, and benefits from surviving
+shell restarts where possible. This PR was scoped before Lane 1's
+`core/` mesh substrate landed (it has since merged in PR #10).
+Two ways to add voice:
+1. Wait for the mesh, then build voice as a mesh node.
+2. Ship voice immediately using VIEWER's existing detached-daemon
+   pattern (Node.js HTTP+WS supervisor → Python child running the
+   live-audio loop). Rebase to mesh as a small follow-up PR.
+
+The brief specified path 2 to keep both lanes moving in parallel.
+
+**Sub-context (LLM provider — implementer-flagged discrepancy):**
+The task brief described the LLM as **Cerebras**. The code in
+`_ingest/VIEWER/apps/raven/` actually uses **Google Gemini Live API**
+(`gemini-2.5-flash-native-audio-preview-09-2025`) for the voice loop;
+Cerebras appears only inside `cerebras_tool.py` as a side tool for
+generating HTML/visual content (it is not the conversational LLM and
+does not handle audio). Cerebras has no live-audio API today that
+matches what VIEWER's `orchestrator.py` consumes — swapping the
+provider would be a substantial rewrite, not a configuration change.
+Per CLAUDE.md §13, this is the "Architect intent vs. code reality"
+case: the implementer goes with the code reality and flags loudly.
+This ADR is that flag; Architect confirmed Gemini at PR review.
+
+**Decision:** Ship voice using VIEWER's daemon pattern intact.
+- Vendor `_ingest/VIEWER/apps/raven-daemon` → `daemons/raven-daemon/`
+  (Node.js HTTP+WS on `127.0.0.1:7433`, loopback-only).
+- Vendor `_ingest/VIEWER/apps/raven` → `daemons/raven-core/` (Python
+  Flask-free runtime — Flask sidecar was dead code and removed).
+- Shell's `ravenDaemonManager` spawns the Node daemon detached;
+  the daemon supervises the Python child via `child_process.spawn`.
+  Boot ordering vs. the mesh's `coreManager`: Core first
+  (load-bearing for mesh-dependent apps), then raven (degrades
+  gracefully — Voice app surfaces an "unavailable" pill if the
+  daemon fails to start). Both are off the splash → reveal critical
+  path; both are torn down in parallel via `Promise.allSettled` on
+  `before-quit`.
+- Two tools enabled this PR: `time_tool`, `memory_tool`. Other
+  vendored tools (`cerebras_tool`, `silence_tool`, `system_tool`)
+  remain on disk but are not registered.
+- LLM: **Gemini Live API** (env var: `GEMINI_API_KEY`).
+
+**Consequences:**
+- Voice runs without mesh. Tool calls dispatch directly via Python
+  function calls — no envelope signing, no edge graph, no audit log
+  yet. Acceptable because the surface is local-loopback only and the
+  enabled tools are read-only (time) or scoped-disk (memory).
+- Rebase-to-mesh follow-up (`feat/voice-mesh-rebase`) will swap
+  `raven_core/tools/__init__.py`'s direct-Python `handle_function_call`
+  for `mesh.invoke()` against the appropriate node surfaces, and add
+  the voice daemon to `manifest.yaml` with its own edge declarations.
+  Well-scoped because the rest of the daemon is mesh-agnostic.
+- Audio-permission prompt on first launch (one-time macOS system
+  dialog). Unavoidable; persistent thereafter.
+- First-launch latency: ~30s for the Python `venv` install + `pip
+  install -r requirements.txt`. Subsequent launches are ~1–2s.
+  Bootstrap is async (Promise-based spawn — `spawnSync` would freeze
+  Electron's main thread for the full 30s, tripping the network
+  service watchdog and producing a black screen).
+- `GEMINI_API_KEY` is required. Without it the shell still loads,
+  Voice app shows red `voice: missing GEMINI_API_KEY`, every other
+  app works normally.
+- macOS-only this PR. Daemon spawn is gated on
+  `process.platform === 'darwin'`; other platforms surface
+  `voice: macOS only in this build`.
+- Echo trade-off documented separately: while playing audio out, the
+  mic is gated (`_playback_until` monotonic timestamp) to prevent
+  the MacBook speaker from feeding back into the mic and triggering
+  false interruptions. Consequence: no barge-in. `fix/voice-barge-in`
+  follow-up will swap this for Apple `voiceProcessingIO` AEC.
+- `pyaudio` requires `brew install portaudio` once per developer
+  machine; the bootstrap detects the missing-header signature in the
+  pip output and rewrites the pill reason to surface the brew
+  command.
+
+**Alternatives considered:**
+- *Wait for the mesh to land first* — rejected; defeats
+  parallelisation and delays the highest-value Jarvis-feeling demo.
+- *Skip voice entirely until mesh lands* — rejected; voice is the
+  surface most likely to drive direction from the Director.
+- *Use Cerebras as the conversational LLM* — rejected as out-of-scope
+  rewrite. Cerebras has no live-audio API today.
+- *Use the Cerebras sub-tool path (`call_cerebra` for HTML)* —
+  deferred along with the rest of the disabled tool set; not load-
+  bearing for the two-tool demo.
+
+---
+
+## [2026-05-13] Director-authorized execution: codify the delegation pattern
+
+**Status:** accepted
+**Decided by:** Architect (drift surfaced by voice PR Implementer)
+**Context:** CLAUDE.md §1 ("Director merges") and §12 ("Don't ever: Merge
+your own PR") read literally as a prohibition on Implementer running
+`gh pr merge` or `git push origin <tag>`. Actual practice across PRs #2,
+#4, #5, #6, #7, #8, #10 has been Implementer executing both commands
+under Director's explicit chat-authorization ("paste this to Claude Code:
+gh pr merge X"). The drift wasn't malicious or accidental — it was the
+pragmatic path because Architect (a chat session) physically cannot push
+to GitHub, and Director was comfortable delegating the mechanical
+command execution while keeping the *decision* in chat. The voice PR
+Implementer applied §13 carefully and surfaced the rule-vs-practice
+gap rather than silently continuing it.
+**Decision:** Update CLAUDE.md §1 step 8 to define merge execution as
+Director-or-authorized-Implementer (UI button, personal terminal, or
+chat-authorized Implementer paste). Add a tag-cutting clarifier
+explaining that Architect "cuts the tag" by writing the annotation
+text, and Director (or authorized Implementer) executes the
+`git tag` + `git push origin <tag>` mechanics. Update §12's "Don't
+ever" merge bullet so the violation is *unauthorized* execution rather
+than execution itself; the absolute "Push to `main`" bullet stays
+unchanged.
+**Consequences:**
+- Future Implementers reading CLAUDE.md cold no longer have to choose
+  between rule-violation and workflow-friction.
+- The "no unilateral Implementer merge" guarantee is preserved —
+  Director chat-authorization remains mandatory, and Implementer never
+  initiates a merge or tag push on its own initiative.
+- The §13 "Director contradicts CLAUDE.md" protocol still applies for
+  cases the text doesn't anticipate; this ADR closes the specific
+  merge/tag case rather than rewriting §13.
+**Alternatives considered:**
+- *Stricter — Director must always execute merge + tag personally* —
+  rejected as pure friction for no real safety gain. Director-
+  authorization is already the gate; whether Director's hand or
+  Implementer's hand types `gh pr merge` after authorization changes
+  nothing about who decided.
+- *Looser — Implementer auto-merges when CI green* — rejected as
+  removing Director from the loop entirely, which is the whole point
+  of the "Merge gate" role in §1. CI greenness is necessary, not
+  sufficient.
+
+---
+
+## [2026-05-13] Voice tool dispatch routes through mesh for homeOS-data tools
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Post-v0.1.0 (mesh awake, PR #10) and post-v0.2.0 (voice
+running via daemon pattern, PR #9), the obvious next architectural unlock
+was making voice a real mesh participant rather than a sibling-with-its-
+own-tools. The follow-up was foreshadowed in the `Voice via daemon
+pattern; mesh rebase deferred` ADR above. This ADR closes the loop.
+
+raven's tool registry historically embedded each tool's implementation
+as direct Python — `time_tool.py` reads `datetime.now()`, `memory_tool.py`
+talks to a local JSON store. That works for raven-internal state but
+doesn't generalise: any future tool that touches homeOS data (news
+feeds, finance quotes, agent briefs) would either reimplement the
+capability inside raven or call out to a different process via some
+bespoke transport. The mesh exists precisely so we don't reimplement
+or invent transports per tool.
+
+**Decision:** raven becomes a mesh node `raven`, outbound-only. Tools
+split into two categories by data-locality:
+- **raven-internal** (time, memory) stay direct Python. Not homeOS
+  data; not worth a mesh hop.
+- **homeOS data or capabilities** (notify in this PR, news/finance/
+  agents in future PRs) route through `mesh_client.mesh_invoke`. The
+  tool function is a thin wrapper that calls into the mesh; the
+  capability lives on its dedicated mesh node.
+
+Implementation:
+- `manifest.yaml` gains a `raven` node (identity-only, `surfaces: []`)
+  and an edge `raven → host_notifications.notify`.
+- `raven-core/raven_core/mesh_client.py` instantiates the vendored
+  Python `MeshNode` (from `core/node_sdk/`, prepended to PYTHONPATH at
+  spawn time by the shell's daemon manager — not pip-installed because
+  the vendored tree is managed by re-copy from `_ingest`). Setup runs
+  at orchestrator startup before the Gemini Live session opens; teardown
+  in the orchestrator's finally block.
+- `raven-core/raven_core/tools/__init__.py`'s `handle_function_call`
+  becomes async to support `await mesh_invoke(...)` in tool handlers
+  on the orchestrator's running event loop. Sync tools (time, memory)
+  are detected and called without await; async tools (notify) expose
+  `handle_call_async` and are awaited. This avoids the
+  `run_until_complete`-on-a-running-loop deadlock that a sync wrapper
+  would hit.
+- The shell generates `MESH_RAVEN_SECRET` per cold start alongside the
+  existing `MESH_*` secrets and injects it into Core (so the manifest's
+  `env:MESH_RAVEN_SECRET` resolves) and into the raven daemon's spawn
+  env. Raven daemon spawn now waits for mesh-ready (max 30s) before
+  starting Python so the secret/URL are guaranteed available.
+
+**Consequences:**
+- Every future voice tool that touches homeOS data lands as a single
+  mesh-edge declaration + a thin `await mesh_invoke(target, payload)`
+  wrapper. Tool additions don't require changes to raven internals or
+  the audio loop.
+- Capabilities get reused across surfaces: `host_notifications.notify`
+  is now invoked from both the Mesh Dev Tools app's button and from
+  voice. Adding a third caller (e.g. an agent) is a manifest edge,
+  not a code change.
+- `core/node_sdk/__init__.py` stays vendored unchanged — no
+  pyproject.toml, no setup.py. Python finds the module via PYTHONPATH
+  injection at spawn time. This preserves the upstream re-copy story
+  documented in `core/README.md`.
+- **PYTHONPATH injection is now the canonical pattern for Python
+  mesh consumers in homeOS.** Any future Python node or daemon that
+  wants to import the vendored SDK should follow the same approach:
+  resolve the SDK path in its spawn-side manager (shell-owned
+  Electron service or equivalent), prepend to `env.PYTHONPATH` at
+  spawn, and lazy-import `node_sdk` inside a `setup()` that runs
+  before the consumer needs to invoke. The CLAUDE.md §14 third-
+  instance rule still applies — if a third Python mesh consumer
+  appears and we find ourselves duplicating the PYTHONPATH-prepend
+  block, extract it then (and only then) into a shared spawn helper.
+  Until that point, two implementations is not enough signal to
+  abstract.
+- raven daemon spawn now hard-fails (`voice: mesh not ready`) when
+  mesh isn't ready within 30s. Acceptable: mesh-routed voice tools
+  are useless without mesh, and raven's pip-install bootstrap usually
+  takes longer than mesh's startup anyway.
+- `requirements.txt` gains `aiohttp` (the Python SDK's HTTP client).
+  Bootstrap marker filename bumped from `.requirements-installed` to
+  `.requirements-installed-v2` so existing dev venvs re-run pip and
+  pick up the new dep without a manual `rm -rf .venv`.
+
+**Alternatives considered:**
+- *Mesh-ify time and memory too.* Rejected as over-engineering. These
+  are raven-internal state with no callers outside the voice daemon;
+  routing them through the mesh adds two network hops to a 1ms
+  operation and gains nothing.
+- *Expose a generic `mesh_invoke(target, payload)` tool to Gemini.*
+  Rejected — blast radius too wide. Gemini could be cajoled into
+  calling arbitrary mesh surfaces; we want each voice tool curated,
+  with explicit edges in the manifest.
+- *Wait for `news_feeds` to land before doing the rebase.* Rejected.
+  Demonstrate the pattern with the simplest existing node
+  (`host_notifications`) so the architecture is proven and the pattern
+  is locked in before more nodes layer on top.
+- *Add `core/node_sdk/pyproject.toml` and `pip install -e core/node_sdk`
+  in the raven bootstrap.* Tempting (cleaner imports, no PYTHONPATH
+  manipulation) but rejected: `core/{core,node_sdk,schemas}` is
+  managed by re-copy from `_ingest/RAVEN_MESH`, and a stray
+  `pyproject.toml` would either be lost on the next vendor bump or
+  force us to upstream it. PYTHONPATH stays inside the homeOS layer.
+
+---
+
+## [2026-05-13] First real data node: news_feeds
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Post-v0.1.0 (spine alive), v0.2.0 (voice on the mesh), and
+v0.2.1 (raven becomes a mesh node with the notify edge), every PR until
+now has been infrastructure or substrate. The News app has been showing
+the same three hardcoded faked articles for several PRs running.
+`host_notifications` proved the mesh as an *action* substrate; the
+obvious next step is proving it as a *data* substrate. News is the
+natural first instance — well-understood data shape (RSS/Atom),
+many stable public sources, valuable for the user, and one of the few
+demos that justifies multi-consumer testing without contrivance (the
+News app on the canvas + a `news_recent` voice tool both invoking the
+same surface). Storage is required (polling 15-minute feeds means an
+in-memory cache loses everything on shell quit), and SQLite via
+`better-sqlite3` is the obvious choice — Pulse uses sqlite throughout,
+the schema is one table, and the dependency is well-trodden in Electron
+land.
+**Decision:** Introduce `nodes/news_feeds/`, a Node.js mesh node that
+polls a hardcoded list of feeds every 15 minutes, dedupes by stable id
+(sha1 of `feed::guid` truncated to 16 hex), and exposes a single
+`recent` surface (input: `{ limit?, since? }`; output: `{ articles }`).
+Storage at `$HOMEOS_DATA_DIR/news_feeds/news.db` via better-sqlite3 in
+WAL mode. Two edges in the manifest: `shell → news_feeds.recent` (News
+app) and `raven → news_feeds.recent` (voice tool). The News app drops
+its hardcoded `articles.ts` entirely and consumes the mesh surface.
+**Consequences:**
+- **Pattern established for every future data node.** Finance, calendar,
+  sensors, agents — same shape: a single Node.js process per domain,
+  one or more typed surfaces, SQLite under `$HOMEOS_DATA_DIR/<node>/`,
+  manifest declares JSON Schema for input. CLAUDE.md §14 third-instance
+  rule applies — when the third data node lands we'll know whether to
+  extract a shared "data-node template" or keep them per-domain.
+- **First multi-consumer mesh surface.** `news_feeds.recent` is invoked
+  by both the shell (renderer-side React app) and raven (voice tool).
+  Same surface, two callers — the manifest's edge graph is now doing
+  load-bearing authorization work, not just point-to-point glue.
+- **`better-sqlite3` is the first heavy native dep in `nodes/`.** Adds
+  a build step (node-gyp / prebuilt binary fetch on first install) and
+  ties the node to an ABI-matched Node.js. Acceptable: sqlite is a
+  homeOS-wide need (Pulse uses it for everything), getting the
+  dependency in early is better than discovering its quirks under
+  pressure later. Flagged in the PR per CLAUDE.md §10 "Build & dependency
+  hygiene."
+- **`HOMEOS_DATA_DIR` env var is the canonical way nodes get a writable
+  root.** Standalone Node child processes can't reach Electron's
+  `app.getPath('userData')` themselves. The shell hands them
+  `<userData>/data` via env at spawn time; nodes namespace under it
+  (`news_feeds/news.db`, future `finance/quotes.db`, etc.). Same shape
+  as `MESH_CORE_URL` and the per-node secrets — config flows out via
+  env, never via a config file the node has to find.
+- **OPML / user-editable subscriptions deferred.** v1 hardcodes 4 feeds
+  in `src/feeds.ts`. Editing the list means edit-rebuild-restart. The
+  goal of this PR is to prove the data substrate end-to-end, not solve
+  subscription management. A follow-up PR will add either an OPML
+  import path or a Settings app that writes a JSON config the node
+  watches for changes.
+- **No deduplication across feeds.** Two feeds reporting the same story
+  (HN linking a Verge article, BBC + Reuters covering the same event)
+  will appear as two articles. Stable-id dedupe is per-feed, not global.
+  Acceptable for v1; global dedup is a future "near-duplicate detection"
+  pass, not a blocker.
+- **The news app now hard-depends on the mesh.** If `mesh.invoke` fails,
+  the app shows an error state with a Retry button. This is the first
+  app in homeOS where mesh failure is user-visible — Welcome and
+  Markdown work without the mesh entirely. Acceptable: news without
+  data is a useless screen anyway, and the error state explains why.
+
+**Alternatives considered:**
+- *Keep the hardcoded articles for one more cycle and ship the news_feeds
+  node without changing the News app.* Rejected — the news_feeds node
+  with no in-shell consumer is half the value, and the multi-consumer
+  test (renderer + voice on the same surface) is the architecturally
+  interesting thing this PR proves.
+- *Use a flat-file JSON store instead of SQLite.* Rejected. Easy at 100
+  articles, breaks down at 10k+, and the pattern wouldn't transfer to
+  finance / sensors / agents where time-series queries are central.
+  Better to take the native-dep hit now once than re-do storage in three
+  follow-up PRs.
+- *Put the polling loop inside the shell main process (no separate
+  node).* Rejected. (a) Decoupling lets the mesh do its job — any
+  consumer can invoke `news_feeds.recent` whether or not the shell is
+  open. (b) Establishes the standalone-node pattern that finance /
+  calendar / sensors will follow. (c) Polling failures in-process
+  contaminate the shell's responsiveness; a separate node fails in
+  isolation.
+- *OPML / Settings-app for subscriptions in v1.* Rejected as scope creep.
+  Pattern-first, configuration-second.
+- *Use `axios`/`undici` and a custom RSS parser.* Rejected — `rss-parser`
+  is well-maintained, handles both RSS and Atom, and the code we'd
+  write to parse XML is the exact code we'd most like to avoid debugging.
+- *Run the recent surface as `fire_and_forget` with a separate
+  notification when articles update.* Rejected. The renderer wants
+  fresh data on app open, not a push subscription; request/response
+  is the simpler shape and matches how the user thinks about news.
+
+---
+
+## [2026-05-13] Feed categorization: hardcoded per-feed taxonomy
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** v0.3.0 shipped the news_feeds node with four feeds and a
+single undifferentiated stream. Director's actual usage surfaced two
+gaps within hours: not enough sources (four feeds = small daily
+volume), and no way to ask the voice assistant for a specific *kind*
+of news ("what's the latest tech news", "any local headlines"). Both
+gaps could be solved together by widening the feed list and adding a
+category dimension to the existing `news_feeds.recent` surface. The
+mesh and voice transport already work — this is purely data + parameter
+plumbing on top of the v0.3.0 substrate.
+
+**Decision:** Hardcoded seven-category taxonomy declared in
+`nodes/news_feeds/src/types.ts`: `world`, `us`, `tech`, `business`,
+`sports`, `science`, `local`. Each feed in `feeds.ts` declares
+*exactly one* category. Articles inherit their feed's category at
+fetch time — no inference, no dynamic tagging, no per-article
+overrides. The `news_feeds.recent` surface gains an optional
+`category` parameter accepting either a single category string or a
+1–7-element string array; JSON Schema enum-validates against the
+seven known values, so unknown categories return a clean MeshDeny
+from Core (not the node). The voice tool gains a matching `category`
+parameter; the system prompt enumerates the seven values and includes
+four few-shot examples for natural-language → category mapping. The
+News app gains a chip row at the top — "All" plus the seven
+categories, ordered identically to the type definition and the prompt
+enumeration (broad → specific). Selecting a chip re-invokes
+`news_feeds.recent` with the new category.
+
+**Consequences:**
+- Adding a feed = picking its category (one line in `feeds.ts`).
+- Adding a new category = code change in `types.ts` + JSON Schema
+  enum update + voice prompt update + UI chip auto-discovers from the
+  list. Three places, all in this repo. Intentional friction — the
+  category set shouldn't proliferate.
+- A schema migration is required for installs that ran v0.3.0
+  (`ALTER TABLE add column category`, plus a compound
+  `(category, published_at DESC)` index). Existing rows get the
+  'world' default at migration time; the next poll's UPSERT
+  overwrites that with each row's actual feed category. One-time
+  inaccuracy of ≤15 min.
+- Bay Area is the de-facto "local" locale in v1 — KQED, SFGate Bay
+  Area, Mercury News, SFist. User-configurable locale is deferred to
+  a future PR that introduces a Settings surface.
+- Multi-consumer parity holds: the same surface drives the News app
+  *and* the voice tool. Adding a category dimension once propagates
+  to both, which is the architecturally interesting test.
+
+**Alternatives considered:**
+- *ML / heuristic article-level categorization.* Rejected. Opaque to
+  the user, slow to compute, and the false-positive rate on borderline
+  stories (tech vs business; sports vs us) would be visibly bad.
+  Per-feed categorization is editorial and deterministic.
+- *Multi-category per feed.* Rejected. Hacker News *is* tech;
+  TechCrunch *is* tech. Allowing N categories per feed complicates
+  queries (set semantics, dedup) without solving a real ambiguity.
+  Re-evaluate if a feed legitimately straddles two scopes.
+- *User-configurable categories.* Rejected. No Settings app exists in
+  v0.3.x. The category set is small enough that hardcoding for v1 is
+  not the bottleneck; reconsider when Settings ships.
+- *Free-text category.* Rejected. Defeats schema validation, fragments
+  the taxonomy across installs, and Gemini will happily invent
+  "celebrities" or "AI" as a category if not constrained.
+- *Sports-team subcategory in this PR* (e.g. "Lakers news"). Deferred.
+  Likely requires team-specific feeds or an external search surface;
+  separate design problem.
+- *Single category string only, no array.* Rejected at the schema
+  level — the array shape costs almost nothing now (`oneOf` in the
+  JSON Schema, dynamic IN-clause in storage) and unlocks `["us",
+  "world"]` queries that future UI work might want without another
+  schema migration.
+
+---
+
+## [2026-05-13] Second data node: finance
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+
+**Update (2026-05-13, post-PR-#17 merge):** Finnhub dropped in favour
+of Yahoo Finance (primary, via the `yahoo-finance2` npm) with a Stooq
+CSV fallback. No API key.
+- *Reason.* The required-env-var onboarding friction (sign up at
+  finnhub.io, paste a key into a shell rc) was disproportionate for a
+  personal-use surface. Pulse's lived experience showed Yahoo + Stooq
+  the more durable pairing for this scale — anonymous endpoints, no
+  per-key quota to track, two providers means one outage doesn't
+  drop the whole grid.
+- *Consequences.* Finnhub rate-limit handling code removed
+  (`finance_rate_limited` MeshDeny reason is no longer reachable; the
+  voice tool's `_throttled_response` and the renderer's
+  `ThrottledState` are kept defined as dead branches for reuse if a
+  future provider needs them). `QuoteClientError` gains
+  `provider_error` for the both-providers-failed case. The Quote
+  shape gains `volume` (Yahoo returns it on the same /quote call;
+  Stooq returns it in the CSV row). Finnhub moves to Alternatives
+  below alongside Alpha Vantage. PR: `chore/finance-no-key`.
+
+**Note:** This ADR was originally drafted with Alpha Vantage as the
+upstream. PR-#17 review surfaced that the AV free tier is now 25
+req/day (was 5/min historically) — incompatible with this design's
+~2880 req/day. Architect resolved on the PR: swap to Finnhub. The ADR
+was edited in place before merge (the AV version never shipped to
+`main`); the swap reasoning is preserved in Alternatives below. The
+Update above records the subsequent Finnhub → Yahoo+Stooq swap.
+**Context:** Post `v0.3.0`, finance is the natural second data node. News
+(`news_feeds`) validates the RSS / bulk-recent pattern. Finance validates a
+different shape entirely — REST API with an env-var key, per-symbol query
+surface, numeric (not text) data, shorter freshness window, and a
+provider-imposed rate limit that has to be respected without falling over.
+Together, the two nodes earn signal on what is *shared template* (the
+`nodes/<name>/{src,schemas,README.md}` layout, MeshNode + per-surface
+handler shape, marker-file liveness, MeshDeny error taxonomy, voice-tool
+mesh-routing pattern) versus *data-source-specific* (RSS-parser vs.
+REST-with-headers, SQLite-with-WAL vs. in-memory cache, bulk-poll vs.
+per-symbol-stagger, single-surface vs. two-surface ergonomics). Pattern
+extraction is held back per CLAUDE.md §14's third-instance rule — two
+nodes is signal, not yet enough.
+
+**Decision:** Finnhub free tier as the data source (60 req/min, no daily
+cap). Hardcoded ticker list of ten popular symbols (AAPL, MSFT, GOOGL,
+AMZN, NVDA, TSLA, META, SPY, QQQ, DIA). In-memory cache with a 5-minute
+freshness window — no SQLite. Two surfaces: `finance.quote({ symbol })`
+for per-symbol queries (with `MeshDeny: finance_untracked_symbol` outside
+the tracked list) and `finance.market_summary()` for the full cached
+grid. 5-minute poll cycle with one symbol fetched every 30 seconds —
+exactly five minutes total per cycle with ten tickers, so polling is
+effectively continuous at ~2 req/min averaged (~3% of Finnhub's 60/min
+budget). Rate-limit responses (HTTP 429) trigger a 60-second cooldown
+during which on-demand `finance.quote` fetches return `MeshDeny:
+finance_rate_limited` rather than retrying.
+
+**Consequences:**
+- Pattern documented for any future API-based data node (weather, sports,
+  air quality, transit). The shape: REST client with structured-error
+  enum, in-memory `Map`-based cache with freshness windows, stagger-aware
+  poller, two surfaces (single-entity + collection-view).
+- **No volume in v1.** Finnhub's `/quote` endpoint returns price, change,
+  percent change, high/low/open/prev_close, and a timestamp — but no
+  volume. Fetching volume would require a separate `/stock/metric` call
+  per symbol, doubling request count for marginal user value. The
+  trade-off chosen: drop volume from the QuoteCard display in v1, re-add
+  if there's a clear use case (e.g. a "movers" view that ranks by
+  unusual volume). The Quote type, JSON schema, voice tool response,
+  and renderer all agree on the new shape (no `volume` field) — no
+  half-state where one consumer knows the field and another doesn't.
+  *(Superseded by the Update above — Yahoo+Stooq both return volume
+  on the single quote call, so volume is back in the Quote shape and
+  the QuoteCard. The voice tool still strips it from spoken
+  readbacks — "Apple is at 189, down a percent, on 40 million shares"
+  is noise.)*
+- The renderer and voice tool both special-case `finance_rate_limited`.
+  Renderer shows an amber "temporarily throttled — quotes refreshing
+  later" card (distinct from the red "Finance unavailable" generic
+  error). Voice tool returns `{error: "rate_limited", spoken: "Stock
+  quotes are temporarily throttled, sir; try again in a minute."}`;
+  Gemini reads the `spoken` field verbatim. Other errors collapse into
+  the generic shape. Rationale: throttle is a temporary, expected state
+  with a clear "retry later" remediation — collapsing into "unavailable"
+  misleads the user.
+- `MeshUnavailable` (Python, `raven_core/mesh_client.py`) gains an
+  optional `reason` attribute so voice tools can branch on the MeshDeny
+  reason without parsing the exception string. Cleaner than the parse-
+  text alternative; the existing call-sites that just catch
+  `MeshUnavailable` are unaffected (attribute is optional).
+- User-configurable tickers and broader symbol coverage are future PRs,
+  most naturally tied to a Settings app. The node-side change is a
+  single file (`src/tickers.ts`); the JSON schema is unchanged.
+- Voice tools (`finance_quote`, `finance_market_summary`) add a second
+  category of mesh-routed tool. The anti-hallucination guardrail
+  established for `news_recent` (training-data-is-stale) is reused
+  verbatim for prices — arguably stronger here, since training-era
+  stock prices look real and the user will catch wrong numbers
+  instantly.
+
+**Alternatives considered:**
+- *Alpha Vantage free tier (5 req/min historically, 25 req/day current).*
+  Rejected. The current free-tier daily quota (25 req/day) cannot
+  support the design's 5-minute × 10-ticker poll cadence (~2880 req/day,
+  well over quota). The PR-author originally implemented against AV per
+  the spec; Architect resolved the cap mismatch by swapping to Finnhub
+  before merge. Alpha Vantage remains a viable upstream if the design
+  ever shifts to "fetch one ticker every six hours" / "fetch on user
+  request only" — but that's a different shape from the one this ADR
+  ratifies.
+- *Finnhub free tier (60 req/min, no daily cap).* Initially accepted
+  (see Note above), then superseded by the Update at the top of this
+  ADR. The API-key onboarding friction was disproportionate for a
+  personal-use surface, and Finnhub's free tier had been quietly
+  tightening symbol coverage. Yahoo+Stooq removes the env var
+  entirely and is more durable in practice (Pulse's lived
+  experience). Finnhub remains a viable upstream if the design ever
+  needs fundamentals / financials, which Yahoo's quote endpoint
+  doesn't cover and Stooq doesn't expose at all.
+- *Yahoo Finance unofficial scrape.* Originally rejected — fragile
+  and unsupported. The `yahoo-finance2` npm wraps Yahoo's JSON API
+  (not HTML scraping) and is well-maintained; the failure mode is
+  "Yahoo changes the JSON shape" rather than "Yahoo changes the
+  HTML." Re-accepted as primary in the Update above, paired with
+  Stooq as fallback so a Yahoo outage doesn't drop the grid.
+- *Paid-tier IEX Cloud / Polygon.* Rejected — premature for v1.
+- *Fetch volume via `/stock/metric` per symbol.* Rejected for v1.
+  Doubles request volume against the rate limit. Re-add when a use case
+  earns it.
+- *SQLite persistence (matching news_feeds).* Rejected. Stock quotes
+  are time-sensitive; persisting them across restarts surfaces stale
+  prices to consumers with no way to know they're stale. A cold start
+  re-polls and shows the empty state until the first cycle lands —
+  cheaper, less misleading.
+- *User-configurable tickers in v1.* Deferred. Pattern-first,
+  configuration-second (same call as news feeds).
+- *Single surface (only `market_summary`, with the renderer filtering
+  by symbol).* Rejected. The per-symbol surface is what makes the
+  rate-limit boundary enforceable — without it, voice tools would
+  have to fetch the full grid every time the user says "what's AAPL
+  at", and there'd be no place to deny untracked symbols.
+- *Hit the upstream API on every renderer refresh.* Rejected. 60-second
+  renderer polling × multiple consumers would push toward the per-
+  minute ceiling for no benefit; the cache insulates the upstream from
+  consumer cadence.
+- *Bundle a shared poller base class with news_feeds.* Rejected per
+  CLAUDE.md §14 third-instance rule. Two nodes is too few to know which
+  bits are shared template vs. coincidence. The third data node's PR
+  (weather, probably) is the right time to extract.
+- *Build a separate Settings surface as part of this PR for tickers.*
+  Rejected as scope creep — the Settings app is its own PR.
+
+## [2026-05-13] Finance historical quotes via passive accumulation
+
+**Status:** accepted
+**Decided by:** Architect (approved by Director)
+**Context:** With `finance.quote` / `finance.market_summary` shipping in
+the prior PR, the obvious next move is depth. Voice-side ("how's AAPL
+this week"), renderer-side (in-card sparkline), and any future
+agent-side ("did NVDA do anything unusual this month") all want
+*historical* price samples — not just the current price the in-memory
+cache already serves. The question is how the finance node should
+*get* that history. Three options realistically present themselves:
+fetch from a dedicated historical endpoint (Finnhub `/stock/candle`,
+Alpha Vantage time-series, etc.) on startup or on each query;
+back-fill from training data / a third-party historical dataset; or
+passively accumulate from the polling cycle already running. This
+ADR is the third choice ratified.
+
+**Decision:** Each successful poll appends one row to a SQLite
+`quotes_history` table at `$HOMEOS_DATA_DIR/finance/history.db`. The
+table is independent of the in-memory current-quote cache (storage.ts
+is unchanged — that anti-decision from "Second data node: finance via
+Finnhub" still holds). Rolling 90-day retention; rows older than the
+window are pruned at the start of each poll cycle. A new surface
+`finance.history({symbol, period?})` reads accumulated points back
+(periods: `1d` / `1w` / `1m` / `all`, default `1w`); empty array on
+first-day installs is honest, not an error. Voice tool
+`finance_history` summarises the points into a spoken-ready line
+(range low/high, change-over-window) and special-cases
+insufficient-history with a "check back in a few hours" `spoken`
+field. Renderer adds an inline 80×24px sparkline at the bottom of
+each QuoteCard, period `1d`, suppressed below 3 samples.
+
+**Consequences:**
+- **First-day installs honestly return no history.** The voice tool
+  reads "I don't have enough history for AAPL yet, sir — check back in
+  a few hours." Sparklines stay hidden in QuoteCards until 3 samples
+  accumulate (~15 min after first poll). The user can verify that
+  history *is* growing by reopening the app or asking again later.
+  This is intentional — see "Alternatives considered" below for why
+  the other choices were worse.
+- The finance node now has BOTH in-memory state (current-quote cache,
+  unchanged) AND SQLite state (history.db, new). The separation is
+  defensible: in-memory because *current* prices going stale across a
+  restart would mislead consumers; SQLite because *historical* prices
+  are inherently time-stamped — there's no staleness to mislead, and
+  losing the accumulated series across restarts would defeat the
+  whole point. README + node metadata in manifest.yaml both spell
+  this out so the next reader doesn't get confused by what looks like
+  a U-turn from the prior ADR.
+- Same retention shape as a possible future weather node (90 days
+  rolling, key on time + entity). The third instance is where pattern
+  extraction earns its weight per CLAUDE.md §14; this PR doesn't
+  extract.
+- History writes are best-effort inside the poller — a failing DB
+  (corruption, disk full) is logged but doesn't propagate; the
+  in-memory cache and `finance.quote` / `finance.market_summary` keep
+  working. Trade-off: rare silent data loss for the historical series
+  in pathological cases, vs. a single failed write blowing up the
+  renderer's grid. The grid is the more visible failure mode.
+- Three new manifest edges (`shell → finance.history`,
+  `raven → finance.history`, plus the surface declaration on the
+  finance node). Same multi-consumer pattern as `news_feeds.recent`.
+- `finance_history` is the third entry in the voice tool's
+  hallucination guardrail. Training-era prices are wrong; training-era
+  *charts* are wronger. The prompt now explicitly tells Gemini to
+  read the `spoken` field verbatim — both the summary line and the
+  insufficient-history line — and never substitute past prices from
+  memory.
+
+**Alternatives considered:**
+- *Startup backfill via Finnhub `/stock/candle`.* Rejected. Free-tier
+  `/stock/candle` is heavily limited (paid tier required for
+  >sub-daily resolution on most symbols), the resolutions on offer
+  don't match our 5-minute polling cadence, and the boundary case
+  ("what counts as `now` if the upstream historical and our live
+  series disagree?") needs reconciliation logic this PR does not
+  want to write. Passive accumulation sidesteps the reconciliation by
+  having only one source of truth: our own polls.
+- *Live `/stock/candle` on each `finance.history` call.* Rejected.
+  Doubles request count against Finnhub's per-minute cap for what is
+  almost always read-back of data the node has already collected; and
+  fails for fresh installs in the same way passive accumulation
+  does, just slower and at higher upstream cost.
+- *Back-fill from training data / a public historical dataset on
+  first launch.* Rejected — fakes the depth. The user would see a
+  full chart immediately, but the points wouldn't be what the node
+  *itself* observed; the moment one of those backfilled prices
+  disagrees with reality (it will), the trust in *all* charts
+  evaporates. Worse than honest emptiness.
+- *Persist the current-quote cache to SQLite too (re-open the prior
+  ADR).* Rejected. The reason the current cache stays in-memory is
+  unchanged: a stale current-quote read after a restart would
+  mislead consumers with no signal that it's stale. A separate
+  historical table avoids this — every row in `quotes_history`
+  carries its own `fetched_at`, so consumers know exactly when each
+  sample was observed.
+- *Persist history in a single shared DB with news_feeds.* Rejected.
+  Node-local SQLite is the established pattern (DECISIONS.md "News
+  feeds node storage layout"). Cross-node DBs would couple lifecycles
+  that should stay independent. Same rationale as keeping
+  `news_feeds/news.db` separate from anything else.
+- *Bigger or smaller retention window.* 90 days picked as the
+  sweet spot: covers the voice tool's longest period (`1m`) with
+  generous headroom for future "past quarter" / "past two months"
+  phrasings, and at ~26k rows per symbol per quarter the on-disk
+  footprint is small (<1MB per symbol for the full window). 30 days
+  would be too tight; 365 days has no use case yet.
+- *Detail-page chart in the renderer (full range, hover, etc.).*
+  Out of scope. The 80×24 inline sparkline gives "at-a-glance trend"
+  for free at the existing card layout. A detail view is a separate
+  PR if/when the user asks for it.
+
+---
+
+## [2026-05-13] Vision arc: gesture-driven interaction on laptop + future projection on home substrate
+
+**Status:** roadmap accepted
+**Decided by:** Architect (approved by Director)
+**Context:** Voice and visual interaction are both first-class
+primitives for Aether (working name homeOS until the rename PR).
+Vision opens a gesture vocabulary (stop / select / next / wake) and
+pointer-targeting ("read *this* article") that voice alone can't
+reach without awkward verbalisation. Eventually — when the home
+substrate has projectors, multiple cameras, and depth sensors — the
+same vision stack enables projection of UI onto physical surfaces
+("put my calendar there"). The arc is multi-PR with architectural
+decisions baked into the ordering, and Director's end-state extends
+beyond what the laptop dev surface can demonstrate. Encoding the
+plan before any vision PR fires prevents scope creep on any single
+PR and keeps the trajectory legible across sessions.
+**Decision:** Vision arc ships as a **4-PR sequence**:
+1. `feat/vision-capture-node` — webcam capture mesh node, single
+   `vision.frame()` surface, no user-visible behaviour.
+2. `feat/vision-gesture-watcher` — MediaPipe Hands inference, the
+   first **always-on event-emitting** mesh node; introduces a new
+   mesh pattern (events, not request-response).
+3. `feat/raven-gesture-actions` — raven-core subscribes to gesture
+   events and maps them to voice/app actions; adds a Gemini-
+   interruption hook so "open palm = cancel" actually works.
+4. `feat/pointing-app-integration` — `data-pointable` attribute
+   convention on apps; shell pointer service; voice tools consult
+   pointer state for "read this" semantics.
+
+**Six gestures** comprise the laptop v1 vocabulary, in the order they
+appear in `docs/vision-roadmap.md`:
+1. Open palm hold — stop / cancel
+2. Index finger point — "look here"
+3. Thumbs up / down — confirm / dismiss
+4. Pinch — select / open
+5. Hand swipe L/R — next / previous
+6. Two-finger peace sign hold — wake voice session
+
+Wider vocabulary (multi-user distinguishing, mid-air drawing,
+eye-gaze) is deferred to when home-substrate hardware exists.
+**Consequences:**
+- Introduces the first always-on event-emitting mesh node pattern
+  (the gesture watcher). Mesh envelope protocol may need extension
+  or an SSE-based "subscribe to events" surface — that design
+  decision is deferred to when PR 2 is actively designed, not
+  pre-committed here.
+- Apps need a `data-pointable="{kind}-{id}"` attribute convention
+  to support pointer-targeting (News, Finance, Markdown each get
+  this in PR 4; new apps inherit the convention).
+- Vision Python deps (`mediapipe`, `opencv-python`, `Pillow`, `mss`,
+  `numpy`) stay vendored in raven-core's bootstrap even though the
+  current voice path doesn't use them — pruning would mean
+  re-vendoring at PR 1. Explicit anti-decision.
+- raven-core gains a Gemini-interruption mechanism in PR 3; until
+  then "cancel voice" mid-response is not reachable.
+- Patterns established for laptop v1 (event-emitting nodes,
+  gesture-to-action mapping, pointer-targeting convention) extend
+  to the home substrate without retrofit.
+**Alternatives considered:**
+- *LLM-based gesture inference from raw frames* (stream frames to a
+  vision model, ask "what's the user doing"). Rejected: too slow and
+  too expensive at 10fps, and a per-frame round-trip to a remote
+  model violates the "vision data is owned by Aether" doctrine.
+- *Apple Vision framework instead of MediaPipe.* Rejected: macOS-
+  locked, harder cross-platform path. MediaPipe is the portable
+  choice for the eventual home substrate (Linux box likely).
+- *Gesture-as-MCP — delegate detection to an external vision
+  service.* Rejected as the wrong taxonomic shape: gesture detection
+  is owned data (camera feed never leaves the device), so it lives
+  in mesh, not MCP. Same reasoning as `news_feeds` and `finance`
+  living in mesh rather than being MCP-facing.
+**Reference:** [`docs/vision-roadmap.md`](docs/vision-roadmap.md)
+for the full design — gesture-by-gesture semantics, PR-by-PR
+specifics, home-substrate eventual scope, and dependency rationale.
+

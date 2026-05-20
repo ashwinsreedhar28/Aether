@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "time.now",
+  "title": "time.now",
+  "description": "Return the current wall-clock time in the requested IANA timezone.",
+  "type": "object",
+  "properties": {
+    "zone": {
+      "type": "string",
+      "description": "IANA timezone name (e.g. 'America/New_York'). Defaults to the system local zone if omitted."
+    },
+    "format": {
+      "type": "string",
+      "enum": ["iso", "human"],
+      "description": "Output format. 'iso' (default) returns ISO 8601 with the zone's UTC offset; 'human' returns a readable form like '2:32 PM EDT'."
+    }
+  },
+  "additionalProperties": false
+}

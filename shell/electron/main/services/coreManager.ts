@@ -137,6 +137,11 @@ export class CoreManager {
       // at manifest load so nodeManager can inject the same value into
       // the macos_mail child's env.
       MESH_MACOS_MAIL_SECRET: this.secrets.macosMailSecret,
+      // Time is a stateless TypeScript data node (spawned by nodeManager).
+      // Same env contract — Core resolves env:MESH_TIME_SECRET at
+      // manifest load so nodeManager can inject the same value into
+      // the time child's env.
+      MESH_TIME_SECRET: this.secrets.timeSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

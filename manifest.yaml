@@ -340,6 +340,23 @@ nodes:
         invocation_mode: request_response
         schema: nodes/system_info/schemas/processes.json
 
+  - id: time
+    runtime: local-process
+    identity_secret: env:MESH_TIME_SECRET
+    metadata:
+      description: |
+        Stateless timezone-aware clock. One surface (time.now) returns
+        the current wall-clock time in a requested IANA timezone via
+        Intl.DateTimeFormat. No SQLite, no poller, no cache —
+        Date.now() per invocation. Invalid IANA zones return
+        MeshDeny('time_bad_zone'). TypeScript node spawned by
+        nodeManager; running marker only under AETHER_DATA_DIR.
+    surfaces:
+      - name: now
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/time/schemas/now.json
+
 
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
@@ -535,3 +552,10 @@ relationships:
     to: system_info.network
   - from: raven
     to: system_info.active_app
+
+  # Voice tool time_now: "what time is it in Tokyo" → Gemini calls
+  # time_now → mesh.invoke('time.now', { zone: 'Asia/Tokyo' }). The
+  # existing local-only voice tool is NOT migrated in this lane; that's
+  # a follow-up.
+  - from: raven
+    to: time.now

@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.processes",
+  "description": "Returns a snapshot of running processes via macOS `ps -axo pid,comm,%cpu,%mem,etime`. Each record reports PID, command name (truncated by ps), CPU percent, memory percent, and elapsed runtime. Caller may optionally pass `limit` (integer 1-200, default 50) and `sort_by` ('cpu' | 'memory' | 'pid', default 'cpu'). Returns available: false if the ps command fails. No authentication required. Cached for 5 seconds.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "default": 50,
+      "description": "Maximum number of process records to return after sorting."
+    },
+    "sort_by": {
+      "type": "string",
+      "enum": ["cpu", "memory", "pid"],
+      "default": "cpu",
+      "description": "Sort key. 'cpu' and 'memory' are descending; 'pid' is ascending."
+    }
+  }
+}

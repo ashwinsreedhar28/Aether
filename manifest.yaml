@@ -335,6 +335,10 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/system_info/schemas/active_app.json
+      - name: processes
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/system_info/schemas/processes.json
 
 
 relationships:

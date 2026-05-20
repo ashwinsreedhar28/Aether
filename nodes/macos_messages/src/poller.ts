@@ -48,8 +48,9 @@ export class MessagesPoller {
       const chats = chatDb.listChats()
 
       // Cold-start: on the very first tick we record the current
-      // latest date_delivered per chat as the watermark and return,
-      // so we don't bulk-import the entire chat history on day one.
+      // latest effective_time (MAX(m.date, m.date_delivered)) per chat
+      // as the watermark and return, so we don't bulk-import the entire
+      // chat history on day one.
       if (!this.armed) {
         for (const c of chats) {
           const latest = chatDb.latestDeliveredForChat(c.rowid)
@@ -74,17 +75,23 @@ export class MessagesPoller {
           chatIdentifier: r.chat_identifier,
           chatDisplayName: r.chat_display_name,
           text: r.text,
-          dateDelivered: appleNanosToUnixMs(r.date_delivered),
+          // The aether-side messages_recent.date_delivered column holds
+          // the effective time (see storage.ts comment). chat.db's raw
+          // date_delivered is 0 for self-sent messages, so we use
+          // MAX(m.date, m.date_delivered) — already computed by the
+          // SELECT — for both watermarking and the stored timestamp.
+          dateDelivered: appleNanosToUnixMs(r.effective_time),
           isFromMe: r.is_from_me,
           service: r.service ?? 'unknown',
           capturedAt,
         }))
 
-        // Advance the watermark to the max raw apple-nanos value in
-        // the batch. We keep watermarks in chat.db's native units so
-        // the next `messagesSince` call passes the same form back.
+        // Advance the watermark to the max effective_time (apple-nanos)
+        // observed in the batch. We keep watermarks in chat.db's native
+        // units so the next `messagesSince` call passes the same form
+        // back.
         let maxApple = watermark
-        for (const r of rows) if (r.date_delivered > maxApple) maxApple = r.date_delivered
+        for (const r of rows) if (r.effective_time > maxApple) maxApple = r.effective_time
 
         const inserted = this.store.insertBatch(c.rowid, inserts, maxApple)
         totalInserted += inserted

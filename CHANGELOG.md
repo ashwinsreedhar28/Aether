@@ -69,6 +69,19 @@ historical record.
 - Voice tool registry now auto-discovers tool modules in `daemons/raven-core/raven_core/tools/`. Modules with `get_tools()` and `handle_call_async()` exports are loaded automatically; `__init__.py` no longer needs manual edits per new tool. Adding a new voice tool is now a single-file change.
 
 ### Fixed
+- `macos_messages` self-sent iMessages now appear on
+  `macos_messages.recent`. The canonical chat.db query watermarked and
+  ordered on `message.date_delivered`, which is 0 for messages sent
+  *from* this Mac (Apple populates the field only on inbound APNS
+  delivery), so self-sent rows never crossed the watermark and never
+  reached the surface. Switched to `MAX(m.date, m.date_delivered)` —
+  SQLite's 2-arg scalar form, not the aggregate — as the effective
+  timestamp in the WHERE filter, ORDER BY, SELECT (aliased
+  `effective_time`), per-chat watermark advance, and cold-start seed.
+  Aether-side `messages_recent.date_delivered` column now stores this
+  effective value (semantic drift documented in `storage.ts`); column
+  name preserved for consumer compatibility. No schema migration. Mesh
+  surface contract unchanged. Closes #101.
 - `macos_mail` AppleScript scoped to 20 most recent inbox messages.
   Previous enumeration of full inbox exceeded the 30s `runAppleScript`
   timeout on large mailboxes (repro: 97k messages). Bridge timeout

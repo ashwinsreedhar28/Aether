@@ -1169,6 +1169,7 @@ async def handle_introspection(request: web.Request) -> web.Response:
         last_seen = last_seen_all.get(nid)
         nodes.append({
             "id": nid,
+            "category": "uncategorized",
             "surfaces": sorted(decl["surfaces"].keys()),
             "last_seen_ts": last_seen,
             "status": _introspection_status(
@@ -1181,7 +1182,7 @@ async def handle_introspection(request: web.Request) -> web.Response:
             to_node, surface = t.split(".", 1)
         else:
             to_node, surface = t, None
-        edges.append({"from": f, "to": to_node, "surface": surface})
+        edges.append({"from": f, "to": to_node, "surface": surface, "allowed": True})
     return web.json_response({
         "nodes": nodes,
         "edges": edges,

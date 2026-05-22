@@ -132,6 +132,9 @@ in [docs/archive/changelog-unreleased-pre-sprint-4.md](docs/archive/changelog-un
   `docs/new-node-pattern.md` gets a Corrections section pending full
   refresh.
 
+### Fixed
+- `/__introspection__` payload forward-compat. Added `category: "uncategorized"` to node objects (consumer in #107 replaces with real categories from manifest categorization) and `allowed: true` to edge objects. Edge payload is per-surface — each row is `{from, to, surface, allowed}` rather than per-node-pair — adopted as the locked shape for #107 and #108. Closes the gap on #109's stated forward-compat (PR body §11.4 attested these fields as present; they were not).
+
 ## [0.0.3] - 2026-05-12
 
 ### Added

@@ -144,6 +144,21 @@ Across PRs #64–#67 and several days of varying API conditions, the same fricti
 
 - **State preservation across time gaps.** Director returning hours or days later asked "where are we"; reconstructing state from memory + git was fragile. Architect now writes `_session_state.md` (gitignored) at productive session ends.
 
+---
+## 2026-05-21 — Wave 0 lessons
+
+### Smoke validation as merge gate for macOS native-app boundaries
+PR #102 (macos_mail AppleScript scope) shipped with clean verify + clean diff review, but the fix was architecturally sound while still being insufficient against a 97k-message inbox: Mail.app's AppleScript bridge fundamentally cannot evaluate any collection query against a degraded inbox in reasonable time, regardless of query shape. Verify-clean + diff-review is necessary but not sufficient for any lane touching a macOS native-app boundary (Mail, Messages, Calendar, Reminders, Notes, Music, Maps, etc.). Smoke validation on representative production data is the merge gate going forward, not just CI green. Architect bears responsibility for insisting on smoke validation before authorizing merge.
+
+### Substrate identity as architectural primitive
+Aether received its own iCloud account on 2026-05-20, mirroring the RAVEN precedent (RAVEN had its own iCloud on a Mac Mini). This isn't an environmental workaround — it's the shape of what Aether is. Apps borrow their user's identity; substrates have their own. The eventual home-substrate state (always-on Mac Mini, peripherals) inherits this Apple ID. Every personal-data node going forward should be designed with an optional account-filter so it can scope to Aether's accounts rather than mixing identities. Dual-account is the steady state, not single-account.
+
+### AppleScript timeout diagnosis pattern
+When a Mail.app or Messages.app daemon reports timeout failures, the diagnosis is NOT necessarily a query-shape problem. The bridge may be fundamentally unresponsive due to indexer state, iCloud sync state, or large dataset state. Diagnostic order: (1) test trivial property access via `osascript` directly (`name of inbox`); (2) test bounded collection query (`messages 1 thru 5 of inbox`); (3) test `whose`-predicate query. If even (1) times out, the bridge is degraded — no query-shape fix will help. Document the limitation, file a follow-up lane that bypasses the bridge (Maildir-direct-read for Mail, equivalent for Messages), do not attempt further AppleScript engineering against that environment.
+
+### attributedBody as default storage for outgoing iMessages on modern macOS
+chat.db's `message.text` column is increasingly empty for outgoing iMessages from modern macOS; content lives in `message.attributedBody` (binary NSAttributedString blob, typedstream format). PR #74's inherited filter `WHERE text IS NOT NULL AND text != ''` silently drops these rows. Future macos_messages work must accept rows where text-is-empty + attributedBody-is-present, and decode the typedstream to extract human-readable content. This is not an edge case; it's the modern default.
+
 ### Subagent rationale
 
 The read-phase problem is structural: Implementer's main context fills with raw file content during reads, then the same context has to hold the write plan. On hostile-API days the read phase stalls before the write begins. The subagent split fixes it:

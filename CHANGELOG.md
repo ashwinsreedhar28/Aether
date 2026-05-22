@@ -10,6 +10,7 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Broker: in-memory invocation ring buffer + new `/__introspection__` endpoint exposing live topology + edges + recent activity. Foundation for the mesh-viz content app (sub-lanes 2 and 3). Read-only; HMAC-authed. Closes #106.
 - `system_info.processes` surface — running-process snapshot via `ps -axo pid,comm,%cpu,%mem,etime`. Accepts `{ limit?: 1-200 (default 50), sort_by?: 'cpu' | 'memory' | 'pid' (default 'cpu') }`; returns `{ available, processes: [{ pid, command, cpu_pct, mem_pct, elapsed }], total_count }`. 5s in-memory cache shared across (limit, sort_by) inputs; `MeshDeny('invalid_argument', ...)` on out-of-bound limits or unknown sort keys. No new shell hooks (node already registered). Closes #83.
 - `time` mesh node — stateless timezone-aware clock. One surface
   (`time.now`) returns the current wall-clock time in a requested IANA

@@ -46,6 +46,7 @@ from core.config import (
     dump_config_toml,
     load_config,
 )
+from core.invocation_recorder import InvocationRecorder
 from core.manifest_validator import validate_manifest
 from core.supervisor import Supervisor, make_script_resolver
 
@@ -253,6 +254,9 @@ class CoreState:
         # Admin tap.
         self._admin_streams: set[asyncio.Queue] = set()
         self.envelope_tail: collections.deque = collections.deque(maxlen=ENVELOPE_TAIL_MAX)
+        # Invocation-shaped ring buffer (one entry per /v0/invoke call) for
+        # /__introspection__. Parallel to envelope_tail, which is event-shaped.
+        self.invocation_recorder = InvocationRecorder()
         # Single LRU of envelope ids that have already been routed. Shared
         # across every replay-gated endpoint so the uniqueness invariant is
         # protocol-wide, not per-route.
@@ -981,9 +985,40 @@ async def _route_invocation(state: CoreState, env: dict,
 
 async def handle_invoke(request: web.Request) -> web.Response:
     state: CoreState = request.app["state"]
-    env = await request.json()
-    status, body = await _route_invocation(state, env)
-    return web.json_response(body, status=status)
+    env: dict = {}
+    status: int = 500
+    body: dict = {}
+    started = time.monotonic()
+    try:
+        env = await request.json()
+        status, body = await _route_invocation(state, env)
+        return web.json_response(body, status=status)
+    finally:
+        # Record every attempted dispatch — including bad JSON, bad signature,
+        # denied edges, and timeouts. Splitting "to" into node+surface only
+        # works when it matches "node.surface"; otherwise dst_node falls back
+        # to the raw value and surface is None.
+        latency_ms = (time.monotonic() - started) * 1000.0
+        src_node = env.get("from") if isinstance(env, dict) else None
+        to_raw = env.get("to") if isinstance(env, dict) else None
+        dst_node: str | None
+        surface: str | None
+        if isinstance(to_raw, str) and "." in to_raw:
+            dst_node, surface = to_raw.split(".", 1)
+        else:
+            dst_node, surface = (to_raw if isinstance(to_raw, str) else None), None
+        success = 200 <= status < 300
+        error_kind = None if success else (
+            body.get("error") if isinstance(body, dict) else None
+        )
+        state.invocation_recorder.record(
+            src_node=src_node,
+            dst_node=dst_node,
+            surface=surface,
+            success=success,
+            error_kind=error_kind,
+            latency_ms=latency_ms,
+        )
 
 
 async def handle_respond(request: web.Request) -> web.Response:
@@ -1094,6 +1129,64 @@ async def handle_introspect(request: web.Request) -> web.Response:
         })
     edges = [{"from": f, "to": t} for f, t in sorted(state.edges)]
     return web.json_response({"nodes": nodes, "relationships": edges})
+
+
+# Liveness thresholds for /__introspection__ node.status. A connected SSE
+# session always wins over recorder-derived staleness — a node can be live
+# and simply idle.
+INTROSPECTION_RUNNING_WINDOW_S = 90
+INTROSPECTION_UNHEALTHY_WINDOW_S = 300
+
+
+def _introspection_status(
+    node_id: str,
+    *,
+    connected: bool,
+    last_seen: float | None,
+    now: float,
+) -> str:
+    if connected:
+        return "running"
+    if last_seen is None:
+        return "stopped"
+    age = now - last_seen
+    if age <= INTROSPECTION_RUNNING_WINDOW_S:
+        return "running"
+    if age <= INTROSPECTION_UNHEALTHY_WINDOW_S:
+        return "unhealthy"
+    return "stopped"
+
+
+async def handle_introspection(request: web.Request) -> web.Response:
+    if not _admin_authed(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    state: CoreState = request.app["state"]
+    now = time.time()
+    last_seen_all = state.invocation_recorder.all_last_seen()
+    nodes = []
+    for nid, decl in state.nodes_decl.items():
+        connected = nid in state.connections
+        last_seen = last_seen_all.get(nid)
+        nodes.append({
+            "id": nid,
+            "surfaces": sorted(decl["surfaces"].keys()),
+            "last_seen_ts": last_seen,
+            "status": _introspection_status(
+                nid, connected=connected, last_seen=last_seen, now=now,
+            ),
+        })
+    edges = []
+    for f, t in sorted(state.edges):
+        if isinstance(t, str) and "." in t:
+            to_node, surface = t.split(".", 1)
+        else:
+            to_node, surface = t, None
+        edges.append({"from": f, "to": to_node, "surface": surface})
+    return web.json_response({
+        "nodes": nodes,
+        "edges": edges,
+        "activity": state.invocation_recorder.snapshot(),
+    })
 
 
 # ---------- admin (operator-only, SPEC §4.5) ----------
@@ -1392,6 +1485,9 @@ def make_app(
     # core.<surface> and travel /v0/invoke.
     app.router.add_get("/v0/admin/stream", handle_admin_stream)
     app.router.add_get("/v0/admin/metrics", handle_admin_metrics)
+    # Mesh-viz introspection: live topology + recent activity. Admin-token
+    # gated (matches the other operator views; not part of mesh traffic).
+    app.router.add_get("/__introspection__", handle_introspection)
 
     async def on_shutdown(app: web.Application) -> None:
         if state.supervisor is not None:

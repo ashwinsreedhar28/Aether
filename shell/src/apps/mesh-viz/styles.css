@@ -1,0 +1,33 @@
+/* mesh-viz (lane 108a) — only rules that don't compose cleanly inline. */
+
+/* SVG line transitions: hover focus on edges. Tailwind arbitrary props are
+   awkward on SVG presentation attributes, so the transition lives here. */
+.mesh-edge {
+  transition: stroke-opacity 0.18s ease, stroke-width 0.18s ease;
+}
+
+/* Stale-snapshot strip: the broker is serving a >10s-old cached snapshot. */
+.mesh-stale-banner {
+  border: 1px solid var(--holo-accent);
+  background: rgba(var(--holo-accent-rgb), 0.08);
+  color: var(--holo-accent);
+}
+
+/* Centered fallback (unreachable / loading) over the graph area. */
+.mesh-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--holo-muted);
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+}
+
+/* The SVG canvas fills its flex cell; aspect ratio is held by viewBox. */
+.mesh-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}

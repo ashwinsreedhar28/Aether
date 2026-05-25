@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Cable, FileText, Mic, Newspaper, Sparkles, type LucideIcon } from 'lucide-react'
+import { Cable, FileText, Mic, Network, Newspaper, Sparkles, type LucideIcon } from 'lucide-react'
 import { getApps, getApp } from './lib/app-registry'
 import { useActiveApp } from './stores/active-app'
 
@@ -10,14 +10,15 @@ import { useActiveApp } from './stores/active-app'
 const MAC_TRAFFIC_LIGHT_INSET = 80
 const NAV_HORIZONTAL_PAD = 12
 
-// Explicit icon map. Week 1 has 5 apps; an explicit map preserves
-// tree-shaking versus `import * as Icons from 'lucide-react'`, which
-// would pull the whole package. When we hit ~10 apps we revisit and
-// likely switch to dynamic resolution.
+// Explicit icon map — preserves tree-shaking versus
+// `import * as Icons from 'lucide-react'`, which would pull the whole
+// package. When we hit ~10 apps we revisit and likely switch to dynamic
+// resolution.
 const ICON_MAP: Record<string, LucideIcon> = {
   Cable,
   FileText,
   Mic,
+  Network,
   Newspaper,
   Sparkles
 }

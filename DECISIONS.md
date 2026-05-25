@@ -453,3 +453,49 @@ to say aloud, which matters for a voice-first product.
 
 Decisions dated 2026-05-13 and earlier are archived in
 [docs/archive/decisions-pre-2026-05-14.md](docs/archive/decisions-pre-2026-05-14.md).
+
+
+## 2026-05-25 — ADR: Substrate stays human-architected
+
+**Status:** Accepted
+
+**Context.** Sprint 5 closed with the mesh becoming observable end-to-end (PRs #109–#113). The roadmap doc (#114) names Aether-Architect as the eventual mesh node that converses with Director to draft and (later, gated) fire new mesh extensions. Sprint 10 ships the draft-only version; Sprint 11 extends to fire-and-watch for sensors; Sprint 14 to mixers; Sprint 17 to content apps; Sprint 19 (gated) to self-improvement of its own prompts.
+
+Across all of those stages, one constraint is load-bearing: **the substrate itself is never delegated.**
+
+**Decision.** The Aether-Architect node, at any maturity level (Sprint 10 through Sprint 19+), is NEVER authorized to touch:
+
+1. `core/core/` — the mesh broker. All routing, dispatch, invocation recording, and introspection logic stays human-architected.
+2. `manifest.yaml` edge-graph topology — the *structure* of allowed-edges between nodes. The Architect can propose new nodes (which gain new edges by adding to the graph); it cannot rewrite the graph between existing nodes.
+3. The confirmation pattern (Sprint 7 work) — `safe | confirm | destructive` surface declarations, broker enforcement of confirmation envelopes, voice rendering of confirmation. The mechanism by which dangerous actions get principal consent stays human-architected forever.
+
+These are the load-bearing primitives. If any of them break, the whole mesh's safety model breaks. Self-extension applies to leaves (sensors, actors, mixers, content apps) — never to the root.
+
+**Consequences.**
+- Sprint 19's gated self-improvement loop applies only to Aether-Architect's own *prompts*, not to the substrate code those prompts produce. The Architect cannot improve itself by rewriting the broker.
+- If a future lane proposes loosening this rule, the discipline is to slow down, not speed up. The ADR is the wall against the seemingly-reasonable case ("it's just one small change"), not the obviously-wrong case.
+- Future Architects evaluating "should we let the Architect touch X" should default to no unless X is unambiguously a leaf (Sensor/Actor/Mixer/content app) and X has zero downstream consumers in `core/core/`.
+
+**Related.** Roadmap doc (`docs/agent-platform-roadmap.md`) Architectural Anchors section, Failure Modes section. PR #114 introduced this concept; this ADR formalizes it.
+
+## 2026-05-25 — ADR: Manifest `description` field convention
+
+**Status:** Accepted
+
+**Context.** Sprint 5 substrate categorized every mesh node by `Sensor`/`Actor`/`Mixer`/`Planner`. Categorization made the mesh legible to mesh-viz. But mesh-viz hovers only show node id, category, surface count, and status — there's no human-language explanation of *what each node does*. The same gap blocks Sprint 13 voice introspection ("Hey Aether, what can you do?") and Sprint 10 Aether-Architect (which needs to read the existing surface inventory before drafting new ones).
+
+**Decision.** Every `manifest.yaml` node entry gains an optional `description: string` field describing what the node does in user-facing language (one or two sentences, prose, no markdown).
+
+Three downstream consumers:
+1. **Mesh-viz hover tooltips** (Sprint 6 sub-lane 108d): render the description on hover.
+2. **Raven voice introspection** (Sprint 13): when asked "what can you do," raven reads `mesh_introspection.topology` and reads the descriptions aloud, grouped by category.
+3. **Aether-Architect** (Sprint 10): consumes descriptions as context when conversing with Director about new mesh extensions.
+
+Sprint 6 introduces the convention by applying it to all new sensor nodes (sports, research, location, focus_state). Sprint 6 also backfills `description` for the 17 existing nodes — small one-PR lane.
+
+**Consequences.**
+- `core/schemas/manifest.json` gains an optional `description` field with a max-length constraint (proposed: 280 characters; matches a tweet, prevents overflow in tooltips/voice).
+- Description content is the node author's responsibility; reviewed during PR for accuracy and tone.
+- Empty/missing descriptions are graceful: tooltips fall back to category + surface count; voice falls back to "I have a node called X" rather than describing it.
+
+**Related.** Sprint 6 lane spec (roadmap doc), Sprint 13 voice depth (roadmap doc), #104 issue comment listing 108d as deferred lane.

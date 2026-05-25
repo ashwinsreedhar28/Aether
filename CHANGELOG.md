@@ -136,6 +136,9 @@ in [docs/archive/changelog-unreleased-pre-sprint-4.md](docs/archive/changelog-un
 ### Fixed
 - `/__introspection__` payload forward-compat. Added `category: "uncategorized"` to node objects (consumer in #107 replaces with real categories from manifest categorization) and `allowed: true` to edge objects. Edge payload is per-surface — each row is `{from, to, surface, allowed}` rather than per-node-pair — adopted as the locked shape for #107 and #108. Closes the gap on #109's stated forward-compat (PR body §11.4 attested these fields as present; they were not).
 
+### Fixed
+- Broker reads `category` from `manifest.yaml` instead of hardcoding `"uncategorized"`. PR #110 added `category` to the `/__introspection__` response shape but emitted a hardcoded literal; PR #111 added real `Sensor`/`Actor`/`Mixer`/`Planner` values to the manifest but the broker was still hardcoding `"uncategorized"`. The loader now carries `category` through `state.nodes_decl` (defaulting to `"uncategorized"` if absent for backwards compat), and `handle_introspection` reads from it. The built-in `core` node is categorized as `Mixer` (it composes other surfaces during dispatch). Closes the last gap in the Sprint 5 Lane 1 broker contract.
+
 ## [0.0.3] - 2026-05-12
 
 ### Added

@@ -72,6 +72,11 @@ historical record.
 - Operations: §10 governance entries extracted from CLAUDE.md to `docs/governance-log.md`. CLAUDE.md drops from 49,239 to 26,256 chars (45% reduction), well under Claude Code's 40k performance threshold. New governance batches now append to `docs/governance-log.md`. Implementer sessions read a smaller CLAUDE.md as their first action — meaningful context-window and token savings per session.
 - Voice tool registry now auto-discovers tool modules in `daemons/raven-core/raven_core/tools/`. Modules with `get_tools()` and `handle_call_async()` exports are loaded automatically; `__init__.py` no longer needs manual edits per new tool. Adding a new voice tool is now a single-file change.
 - Nav cleanup: removed `welcome` and `markdown` content apps (no longer in use); removed `mesh-devtools` debug app (superseded by mesh-viz from #113). Renamed `mesh-viz` display name from "Mesh Viz" to "Mesh" (single mesh observability surface now). Fixed Finance icon resolving to Sparkles fallback — `TrendingUp` was declared in `finance/index.ts` but never added to `App.tsx`'s ICON_MAP. Resulting nav: News, Finance, Voice, Mesh.
+- Raven default voice swapped from `Aoede` to `Charon`. Charon is the
+  closest match in Gemini Live's prebuilt voice set to an older British
+  gentleman's voice (deeper register, measured cadence). User overrides
+  via `~/.raven/config.json` `voice_name` still win — this change only
+  affects the default.
 
 ### Fixed
 - `macos_messages` self-sent iMessages now appear on

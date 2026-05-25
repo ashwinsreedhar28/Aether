@@ -70,7 +70,7 @@ class Config:
 
     # Model settings
     model: str = "models/gemini-2.5-flash-native-audio-preview-09-2025"
-    voice_name: str = "Aoede"
+    voice_name: str = "Charon"
 
     # Audio settings
     send_sample_rate: int = 16000

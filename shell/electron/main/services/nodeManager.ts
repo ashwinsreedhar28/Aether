@@ -8,6 +8,7 @@ import {
   HOST_NOTIFICATIONS_ENTRY,
   MACOS_MAIL_ENTRY,
   MACOS_MESSAGES_ENTRY,
+  MESH_INTROSPECTION_ENTRY,
   NEWS_FEEDS_ENTRY,
   SYSTEM_INFO_ENTRY,
   TIME_ENTRY,
@@ -70,6 +71,7 @@ export class NodeManager {
       this.spawnMacosMessages(),
       this.spawnMacosMail(),
       this.spawnTime(),
+      this.spawnMeshIntrospection(),
     ])
   }
 
@@ -243,6 +245,30 @@ export class NodeManager {
       secretEnvName: 'MESH_TIME_SECRET',
       secretValue: this.secrets.timeSecret,
       extraEnv: { AETHER_DATA_DIR: dataDir },
+    })
+  }
+
+  private async spawnMeshIntrospection(): Promise<void> {
+    // mesh_introspection sensor — polls Core's bearer-gated
+    // /__introspection__ at 2s cadence and re-exposes topology +
+    // activity as signed mesh surfaces. Unlike the other data nodes it
+    // needs ADMIN_TOKEN in its env to authenticate to that endpoint;
+    // process.env on the shell main process does NOT carry it (it's a
+    // per-launch secret minted in generateMeshSecrets), so it must be
+    // injected explicitly via extraEnv. AETHER_DATA_DIR is the writable
+    // root for the running marker, matching the daemon-node pattern.
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'mesh_introspection',
+      entry: MESH_INTROSPECTION_ENTRY,
+      buildHint: '`pnpm --filter @aether/mesh-introspection build`',
+      secretEnvName: 'MESH_MESH_INTROSPECTION_SECRET',
+      secretValue: this.secrets.meshIntrospectionSecret,
+      extraEnv: {
+        ADMIN_TOKEN: this.secrets.adminToken,
+        AETHER_DATA_DIR: dataDir,
+      },
     })
   }
 

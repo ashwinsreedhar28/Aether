@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mesh_introspection.topology",
+  "title": "mesh_introspection.topology",
+  "description": "Return the latest cached snapshot of mesh topology (nodes + edges) sourced from Core's /__introspection__ admin endpoint. No params.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

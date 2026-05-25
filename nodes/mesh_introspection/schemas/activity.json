@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mesh_introspection.activity",
+  "title": "mesh_introspection.activity",
+  "description": "Return the latest cached activity ring buffer (newest-first) sourced from Core's /__introspection__ admin endpoint. No params.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

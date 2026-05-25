@@ -296,6 +296,7 @@ class CoreState:
             self.nodes_decl[node["id"]] = {
                 "kind": node.get("kind"),
                 "runtime": node.get("runtime", "local-process"),
+                "category": node.get("category", "uncategorized"),
                 "metadata": node.get("metadata", {}),
                 "secret": secret,
                 "surfaces": surfaces,
@@ -405,6 +406,7 @@ class CoreState:
         self.nodes_decl[CORE_NODE_ID] = {
             "kind": "capability",
             "runtime": "in-process",
+            "category": "Mixer",
             "metadata": {"builtin": True},
             "secret": self._core_secret,
             "surfaces": surfaces,
@@ -1169,7 +1171,7 @@ async def handle_introspection(request: web.Request) -> web.Response:
         last_seen = last_seen_all.get(nid)
         nodes.append({
             "id": nid,
-            "category": "uncategorized",
+            "category": decl.get("category", "uncategorized"),
             "surfaces": sorted(decl["surfaces"].keys()),
             "last_seen_ts": last_seen,
             "status": _introspection_status(

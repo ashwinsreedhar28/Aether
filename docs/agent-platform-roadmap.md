@@ -186,14 +186,32 @@ future Planner real context to compose against.
 - Location sensor (passive: home / work / transit, no GPS streaming)
 - Focus state (foreground app, idle, Do Not Disturb)
 - Clipboard history (already exists; possibly enhance)
+- **Sports node** — Pulse-matching surfaces hoisted (NBA-focus per
+  Pulse). RAVEN voice tool follows in same lane or as fast-follow.
+- **Research node** — needs Pulse read before scoping (academic
+  arxiv-style vs broader "interesting reading" curation).
+- **Manifest `description` field convention** — apply to all new
+  sensors in this sprint; backfill `description` for the 17 existing
+  nodes. Foundation for Sprint 13 voice introspection. ADR recorded
+  in DECISIONS.md at Sprint 5 retro.
+- **108d (optional this sprint)** — mesh-viz hover tooltips render
+  manifest descriptions. First downstream consumer of the description
+  convention.
 - Sprint 5.5 cleanup (Phase 2): ECONNRESET investigation, dev-env
-  audit, mesh-devtools deprecation question
+  audit, any other Sprint 5 loose ends
 - Sprint 6 retro (Phase 4)
 
 Each new sensor consults its Pulse analog (in `_ingest/Pulse/`)
 during the lane spec. Width over depth — ship multiple small
 sensors rather than one deep one. Established Pulse pattern means
 each lane is a known shape.
+
+**Lane-count discipline:** the list above is 8 lanes plus cleanup +
+retro. Sprint 6 Phase 1 (roadmap-setting) will trim to 4–5 highest-
+leverage and defer rest to Sprint 6.5 / Sprint 7. Highest-leverage
+candidates: calendar, focus_state, sports, research — these give
+Sprint 8 Planner real human-context to compose against. Location and
+clipboard enhancements likely defer.
 
 ### Sprint 7 — Voice confirmation pattern + first dangerous actor
 

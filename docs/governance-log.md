@@ -241,3 +241,61 @@ Sprint 4 backlog lived in chat history and `_session_state.md` — neither visib
     Encountered during Wave 1 cleanup when a lowercase file existed
     alongside an UPPERCASE version in the git index. Watch for any
     rename that only changes case.
+
+
+---
+
+## 2026-05-25 — Sprint 5 lessons banked
+
+### Manual completion playbook expanded to seven PRs / five shapes
+Hand-completion is no longer a single pattern; it's a kit. Shapes documented across PRs #65, #66, #110, #112, #113, #114, #115:
+
+1. **Implementer-wrote-Director-shipped** (#65, #66) — CC drafted code, Director ran verify-build and shipped manually.
+2. **Implementer-stalled-Director-finished** (#110, #112, #113 verify) — CC drafted partial code or stalled mid-write; Director completed remaining edits and shipped.
+3. **Hand-written documentation lane** (#114) — no CC at all. Architect drafted prose in chat, Director pasted to disk, committed and shipped. First non-code application of the playbook.
+4. **Hand-edit code lane spanning two calendar days** (#115) — three rm -rf + surgical edits over two evenings/mornings. Uncommitted branch state preserved on disk between sessions. Validates: hand-edit lanes don't need single-session completion.
+5. **Architect-Director hand-completion after both CC sessions stalled** (#113) — both Implementer sessions hit ECONNRESET mid-write. Final state was assembled across the two stalled sessions' partial outputs. Director ran verify-build, manually-shipped.
+
+Across all five shapes: files persist on disk between sessions; resume prompts are 30–40% the size of original prompts; the §7 canonical PR body discipline holds regardless of session count.
+
+### ECONNRESET pattern observed but uninvestigated
+Two consecutive CC sessions during PR #113 stalled with clean network drops at retry 10/10 after ~17 minutes and ~23 minutes into the write phase. Same machine, same network, sessions spaced ~30 minutes apart. Different mechanism from the retry-storm pattern documented previously (those climb 5/10 → 8/10 over minutes). Possible causes (unverified): status.claude.com incidents during the windows, macOS network stack hiccups on long-running HTTP streams, VPN/proxy interference, request-size thresholds, local egress flakiness. Deferred to Sprint 5.5 cleanup (Phase 2 of Sprint 6): check status pages historically for the affected windows, profile network during a long write phase, decide on mitigation.
+
+### Tight explorer briefs hold value
+Explorer overhead dropped ~60% by tightening briefs from 7 subtasks (PR #107) to 3 subtasks (PR #113). Brief discipline: name 3-4 specific reads, no open-ended "find anything relevant" framing, no asking the explorer to also draft conclusions. Implementer reads the explorer summary as raw input, draws its own conclusions. CLAUDE.md §13 codifies.
+
+### Implementer-side decision authority pays off
+When prompts give the Implementer explicit local authority ("pick whichever you can implement cleanly; document choice in PR body") instead of pre-deciding every detail: choices are good, decisions arrive with reasoning attached. PR #113 picked Strategy A (radial single-ring) over Strategy B (concentric rings) with documented reasoning in RadialLayout.tsx top comment + PR body. Architect's prompt explicitly left the choice open. Worth a CLAUDE.md §13 update describing this as the preferred pattern: pre-decide what's load-bearing, leave non-load-bearing choices to Implementer.
+
+### §11 pre-PR heuristics catch real bugs
+- PR #113 §11.4 walk identified the AppDefinition `name` vs `title` discrepancy (Architect's resume prompt said `title`; Implementer caught the truth from the actual interface).
+- PR #115 §11.6 walk identified the CHANGELOG insertion logic bug in `[Unreleased]` sections with multiple subsection blocks.
+
+Each catch saved a fix-forward PR. §11 is paying for itself.
+
+### CHANGELOG-in-multi-subsection-[Unreleased] gotcha
+The "insert before next `## [` heading after `[Unreleased]`" logic is broken when `[Unreleased]` already has multiple subsection blocks (`### Added`, `### Changed`, `### Fixed` all present). Naive insertion puts new content at the bottom of `[Unreleased]` rather than inside the appropriate subsection. Hit on PR #115; fix took a two-step Python edit. Correct logic: "find the matching subsection within `[Unreleased]`; if it exists, append the bullet there; if not, create the subsection right after `### Added`." Banked as CLAUDE.md §10 entry.
+
+### `pnpm install` after new-workspace-package merge
+Git rebase brings `package.json` + lockfile but doesn't materialize `node_modules` for new workspace packages. Hit on the main worktree after PR #111's `nodes/mesh_introspection/` package landed (build broke until `pnpm install` ran). Avoided preemptively for PR #113. Banked as CLAUDE.md §10 entry: "After merging a PR that adds a new workspace package, run `pnpm install` from any worktree picking up the change."
+
+### AppDefinition `name` not `title`
+`shell/src/lib/app-definition.ts` exports the AppDefinition interface; the display label field is `name`, not `title`. Architect resume prompts mistakenly referenced `title`; Implementer caught it on PR #113. CLAUDE.md §10 entry.
+
+### Bundle-size as deletion-lane signal
+PR #115 dropped renderer JS by ~39% (1,012 KB → 622 KB) and CSS by ~21% via three content-app removals. Future deletion lanes should report bundle delta in PR body; serves as a smoke gate confirming the deletion actually took effect rather than leaving dead references behind.
+
+### Roadmap doc bridges sprint handoffs
+This Architect chat's handoff doc referenced `docs/agent-platform-roadmap.md` as if it existed; it didn't (prior architect named-but-never-wrote). PR #114 closed the gap. Future Architect chats inherit a real anchor: sprint direction, ADRs, six-piece arc, failure modes, candidate themes beyond Sprint 20. Cost was one hand-written PR; benefit accrues every chat-to-chat handoff hereafter.
+
+### Substrate-stays-human-architected ADR formally recorded
+Roadmap doc (#114) described the ADR; DECISIONS.md (this lane) formalizes it. The Architect node never touches broker, manifest edge-graph topology, or the confirmation pattern — at any maturity level, from Sprint 10 draft-only through Sprint 19 self-improvement. Load-bearing for the entire self-extension arc.
+
+### Manifest `description` field convention introduced
+New convention: every `manifest.yaml` node entry gains optional `description: string`. Three downstream consumers: mesh-viz hover tooltips (Sprint 6 108d), raven voice introspection (Sprint 13 "what can you do?"), Aether-Architect (Sprint 10). Sprint 6 introduces in new sensors; Sprint 6 backfills 17 existing nodes. ADR in DECISIONS.md.
+
+### Voice-as-universal-consumer recognized
+Raven's structural position as the only node with edges to every other surface is load-bearing for principal-facing introspection. When "what can you do?" lands at Sprint 13, the answer comes from raven consuming `mesh_introspection.topology` + manifest descriptions, not a separate Capabilities content app. Documented in roadmap doc Personalization Arc.
+
+### 4-phase sprint shape reaffirmed
+Sprint = roadmap → cleanup → features → retro. Sprint 4 was 13 PRs over 3 weeks; Sprint 5 was 7 PRs over 5 calendar days. Variance in lane count is a feature, not a bug. Future Architects evaluating "are we on track?" should look at phase completion, not lane count or calendar time. Already in roadmap doc Architectural Anchors.

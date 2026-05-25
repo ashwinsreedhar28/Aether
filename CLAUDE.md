@@ -327,6 +327,10 @@ These are patterns Architect has repeatedly flagged in review. Self-apply them B
 
 9. **Cross-doc consistency.** When a literal phrase, version number, package name, or terminology choice appears in more than one of CLAUDE.md / MASTER_SYNTHESIS.md / DECISIONS.md / CHANGELOG.md / README.md / docs/*.md, treat the set as one surface during a change. Pick the canonical form, then grep for the others — every divergence is either a doc-drift bug (fix in the same PR) or an intentional historical reference (DECISIONS.md and CHANGELOG.md entries dated before the divergence are policy-preserved verbatim; flag the divergence in the §7 self-review so the reviewer doesn't read drift as inconsistency). Common drift vectors: project name (homeOS vs Aether), version-current claims ("Current state (v0.x.0)" in README), tag tables, env var names, package scopes, port numbers, env-keyed paths. A passing typecheck does not catch a 0.3.0-in-README-while-CHANGELOG-says-0.5.0 mismatch — only a literal grep does.
 
+10. **Pre-decide load-bearing decisions; leave non-load-bearing to Implementer.** Lane prompts should pre-commit decisions that affect downstream consumers, the substrate, or the wire contract. Leave non-load-bearing local choices (layout strategy, edge rendering style, animation approach, etc.) explicitly open with "pick whichever you can implement cleanly; document choice in PR body." This produces better decisions (Implementer has fuller context at write-time than Architect did at prompt-time) AND better documentation (the choice ships with reasoning attached in code comments + PR body). PR #113 chose radial Strategy A over Strategy B this way; reasoning landed in `RadialLayout.tsx` top comment AND PR body Open Questions section. If a future lane has zero non-load-bearing choices to delegate, the lane is probably over-specified.
+
+11. **Hand-written documentation lanes don't need CC.** When PR content is direct compression of recent Architect-Director conversation (retros, ADRs, roadmap edits, governance updates), CC adds overhead with no value — the Implementer would have to reverse-engineer the same content from prior PR bodies and chat logs. Architect drafts in chat, Director pastes via heredoc, commits and ships. See §13.10 shape 3. PRs that landed via this pattern: #114 (roadmap doc), this retro PR. Do NOT use this pattern for code lanes; CC's structural review of changes (`grep`, file reads, typecheck) is real value.
+
 This list will grow. When Architect flags a new recurring pattern, add it here in a follow-up PR.
 
 ---
@@ -516,6 +520,45 @@ cannot land the work. NOT a default — CC remains the primary
 implementation channel. See `docs/manual-completion.md` for the
 full mechanics, including which file types convert cleanly to
 cat-heredocs and which require Python patches.
+
+## 13.10 Hand-Edit Lanes and the Manual-Completion Kit
+
+§13.9 documented "manual completion" as a single fallback pattern (Director-Architect paste-and-write when CC stalls). Sprint 5 expanded this into a five-shape kit. The shapes are interchangeable tools, not a hierarchy.
+
+The five shapes documented across PRs #65, #66, #110, #112, #113, #114, #115:
+
+1. **Implementer-wrote-Director-shipped.** CC drafts the code; Director runs verify-build and ships via manual commit + push. PRs #65, #66.
+
+2. **Implementer-stalled-Director-finished.** CC drafts partial code, then stalls mid-write (read-retry storm OR network drop). Director picks up where files-on-disk left off, finishes the surgical edits, ships manually. PRs #110, #112, #113 verify phase.
+
+3. **Hand-written documentation lane.** No CC session at all. Architect drafts prose content in chat, Director pastes to disk via `cat > path << 'EOF' ... EOF`, commits and ships. First applied to PR #114 (roadmap doc); reusable for retrospectives, ADR-heavy lanes, governance docs. Content must be direct compression of recent chat conversation — if Architect needs to reverse-engineer from PR bodies, prefer CC.
+
+4. **Hand-edit code lane spanning calendar days.** Director starts hand-edits one session, pauses, resumes hours or days later. Uncommitted branch state on disk is valid persistent storage between sessions. Pattern works without modification — no special "resume protocol" needed beyond `git status` to remind yourself what's pending. PR #115.
+
+5. **Architect-Director hand-completion after BOTH CC sessions stall.** Two consecutive CC sessions hit network errors mid-write; Director assembles final state across the two partial outputs, runs verify-build, ships. PR #113 across two sessions ~30 minutes apart.
+
+Across all five shapes:
+- Files persist on disk between sessions; this is the load-bearing invariant.
+- Resume prompts (when used) run 30–40% the size of original prompts because they reference already-on-disk contracts as locked.
+- §7 canonical PR body discipline holds regardless of session count or shape — the PR body should explain shape in the "Risks / TODOs / Skipped" section.
+- Verify-build is the universal pre-ship gate. Hand-completion never skips it.
+
+When to use which shape (default heuristics):
+- Code work, fresh lane → CC (default; no kit needed).
+- Code work, CC stalls → shape 2 or 5.
+- Documentation, content fresh in chat → shape 3.
+- Small surgical edits (≤5 files, no architectural decisions) → shape 4 directly.
+- Mixed lane spanning multiple days → shape 4 with daily verify-builds.
+
+The kit is now stable. Future Sprint retros bank new shapes here as they emerge.
+
+## 13.11 Bundle-Size Reporting in Deletion Lanes
+
+Deletion lanes (PRs that primarily remove code) should report renderer bundle delta in the §7 "Verification" section. Serves as a smoke gate confirming the deletion actually took effect rather than leaving dead references somewhere.
+
+Example: PR #115 removed three content-app directories. Renderer JS dropped from 1,012 KB to 622 KB (~39%); renderer CSS dropped 23.54 KB to 18.66 KB (~21%). The numeric drop confirmed no orphan imports.
+
+Format in PR body: include `pnpm -r build` output's bundle size lines under "Verification," noting delta from previous build.
 
 ---
 

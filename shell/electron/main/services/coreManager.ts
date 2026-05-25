@@ -142,6 +142,15 @@ export class CoreManager {
       // manifest load so nodeManager can inject the same value into
       // the time child's env.
       MESH_TIME_SECRET: this.secrets.timeSecret,
+      // Mesh introspection is a TypeScript sensor node (spawned by
+      // nodeManager). Same env contract — Core resolves
+      // env:MESH_MESH_INTROSPECTION_SECRET at manifest load so
+      // nodeManager can inject the same value into the child's env.
+      // The node ALSO needs ADMIN_TOKEN (injected by nodeManager via
+      // extraEnv) to authenticate to Core's bearer-gated
+      // /__introspection__ endpoint — that token is the same
+      // this.secrets.adminToken already in Core's env above.
+      MESH_MESH_INTROSPECTION_SECRET: this.secrets.meshIntrospectionSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

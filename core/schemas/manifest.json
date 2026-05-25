@@ -18,7 +18,7 @@
   "definitions": {
     "node": {
       "type": "object",
-      "required": ["id", "surfaces"],
+      "required": ["id", "category", "surfaces"],
       "additionalProperties": true,
       "properties": {
         "id": {
@@ -30,6 +30,11 @@
         "runtime": {
           "type": "string",
           "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "enum": ["Sensor", "Actor", "Mixer", "Planner"],
+          "description": "Coarse role taxonomy used by the renderer-side mesh viz and by future Planner routing. Sensor: read-only, exposes world state. Actor: changes world state. Mixer: composes other surfaces (briefings, voice). Planner: decides what to invoke next (none yet)."
         },
         "identity_secret": {
           "type": "string"

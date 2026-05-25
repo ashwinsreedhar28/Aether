@@ -17,6 +17,7 @@
 nodes:
   - id: shell
     runtime: local-process
+    category: Mixer
     identity_secret: env:MESH_SHELL_SECRET
     metadata:
       description: |
@@ -28,6 +29,7 @@ nodes:
 
   - id: host_notifications
     runtime: local-process
+    category: Actor
     identity_secret: env:MESH_HOST_NOTIFICATIONS_SECRET
     metadata:
       description: |
@@ -42,6 +44,7 @@ nodes:
 
   - id: raven
     runtime: local-process
+    category: Mixer
     identity_secret: env:MESH_RAVEN_SECRET
     metadata:
       description: |
@@ -54,6 +57,7 @@ nodes:
 
   - id: news_feeds
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_NEWS_FEEDS_SECRET
     metadata:
       description: |
@@ -82,6 +86,7 @@ nodes:
 
   - id: clipboard_history
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_CLIPBOARD_HISTORY_SECRET
     metadata:
       description: |
@@ -98,6 +103,7 @@ nodes:
 
   - id: macos_messages
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_MACOS_MESSAGES_SECRET
     metadata:
       description: |
@@ -117,6 +123,7 @@ nodes:
 
   - id: macos_mail
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_MACOS_MAIL_SECRET
     metadata:
       description: |
@@ -136,6 +143,7 @@ nodes:
 
   - id: finance
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_FINANCE_SECRET
     metadata:
       description: |
@@ -189,6 +197,7 @@ nodes:
 
   - id: weather
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_WEATHER_SECRET
     metadata:
       description: |
@@ -212,6 +221,7 @@ nodes:
 
   - id: digest
     runtime: local-process
+    category: Mixer
     identity_secret: env:MESH_DIGEST_SECRET
     metadata:
       description: |
@@ -238,6 +248,7 @@ nodes:
 
   - id: vision
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_VISION_SECRET
     metadata:
       description: |
@@ -257,6 +268,7 @@ nodes:
 
   - id: calendar
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_CALENDAR_SECRET
     metadata:
       description: |
@@ -287,6 +299,7 @@ nodes:
 
   - id: reminders
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_REMINDERS_SECRET
     metadata:
       description: |
@@ -310,6 +323,7 @@ nodes:
         schema: nodes/reminders/schemas/upcoming.json
   - id: system_info
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_SYSTEM_INFO_SECRET
     metadata:
       description: |
@@ -342,6 +356,7 @@ nodes:
 
   - id: time
     runtime: local-process
+    category: Sensor
     identity_secret: env:MESH_TIME_SECRET
     metadata:
       description: |
@@ -356,6 +371,33 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/time/schemas/now.json
+
+  - id: mesh_introspection
+    runtime: local-process
+    category: Sensor
+    identity_secret: env:MESH_MESH_INTROSPECTION_SECRET
+    metadata:
+      description: |
+        Mesh introspection sensor. Polls the broker's bearer-token-gated
+        /__introspection__ endpoint every 2s and re-exposes the live
+        mesh topology + recent invocation activity as signed mesh
+        surfaces — turning broker-only admin telemetry into something
+        any authorized mesh consumer can read. Cache-then-serve: when
+        a poll succeeds the surfaces return fresh data; when polling
+        stalls the last-known-good snapshot is returned with a `stale`
+        flag set if the last fetch was more than 10s ago. Foundation
+        for the renderer-side mesh-viz content app (sub-lane 3 of the
+        broker/viz roadmap, Issue #108). Reads ADMIN_TOKEN from the
+        shell-injected env to authenticate to /__introspection__.
+    surfaces:
+      - name: topology
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/mesh_introspection/schemas/topology.json
+      - name: activity
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/mesh_introspection/schemas/activity.json
 
 
 relationships:
@@ -566,3 +608,15 @@ relationships:
   # a follow-up.
   - from: raven
     to: time.now
+
+  # Mesh introspection: the renderer-side mesh-viz content app (Issue
+  # #108) reads live topology + recent invocation activity through the
+  # mesh, NOT by hitting /__introspection__ directly — that endpoint
+  # is admin-bearer-gated and not part of the mesh protocol. Edges
+  # from shell because the viz app runs in the renderer that the shell
+  # owns; mirrors the consume-surface pattern raven uses for other
+  # data nodes.
+  - from: shell
+    to: mesh_introspection.topology
+  - from: shell
+    to: mesh_introspection.activity

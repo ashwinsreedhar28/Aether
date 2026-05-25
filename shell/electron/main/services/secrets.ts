@@ -27,6 +27,7 @@ export interface MeshSecrets {
   macosMessagesSecret: string
   macosMailSecret: string
   timeSecret: string
+  meshIntrospectionSecret: string
 }
 
 function hex32(): string {
@@ -60,5 +61,6 @@ export function generateMeshSecrets(): MeshSecrets {
     macosMessagesSecret: getNodeSecret('macos_messages'),
     macosMailSecret: getNodeSecret('macos_mail'),
     timeSecret: getNodeSecret('time'),
+    meshIntrospectionSecret: getNodeSecret('mesh_introspection'),
   }
 }

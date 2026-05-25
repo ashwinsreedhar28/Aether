@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Cable, FileText, Mic, Network, Newspaper, Sparkles, type LucideIcon } from 'lucide-react'
+import { Cable, Mic, Network, Newspaper, Sparkles, TrendingUp, type LucideIcon } from 'lucide-react'
 import { getApps, getApp } from './lib/app-registry'
 import { useActiveApp } from './stores/active-app'
 
@@ -16,11 +16,10 @@ const NAV_HORIZONTAL_PAD = 12
 // resolution.
 const ICON_MAP: Record<string, LucideIcon> = {
   Cable,
-  FileText,
   Mic,
   Network,
   Newspaper,
-  Sparkles
+  TrendingUp
 }
 
 function resolveIcon(name: string): LucideIcon {

@@ -3,7 +3,7 @@ import { MeshViz } from './MeshViz'
 
 export const app: AppDefinition = {
   id: 'mesh-viz',
-  name: 'Mesh Viz',
+  name: 'Mesh',
   icon: 'Network',
   component: MeshViz,
   // 100: the second mesh-introspection surface, grouped right after

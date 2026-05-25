@@ -70,6 +70,7 @@ historical record.
 - Finance node now persists its poll cache to disk (`~/Library/Application Support/Aether/data/finance/cache.json`), loading it on startup if < 6 hours old. Demos and cold-start queries no longer wait for the first poll cycle to complete. Background polling unchanged. Atomic writes via tmp+rename prevent corruption on SIGKILL.
 - Operations: §10 governance entries extracted from CLAUDE.md to `docs/governance-log.md`. CLAUDE.md drops from 49,239 to 26,256 chars (45% reduction), well under Claude Code's 40k performance threshold. New governance batches now append to `docs/governance-log.md`. Implementer sessions read a smaller CLAUDE.md as their first action — meaningful context-window and token savings per session.
 - Voice tool registry now auto-discovers tool modules in `daemons/raven-core/raven_core/tools/`. Modules with `get_tools()` and `handle_call_async()` exports are loaded automatically; `__init__.py` no longer needs manual edits per new tool. Adding a new voice tool is now a single-file change.
+- Nav cleanup: removed `welcome` and `markdown` content apps (no longer in use); removed `mesh-devtools` debug app (superseded by mesh-viz from #113). Renamed `mesh-viz` display name from "Mesh Viz" to "Mesh" (single mesh observability surface now). Fixed Finance icon resolving to Sparkles fallback — `TrendingUp` was declared in `finance/index.ts` but never added to `App.tsx`'s ICON_MAP. Resulting nav: News, Finance, Voice, Mesh.
 
 ### Fixed
 - `macos_messages` self-sent iMessages now appear on
@@ -139,7 +140,6 @@ in [docs/archive/changelog-unreleased-pre-sprint-4.md](docs/archive/changelog-un
 
 ### Fixed
 - Broker reads `category` from `manifest.yaml` instead of hardcoding `"uncategorized"`. PR #110 added `category` to the `/__introspection__` response shape but emitted a hardcoded literal; PR #111 added real `Sensor`/`Actor`/`Mixer`/`Planner` values to the manifest but the broker was still hardcoding `"uncategorized"`. The loader now carries `category` through `state.nodes_decl` (defaulting to `"uncategorized"` if absent for backwards compat), and `handle_introspection` reads from it. The built-in `core` node is categorized as `Mixer` (it composes other surfaces during dispatch). Closes the last gap in the Sprint 5 Lane 1 broker contract.
-
 ## [0.0.3] - 2026-05-12
 
 ### Added

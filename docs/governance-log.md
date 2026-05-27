@@ -299,3 +299,84 @@ Raven's structural position as the only node with edges to every other surface i
 
 ### 4-phase sprint shape reaffirmed
 Sprint = roadmap → cleanup → features → retro. Sprint 4 was 13 PRs over 3 weeks; Sprint 5 was 7 PRs over 5 calendar days. Variance in lane count is a feature, not a bug. Future Architects evaluating "are we on track?" should look at phase completion, not lane count or calendar time. Already in roadmap doc Architectural Anchors.
+
+
+---
+
+## 2026-05-26 — Sprint 5.5 lessons banked
+
+### `panel.style` values MUST be strings (RAVEN_AVP constraint)
+Discovered during the Sprint 5.5 direction-shift recon on `R-A-V-E-N-delegate/RAVEN_AVP`. The Swift AVP client decodes `panel.style` as `[String: String]?`; a non-string value (number, bool, null) silently kills the entire `SceneMessage` decode — the whole frame drops, no error surfaced client-side, the AVP shell just doesn't render.
+
+The constraint is documented in `RAVEN_AVP/server/generators/pulse_explainer.py` as a CRITICAL inline comment (commit 382611c in that repo) but is NOT obvious from the SceneDoc schema in `docs/architecture.md` or the Pydantic models in `scene_doc.py`.
+
+**Implications for Aether:**
+- The visualizer mesh node (Sprint 6.4) must coerce all `style` values to strings before POSTing. Numeric styles like `font_size: 14` become `font_size: "14"`. Booleans become `"true"/"false"`.
+- The macOS shell scene subscriber (Sprint 6.3) similarly must handle stringified style values when rendering.
+- Worth a runtime assert in the visualizer node to fail-loud rather than fail-silent.
+
+**Banked here** rather than in CLAUDE.md §10 (which is a stub pointing to this log) per the existing convention. The Sprint 6.4 lane spec will reference this entry directly so the Implementer prompt surfaces the constraint at lane time.
+
+### Direction-shift PR is a new lane shape (banked from PR #119)
+PR #119 introduced a new lane pattern: roadmap doc rewrite + ADR cluster as the deliverable, in direct response to a strategic conversation that surfaced a pivot. Pattern:
+
+1. Architect-Director discusses strategic shift in chat
+2. Architect drafts: new roadmap doc + new ADRs + retro addendum + amendments to obsolete ADR references
+3. Hand-written documentation lane per §13.10 shape 3 (no CC session)
+4. PR lands canonically before any code lanes fire against the new direction
+5. Subsequent sprints execute against the new doc
+
+Differs from §13.10 shape 3 (hand-written documentation lane) only in trigger: shape 3 is for routine sprint cycling (retros, roadmap updates between sprints); direction-shift PRs trigger on strategic pivots that re-shape the multi-sprint trajectory. Same mechanics; bigger stakes.
+
+The discipline that makes direction-shift PRs land cleanly:
+- Pre-flight recon on any external system being integrated (PR #119's RAVEN_AVP source-read was load-bearing for getting the architecture right)
+- Multi-ADR PRs are appropriate when the ADRs reference each other — splitting creates intermediate states with dangling references
+- Amendments to obsolete ADRs in the same PR keep DECISIONS.md cross-doc-consistent (PR #119 amended the manifest-description ADR in the same commit as the new direction-shift ADR)
+- The roadmap doc is the canonical anchor; everything else (CLAUDE.md, DECISIONS.md, retro docs) follows from it
+
+**Worth a CLAUDE.md §11 candidate heuristic** at next retro: "When a strategic pivot surfaces in conversation, the next lane is a roadmap-rewrite PR. Do not fire code lanes against an undocumented new direction."
+
+### Architectural anchors are a doc-side count
+The roadmap doc's "Architectural anchors" section grew from 7 to 8 in PR #119 (added: data-layer/presentation-layer split). The Sprint 5 retro's roadmap doc had 6 anchors; PR #114's roadmap (Sprint 5) added the 7th (4-phase sprint shape); PR #119 added the 8th. Each anchor represents a load-bearing architectural commitment that future Architect chats inherit without re-deriving.
+
+The anchor count grows by ~1 per major sprint or per direction shift. If it ever doubles in one PR, that's a signal the PR is doing too much architectural work and should be split. Bank for §11 candidate heuristic.
+
+### Inter-shell substrate drift is a forward-looking failure mode
+New failure mode banked in PR #119's roadmap rewrite. Mode: macOS and AVP shells consume the same mesh contracts; a contract change made for one shell breaks the other. Doesn't manifest until Sprint 17 when the AVP shell starts active dev, but the discipline starts now — Sprint 6+ contract changes should be reviewed with both-shells-in-mind. If contract changes silently break one shell, the failure mode is active.
+
+**Detection signals once Sprint 17 active:**
+- Scene server logs showing `SceneMessage` decode failures (Pydantic validation errors)
+- Panels POSTed by the visualizer that render in one shell but not the other
+- Cross-shell smoke tests divergence
+
+Worth a Sprint 16 (1.0 stabilize) discipline item: stand up a "both shells smoke" gate that becomes mandatory at Sprint 17.
+
+### Presentation-layer creep into mesh is the easier-to-violate failure mode
+The other new failure mode from PR #119. Pattern: temptation to add a rendering hint to a mesh surface ("just a display color field on this sensor") because it would make the visualizer's job easier. Easier to violate accidentally than the substrate-erosion or inter-shell-drift modes.
+
+**Boundary test from the Aether-is-data-layer ADR:**
+- A mesh sensor's surface schema gains a "preferred display color" — wrong
+- The scene server gains direct read access to a mesh surface — wrong  
+- A second mesh node (besides visualizer) starts POSTing to the scene server — wrong
+- The visualizer node grows purely-presentation logic (e.g. dark-mode awareness) — wrong (belongs in the shell)
+
+The ADR explicitly addresses what the ADR does NOT forbid: semantic categorization (like `category: Sensor`) is fine even if visualizer uses it for layout decisions. The rule: meaningful in mesh AND consumed by visualizer = OK; purely presentation = wrong.
+
+### Substrate-vs-renderer split paid off twice in Sprint 5.5
+Validated as a pattern. PR #118 (manifest description threading) was the first test — substrate kept, mesh-viz hover discarded mid-flight. PR #119 (direction shift) is the second — content-app paradigm archives in Sprint 6.1, mesh substrate unchanged.
+
+**The pattern's value:** when direction shifts, the substrate work outlives the renderer work. Sensors, broker, manifest, signed envelopes, categorization, descriptions — all survive Sprint 5.5 untouched. Content-app code (~1500-2000 lines) goes to `_archive/` in Sprint 6.1 with no impact on the rest of the system.
+
+**Generalizable heuristic for future direction shifts:** when in doubt about whether a piece of work survives a possible future pivot, ask whether it's substrate (data + protocol + invariants) or renderer (presentation + UI + ergonomics). Substrate survives more shifts than renderer.
+
+### Pre-flight recon on external dependencies pays off
+PR #119's RAVEN_AVP source-read (README, architecture.md, scene_doc.py head, pulse_explainer.py, requirements.txt) was load-bearing for getting the integration architecture right. Without the recon, the visualizer-node design would have been guessing at the scene server's API surface.
+
+**Banking as a §13 heuristic:** before drafting roadmap material that integrates an external system, do a Pulse-style read pass first. Cost: 10-20 minutes. Benefit: roadmap doc is grounded in real upstream contracts, not approximation.
+
+Same heuristic applies to integration PRs (Sprint 6.2 vendoring RAVEN_AVP as a submodule will need a deeper read of `scene_registry.py`, the POST endpoint variants beyond `/scene/panel/{id}`, and the `mcp_server.py` integration if it's relevant).
+
+### Five ADRs total in DECISIONS.md
+Count after PR #119 merge: 5 dated ADRs. Pre-Sprint-5 had 0 dated ADRs (the file existed as a Decision Records log without the date-prefixed format). Sprint 5 retro PR #116 added 2 (substrate-stays-human-architected, manifest-description-convention). Sprint 5.5 PR #119 added 3 (direction-shift, HTTP-everywhere, Aether-is-data-layer) plus an amendment to one of the Sprint 5 ADRs.
+
+Rate of ADR accumulation: ~5 ADRs across one and a half sprints. If this rate sustains, DECISIONS.md is the file most likely to hit the choke-file threshold first (currently 636 lines, will probably exceed 1000 by Sprint 10). Bank for Sprint 10ish retro: consider per-ADR file split (e.g. `docs/decisions/2026-05-26-direction-shift.md`) when DECISIONS.md becomes unwieldy.

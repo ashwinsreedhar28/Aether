@@ -79,6 +79,20 @@ historical record.
   via `~/.raven/config.json` `voice_name` still win — this change only
   affects the default.
 
+### Removed
+- Content-app paradigm archived. Four content apps (`news`, `finance`,
+  `voice-control`, `mesh-viz`) moved to `_archive/shell-content-apps/`.
+  Launcher infrastructure removed (`shell/src/lib/app-registry.ts`,
+  `shell/src/lib/app-definition.ts`, `shell/src/stores/active-app.ts`).
+  `shell/src/App.tsx` rewritten to render a placeholder dashboard
+  component (`shell/src/dashboard/PlaceholderDashboard.tsx`).
+  First Sprint 6 lane in the direction-shift sequence (Sprint 6.2
+  vendors the RAVEN_AVP scene server; 6.3 stands up the real
+  dashboard + CLI; 6.4 ships the visualizer mesh node; 6.5 wires
+  voice integration). See `docs/agent-platform-roadmap.md` Sprint
+  5.5 + Sprint 6 sections and the 3 ADRs banked in `DECISIONS.md`
+  on 2026-05-26 for full direction-shift context.
+
 ### Fixed
 - `macos_messages` self-sent iMessages now appear on
   `macos_messages.recent`. The canonical chat.db query watermarked and

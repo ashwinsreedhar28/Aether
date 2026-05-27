@@ -1,544 +1,484 @@
 # Aether Agent Platform Roadmap
 
-**Status:** living document. Updated at every Sprint retro. Banks
-direction, not schedule.
+**Status:** canonical sprint anchor. Updated at major direction shifts; otherwise referenced as the single source of truth for what Aether is becoming.
 
-**Last updated:** Sprint 5 substrate close (PRs #109–#113 landed,
-mesh observability complete).
+**Last major rewrite:** 2026-05-26 — direction shift to dashboard + scene-driven architecture (Sprint 5.5 pivot). Pre-shift version (banked in PR #114) covered the windowed-content-app model; this version reflects the dashboard + visualizer + AVP-collaboration architecture.
 
 ---
 
-## Vision
+## What Aether is
 
-Aether is a personal-OS substrate that grows toward two reinforcing
-goals.
+A personal-OS substrate: a signed mesh of nodes that observe, compose, and act on a principal's behalf, with voice and text as first-class input surfaces. Pre-1.0, macOS-first, with Vision Pro (AVP) as a parallel-developed second shell joining at Sprint 17.
 
-**The consumer-facing goal** is a personal-OS that knows you. Voice
-is reliable enough for daily use. The system has opinions —
-proposals appear when context warrants them, learned from rejected
-proposals over time. Peripherals (room speakers, cameras, controlled
-devices) participate as natural extensions of the mesh, not bolt-ons.
-You don't think about the substrate any more than you think about
-the OS kernel.
+**The thing that's different post-Sprint-5.5:** the principal does NOT navigate Aether by switching between windowed content apps (news, finance, calendar, etc.). The principal interacts via voice or text, and Aether *summons* visualizations of relevant state on demand. Persistent UI is a diagnostic dashboard — what's alive, what's pending, what just happened. Transient summoned visualizations overlay or replace the dashboard when invoked.
 
-**The engineering goal** is a self-extending agent platform. Adding
-a new capability is a conversation, not a code project. You describe
-intent; the system drafts the spec, asks clarifying questions, fires
-the build, ships the PR. The Director (you) stays on the merge gate
-throughout. Substrate stays human-architected; *extensions* get
-progressively automated.
+This is more Jarvis than Finder. Less windowed-OS, more conversational HUD.
 
-The engineering goal is the path to the consumer goal. Self-extension
-is the mechanism by which Aether can plausibly grow to dozens of
-nodes, multiple rooms, varied hardware, and increasingly subtle
-personalization — without becoming a maintenance burden that
-swallows its principal. They are not alternatives. One is the means
-to the other.
+---
 
-## The Personalization Arc
+## Architecture (after Sprint 5.5 direction shift)
 
-The system's most important property — the one that differentiates
-it from session-based AI assistants — is that it *learns you*.
+Three subsystems, fully decoupled, communicating over HTTP/WS:
+┌─────────────────────────────────────────────────────────────┐
+│                     AETHER MESH                             │
+│  (signed broker + sensor/actor/mixer/planner nodes)         │
+│                                                             │
+│  manifest.yaml — edge graph, secrets, categories            │
+│  core/core — broker, dispatch, /introspection           │
+│  nodes/* — sensors (calendar, focus, sports, ...) etc.      │
+│  daemons/raven-core — voice (Gemini Live)                   │
+│  nodes/visualizer — NEW (Sprint 6.4) composes scene         │
+│                     mutations from mesh state               │
+└────────────────────────┬────────────────────────────────────┘
+│
+│  HTTP POST /scene/panel/{id}
+│  HTTP PATCH /scene
+│
+▼
+┌─────────────────────────────────────────────────────────────┐
+│            RAVEN_AVP SCENE SERVER (vendored)                │
+│        daemons/raven-avp-server/ — Python/FastAPI           │
+│                                                             │
+│  Authoritative SceneDoc (panels + entities + transforms)    │
+│  REST: GET/PUT/PATCH /scene, /scene/panel/{id}              │
+│  WS: /scene/stream — snapshot on connect, deltas on mutate  │
+│  Persistence: scene_state.json (atomic write)               │
+│  Transport: localhost on this machine; Tailscale for AVP    │
+└────────────────────────┬────────────────────────────────────┘
+│
+┌──────────┴──────────┐
+│                     │
+▼                     ▼
+┌─────────────────────┐   ┌─────────────────────────┐
+│  AETHER MACOS SHELL │   │   AETHER AVP SHELL      │
+│  (Electron, this)   │   │   (Swift, collaborator) │
+│                     │   │                         │
+│  • Diagnostic       │   │  • ImmersiveSpace       │
+│    dashboard        │   │  • 3D panel mounts      │
+│    (scene-derived)  │   │  • Hand gestures        │
+│  • CLI input        │   │  • Voice via local STT  │
+│  • Voice pill       │   │                         │
+│  • Transient        │   │  Subscribes to same     │
+│    overlays         │   │  SceneDoc via WS.       │
+│                     │   │  Joins Sprint 17.       │
+└─────────────────────┘   └─────────────────────────┘
 
-Three capabilities compose into one:
+**Three architectural commitments locked at Sprint 5.5:**
 
-1. **Memory** (Sprint 12): a personal preferences node that
-   persists across sessions. Records what you accept, reject, and
-   ask about. Becomes the consultation source for the planner and
-   the voice layer.
+1. **Aether mesh is the data layer.** Sensors collect, mixers compose, the broker dispatches signed envelopes. The mesh knows nothing about presentation.
 
-2. **Voice depth** (Sprints 13, 17): voice that remembers
-   conversation context, references prior exchanges, sounds like
-   it knows you. Wake word, latency, audio quality. Reads from the
-   memory node to make recall natural.
+2. **RAVEN_AVP scene server is the presentation layer.** Holds authoritative SceneDoc state, broadcasts deltas. Knows nothing about Aether's mesh semantics — just panels, entities, transforms.
 
-3. **Architect self-improvement** (Sprint 19, gated): the
-   Aether-Architect node files PRs that improve its own prompts
-   based on which past lanes succeeded cleanly and which had fix-
-   forwards. The platform learns how its principal prompts —
-   compositional style, follow-up patterns, scope preferences —
-   and adapts.
+3. **Clients (shells) are scene subscribers.** Both the macOS Electron shell and the AVP Swift shell subscribe to the same SceneDoc. They render it differently (2D vs 3D), but the authoritative state is shared. New shells (web, future devices) can join the same way.
 
-These are not three features. They are one capability — a system
-that accumulates fidelity to its user over time. By Sprint 19,
-"Aether" should feel meaningfully different to the user it grew
-up with than to a fresh installation. That divergence is the
-spine of the personalization arc and the goal-state of the
-platform.
+The visualizer mesh node is the *only* component that knows about both layers: it consumes mesh state and composes scene mutations. Every other piece sees one side or the other, never both.
 
-## Architectural Anchors
+---
 
-These constraints are load-bearing. Future Architects override
-them only with explicit ADR-level reasoning.
+## The six-piece arc (unchanged through Sprint 5.5)
 
-### Substrate stays human-architected (ADR-binding)
+The long-term shape Aether grows toward, expressed as six progressive capabilities. Sprints map onto these pieces; the pieces themselves don't change with the direction shift.
 
-The Aether-Architect node is NEVER authorized to touch:
+1. **Observability** — the mesh sees itself. Substrate-side legibility. (Shipped Sprint 5.)
+2. **Sensor breadth** — enough world-state for a planner to compose meaningfully. (Sprint 7.)
+3. **Confirmation pattern** — dangerous actions ask before firing. (Sprint 8.)
+4. **Planner runtime** — Aether composes responses unasked. (Sprints 9-10.)
+5. **Self-extension** — Aether-Architect drafts and fires new mesh extensions, with safety rails. (Sprints 11-12, 15, 19-20.)
+6. **Multi-shell + memory** — same mesh, multiple presentation surfaces; personal preference accumulation. (Sprints 13, 17.)
 
-- `core/core/` (broker)
-- `manifest.yaml` edge-graph topology (declared safe surfaces can
-  be touched; the structure of allowed-edges cannot)
-- The confirmation pattern (Sprint 7's `safe | confirm |
-  destructive` discrimination)
+The Sprint 5.5 direction shift changes *how piece 4 manifests* (planner output is visualized, not laid out as content apps) and *adds piece 6's multi-shell dimension* (AVP joining at Sprint 17 means the mesh outlives any single presentation).
 
-These are the load-bearing primitives. If they break, the whole
-mesh's safety model breaks. Self-extension applies to leaves
-(sensors, actors, mixers, content apps), never to the root.
+---
 
-If a future lane proposes loosening this rule, that is the moment
-to slow down, not speed up.
+## Architectural anchors
 
-### The gradient is the discipline
+Load-bearing constraints. Future Architect chats can recompute most things from first principles, but these anchors don't get re-derived — they're settled.
 
-Self-extension capability rolls out in stages, never all at once:
+### 1. The four-category vocabulary
+Every mesh node is exactly one of: **Sensor** (read-only, exposes world state), **Actor** (changes world state), **Mixer** (composes other surfaces), **Planner** (decides what to invoke next). This is the vocabulary mesh-viz used in Sprint 5 and the vocabulary the visualizer node uses in Sprint 6+. It survived Sprint 5 contact with reality (17 nodes categorized cleanly). It's right.
 
-- **Sprint 10**: draft-only. Aether-Architect proposes; Director
-  fires manually.
-- **Sprint 11**: fire-and-watch, narrow surface class only (new
-  sensor nodes following established Pulse patterns).
-- **Sprint 14**: extended to Mixers (cross-surface composers).
-- **Sprint 17**: extended to content apps (renderer-side).
-- **Sprint 19** (gated): self-improvement loop.
+### 2. Substrate stays human-architected
+The Aether-Architect node (Sprint 11+) NEVER touches `core/core/` (broker), `manifest.yaml` edge-graph topology, or the confirmation pattern. Self-extension applies to *leaves* (sensors, actors, mixers, visualizer templates) — never the root. Formal ADR in DECISIONS.md.
 
-Skipping rungs is the canonical failure mode. The gradient exists
-because calibration data accumulates with use — each successful
-sprint adds patterns the next sprint's architect can draw on. By
-Sprint 11 there's roughly 20+ lanes of pattern data; by Sprint 14
-that's 40+; by Sprint 17, 60+. Architect competence at each rung
-is grounded in the rung below, not in human optimism.
+### 3. Voice is structurally universal
+Raven has edges to every other surface. This is load-bearing for "Hey Aether, what can you do?" at Sprint 14 — voice introspection reads `mesh_introspection.topology` and the manifest descriptions, not a dedicated capabilities surface.
 
-### The four-category vocabulary
+### 4. Manifest descriptions are convention
+Every node has `metadata.description` (formalized in #118, all 16 user nodes already comply, core got its first description). Consumed by visualizer node (Sprint 6.4), raven voice introspection (Sprint 14), Aether-Architect (Sprint 11). ADR in DECISIONS.md.
 
-Every mesh node carries a `category` from:
+### 5. Aether is the data layer; scene server is the presentation layer (NEW post-5.5)
+Three subsystems, all HTTP/WS-coupled, all detachable. The visualizer mesh node is the only crossing point. New ADR in DECISIONS.md.
 
-- **Sensor** — read-only, exposes world state (news, weather,
-  calendar, mail, messages, mesh_introspection, ...)
-- **Actor** — changes world state (host_notifications, mail.send,
-  any future device control)
-- **Mixer** — composes other surfaces (digest, raven, shell, core,
-  daily_brief)
-- **Planner** — decides what to invoke next (none yet; first
-  planner ships Sprint 8)
+### 6. HTTP-everywhere protocol commitment (NEW post-5.5)
+Inter-subsystem communication uses HTTP/WS exclusively. No in-process function calls between mesh, scene server, and shells; no shared memory; no shared filesystem state beyond the scene server's own `scene_state.json`. This makes every piece independently testable, deployable, and replaceable. New ADR in DECISIONS.md.
 
-Schema-enforced as of PR #111. Drives mesh-viz layout and Planner
-routing. New categories require ADR-level reasoning.
+### 7. The 4-phase sprint shape is the unit
+Sprint = roadmap (Phase 1) → cleanup (Phase 2) → features (Phase 3) → retro (Phase 4). Sprint variance in lane count is a feature, not a bug. Future Architects evaluate "are we on track?" by phase completion, not lane count or calendar time.
 
-### Sprint = 4-phase cycle
+### 8. Substrate-vs-renderer split (validated Sprint 5.5)
+The schema + broker + daemon types side of any change outlives the renderer side. PR #118 validated this when its mesh-viz hover code was discarded while the substrate landed clean. Future lanes that touch both layers should be drafted with this split in mind: substrate ships standalone-useful; renderer is the consumer that may change.
 
-A sprint is not just feature work. It is:
+---
 
-1. **Roadmap** — set theme + lanes
-2. **Wave 0 / x.5** — cleanup, hotfixes, debug from previous sprint
-3. **New features / lanes** — substantive work
-4. **Retro** — bank lessons, close the loop
+## Sprint plan
 
-Sprint size varies — Sprint 4 was 13 PRs over ~3 weeks; Sprint 5
-substrate was 5 PRs over ~4 days (retro pending). This variance is
-a feature, not a bug. The 4-phase shape is what matters.
+Sprints 5 closed and retro'd. Sprint 5.5 was the direction-shift conversation + this rewrite. Sprint 6 starts with the direction shift's foundation work; Sprints 7+ shift downstream by one number.
 
-## The Six-Piece Arc
+### Sprint 6 — Direction Shift Foundation
 
-Sprints 5–11 form a coherent architectural buildup. Each sprint
-adds a layer the next sprint depends on. The arc:
+**Theme:** Archive the content-app paradigm. Stand up the diagnostic dashboard shell and CLI input. Vendor the RAVEN_AVP scene server. Ship the visualizer mesh node v1. Wire voice through to scene mutations.
 
-| # | Sprint | Layer | What gets added |
-|---|--------|-------|-----------------|
-| 1 | 5 | Observability | Mesh is legible. The substrate can be seen. |
-| 2 | 6 | Sensor expansion | The mesh knows more about the world. |
-| 3 | 7 | Confirmation + actors | The mesh can change the world, with consent. |
-| 4 | 8 | Planner runtime | The mesh composes surfaces toward goals. |
-| 5 | 9 | Daemon-planner | The system runs unasked. |
-| 6 | 10–11 | Self-extension | The system extends itself. |
+**Phased; lanes ordered by dependency. Lower-number lanes unblock higher-number ones.**
 
-Each layer is independently usable. Each becomes more powerful
-when the next one lands. Sprint 11 closes the arc — at that point
-Aether has the conceptual completeness of a platform that can
-grow itself.
+#### Sprint 6.1 — Content-app archive + placeholder dashboard
 
-Sprints 12+ are about *deepening* this arc (personalization,
-voice depth, surface class expansion) rather than adding new
-architectural primitives.
+Move all current content apps to `_archive/shell-content-apps/`. Remove the `AppDefinition` / app-registry pattern. Strip `App.tsx`'s launcher (nav bar, ICON_MAP, app-switching state). Replace with a placeholder dashboard React component — static markup, no scene subscription yet, no CLI yet. Just enough to verify the shell still launches and doesn't crash.
 
-## Sprint Plan
+What archives: `shell/src/apps/news/`, `shell/src/apps/finance/`, `shell/src/apps/voice-control/`, `shell/src/apps/mesh-viz/` (the latter completing 108d's fate). `app-registry.ts`, the ICON_MAP entries for archived apps, the launcher's nav bar component.
 
-### Sprint 5 — Mesh observability ✅ Substrate complete
+What stays: voice pill, daemon-manager wiring, theme (`shell/src/theme/holographic.css`), Electron main process, splash screen.
 
-PRs landed: #109 (broker invocation recorder + `/__introspection__`),
-#110 (payload `category` + `allowed` fields), #111 (mesh_introspection
-daemon + manifest categorization + schema), #112 (broker reads
-category from manifest), #113 (mesh-viz radial content app).
+Net diff: -1500 to -2000 lines. Bundle-size delta reported in PR body (likely 30-40% reduction). Verify-build green.
 
-Substrate validated end-to-end via visual smoke. The mesh now
-exposes its own topology and recent activity as signed mesh
-surfaces, rendered live in a categorical radial visualization.
+The archived directory carries a `_archive/README.md` explaining what's there and why (direction shift to scene-driven model), so future archaeology is clean.
 
-**Phase 4 (retro) pending.** Plus optional small lanes: #114 polish
-(nav cleanup), UI revamp (scoped during design discussion), 108b
-(click-to-inspect), 108c (live edge pulse).
+#### Sprint 6.2 — Vendor RAVEN_AVP scene server
 
-### Sprint 6 — Sensor expansion + ambient context
+Add `R-A-V-E-N-delegate/RAVEN_AVP` as a git submodule at `daemons/raven-avp-server/` (mirroring the `_ingest/Pulse` and `_ingest/RAVEN` submodule pattern, but at `daemons/` since this is a runtime dependency, not a reference pattern source). Add a `daemons/raven-avp-server/start.sh` shim if needed.
 
-**Theme:** thicken the mesh with read-only nodes that give the
-future Planner real context to compose against.
+Wire it into shell boot via a new daemon-manager in `shell/electron/main/` — same shape as `ravenDaemonManager`, `visionDaemonManager`, etc. Pattern: shell starts, daemon manager spawns scene server (Python venv bootstrap on first run), shell waits for `GET /scene` to respond before considering boot complete.
 
-**Lanes:**
-- Calendar enhancement (already a node; expand surfaces if needed)
-- Location sensor (passive: home / work / transit, no GPS streaming)
-- Focus state (foreground app, idle, Do Not Disturb)
-- Clipboard history (already exists; possibly enhance)
-- **Sports node** — Pulse-matching surfaces hoisted (NBA-focus per
-  Pulse). RAVEN voice tool follows in same lane or as fast-follow.
-- **Research node** — needs Pulse read before scoping (academic
-  arxiv-style vs broader "interesting reading" curation).
-- **Manifest `description` field convention** — apply to all new
-  sensors in this sprint; backfill `description` for the 17 existing
-  nodes. Foundation for Sprint 13 voice introspection. ADR recorded
-  in DECISIONS.md at Sprint 5 retro.
-- **108d (optional this sprint)** — mesh-viz hover tooltips render
-  manifest descriptions. First downstream consumer of the description
-  convention.
-- Sprint 5.5 cleanup (Phase 2): ECONNRESET investigation, dev-env
-  audit, any other Sprint 5 loose ends
+Add admin auth eventually (not v1.0 — RAVEN_AVP v1.0 has no auth, network ACL is the trust boundary on Tailscale). For Aether's localhost-only use, no auth is acceptable initially. Bank as a Sprint 16 hardening item.
+
+Port collision check: scene server binds 5180; verify no Aether component already uses it. (Today's Aether uses 8000 for broker, 7433 for raven-daemon, 5173 for Vite dev server. 5180 is clear.)
+
+#### Sprint 6.3 — CLI prompt + scene subscriber in shell
+
+Replace the placeholder dashboard with the real one. Two sub-features in one lane:
+
+**CLI prompt UI** — Claude-Code-style text input at the bottom of the shell window, scrolling output area above. Output area shows: voice transcripts, command results, scene-mutation acknowledgments, agent activity stream, raven status. Up-arrow command history. Multi-line on Shift+Enter. State managed via React + Zustand (or Context, lighter touch). No terminal emulation — this is an intent-input surface, not a shell.
+
+**Scene subscriber** — shell connects to `ws://127.0.0.1:5180/scene/stream`. Reconciles snapshots + deltas. Maintains an in-memory `RemoteSceneStore` (mirroring RAVEN_AVP's Swift client pattern). Renders panels + entities as 2D HTML/SVG instead of 3D RealityKit.
+
+The diagnostic dashboard backdrop is composed of panels that the visualizer node *seeds* on shell boot — mesh-health, raven status, active sensors, recent activity stream. These are always-present scene panels with stable IDs (e.g. `dashboard.mesh-health`, `dashboard.raven-status`). The visualizer node sees broker startup events (via `mesh_introspection.topology`) and POSTs these dashboard panels to the scene server. The shell renders them as the backdrop.
+
+Transient overlays are panels with non-dashboard IDs, summoned by voice/CLI commands, that the visualizer node POSTs in response. They render over the backdrop.
+
+#### Sprint 6.4 — Visualizer mesh node v1
+
+`nodes/visualizer/` — new TS mesh node. Exposes ONE surface:
+
+```typescript
+surface: 'visualizer.render'
+input: { intent: string, args?: object }
+returns: { ok: true } | { ok: false, error: string }
+```
+
+Internal architecture: an intent → renderer-function registry. Each registered function:
+1. Reads any necessary mesh data via mesh edges (e.g. `mesh_introspection.topology` for the `mesh` intent, `calendar.weekly` for a calendar intent)
+2. Composes a list of panel/entity dicts following RAVEN_AVP's SceneDoc schema
+3. POSTs them to `http://127.0.0.1:5180/scene/panel/{id}` for each panel (or `/scene/entity/{id}` for entities — verify exact endpoint when wiring)
+
+**v1 intents (Sprint 6.4 scope):**
+
+1. **`mesh`** — radial mesh topology visualization. Lifts code from archived mesh-viz's `RadialLayout.tsx`, ports the geometry math, emits one panel per node + a group of entities for the radial connections. The dashboard pattern (always-visible) vs overlay (summoned) is determined by the panel `id` namespace.
+
+2. **`activity_stream`** — recent invocation feed (newest-first list). Reads `mesh_introspection.activity`. Composes a text panel per entry, arranged vertically.
+
+3. **`sensor_health`** — sensors-at-a-glance dashboard panel. Reads `mesh_introspection.topology`, filters to Sensor category, renders a status panel.
+
+These three are the smallest viable set that proves the visualizer pattern. New intents added in later sprints incrementally (Sprint 7 adds sensor-specific visualizations as each new sensor lands).
+
+**Constraint from RAVEN_AVP source-reading:** every `panel.style` value must be a string. The Swift client decodes `style` as `[String: String]?`; non-string values silently kill SceneMessage decode. Documented in visualizer node's README + CLAUDE.md §10 gotchas. Worth banking before any panel-composing code is written.
+
+**Manifest entry for visualizer:**
+
+```yaml
+- id: visualizer
+  runtime: local-process-ts
+  category: Mixer
+  identity_secret: env:MESH_VISUALIZER_SECRET
+  metadata:
+    description: |
+      Composes mesh state into scene mutations and POSTs them to the
+      local RAVEN_AVP scene server. Single render surface; intent-routed
+      internally to template functions. The only mesh component that
+      knows about both the mesh and the scene server.
+  surfaces:
+    - name: render
+      type: tool
+      invocation_mode: request_response
+      schema: schemas/render.schema.json
+```
+
+New edges from `manifest.yaml`:
+- `raven → visualizer.render` (voice triggers visualizations)
+- `shell → visualizer.render` (CLI triggers visualizations)
+- `visualizer → mesh_introspection.topology` (visualizer reads mesh state)
+- `visualizer → mesh_introspection.activity` (visualizer reads activity)
+- (Future) `visualizer → calendar.weekly`, `visualizer → finance.quotes`, etc. — added as each new intent's data source
+
+#### Sprint 6.5 — Voice integration for visualizer
+
+Raven gains a new tool registered in `prompts.json`'s `function_descriptions`:
+
+```python
+visualize(intent: str, args: dict | None = None) -> str
+```
+
+Voice instructions extended: "If the user asks to see something, call `visualize(intent='mesh')` (or appropriate intent). Speak a brief acknowledgment ('Showing you the mesh') while the visualization renders."
+
+Voice calls `raven → visualizer.render` mesh edge. Visualizer composes panels + POSTs to scene. Shell's WebSocket connection receives the delta, renders new panels.
+
+End-to-end smoke at Sprint 6.5 close: Director says "Hey Aether, show me the mesh" → voice transcript appears in CLI output area → mesh-radial visualization renders as a panel in the shell's dashboard → Director says "thanks" → voice dismisses the visualization (POST removes the panels).
+
+#### Sprint 6 also includes (Phase 2 cleanup work)
+
+- **ECONNRESET investigation** — deferred from Sprint 5.5. Profile CC's long-write behavior, check status.claude.com historical data for the affected windows, decide on mitigation. Bank findings in governance-log.
+- **Manifest description backfill review** — all 16 user nodes have descriptions per recon; do a tone-consistency pass during Sprint 6.4's visualizer work since the descriptions will start being visible.
 - Sprint 6 retro (Phase 4)
 
-Each new sensor consults its Pulse analog (in `_ingest/Pulse/`)
-during the lane spec. Width over depth — ship multiple small
-sensors rather than one deep one. Established Pulse pattern means
-each lane is a known shape.
+#### Lane count discipline (Sprint 6)
 
-**Lane-count discipline:** the list above is 8 lanes plus cleanup +
-retro. Sprint 6 Phase 1 (roadmap-setting) will trim to 4–5 highest-
-leverage and defer rest to Sprint 6.5 / Sprint 7. Highest-leverage
-candidates: calendar, focus_state, sports, research — these give
-Sprint 8 Planner real human-context to compose against. Location and
-clipboard enhancements likely defer.
+5 substantial lanes + 2 cleanup items + retro = 8 things. Phase 1 will lock the order and parallelization plan. Likely sequencing:
 
-### Sprint 7 — Voice confirmation pattern + first dangerous actor
+- 6.1 + 6.2 in parallel (different code surfaces — archive is `shell/src/apps/`, scene server is `daemons/`)
+- 6.3 after 6.1 + 6.2 land (depends on both)
+- 6.4 after 6.2 lands (depends on scene server availability)
+- 6.5 after 6.4 lands (depends on visualizer node)
 
-**Theme:** voice can act on the world without acting on things you
-didn't authorize.
+This serializes nicely: archive + vendor → CLI/dashboard → visualizer → voice. 4-5 actual "wait points" for Director review/merge.
 
-**Lanes:**
-- Manifest declares surfaces as `safe | confirm | destructive`
-- Broker enforces — `confirm` surfaces require explicit confirmation
-  envelope before dispatch
-- Voice node renders confirmation through the pill UI (audio +
-  visual)
-- RAVEN's confirmation patterns hoisted from `_ingest/RAVEN/`
-- First dangerous actor: `macos_mail.send` (read side already exists)
-- End-to-end smoke: voice → confirm → send a real email
-- Sprint 6.5 cleanup
-- Sprint 7 retro
+### Sprint 7 — Sensor breadth (was Sprint 6 pre-shift)
 
-Voice work in this sprint is about safety, not depth. Depth
-arrives in Sprint 13.
+**Theme:** Thicken the mesh with read-only sensors. Each gets a visualizer intent + RAVEN voice tool.
 
-### Sprint 8 — Planner runtime
+**Lanes (selected from a wider candidate set per width-over-depth discipline):**
 
-**Theme:** the mesh composes surfaces toward goals.
+- **Calendar enhancement** — already a node; expand surfaces (e.g. `calendar.density` for visualizer's weekly view)
+- **Location passive sensor** — home/work/transit, no GPS streaming
+- **Focus state sensor** — foreground app, idle, Do Not Disturb
+- **Sports node** — Pulse-matching surfaces (NBA focus per Pulse). RAVEN voice tool ("how did the Lakers do?") follows in same lane.
+- **Research node** — needs Pulse read for scope decision (academic arxiv-style vs broader "interesting reading" curation)
 
-**Lanes (aggressively sub-laned):**
-- 8.1 `planner` node skeleton + manifest-derived surface catalog
-- 8.2 Backend integration (Claude via API, surface catalog as
-  tools) + trace surface visible in mesh-viz
-- 8.3 First consumer: `daily_brief` mixer composes calendar +
-  mail + news + focus state
-- Planner cost telemetry + kill switch (do not defer to a follow-up)
-- Sprint 7.5 cleanup
-- Sprint 8 retro
+Each new sensor lands with:
+- `manifest.yaml` entry with `metadata.description`
+- New visualizer intent registered (visualizer reads the sensor's surface, composes panels)
+- New voice tool if relevant
 
-The Planner consumes Sensors (Sprint 6) and executes through
-Actors gated by the Confirmation pattern (Sprint 7). Both
-dependencies paid down before Planner lands.
+**Deferrable to Sprint 7.5 or 8:** clipboard history enhancement (existing node; not load-bearing for Planner runtime).
 
-### Sprint 9 — Daemon-planner
+### Sprint 8 — Confirmation pattern + first dangerous actor
 
-**Theme:** the system runs unasked.
+**Theme:** Dangerous actions ask before firing. Surface declarations gain a `safety: safe | confirm | destructive` field; broker enforces confirmation envelopes for non-safe surfaces.
 
 **Lanes:**
-- Three trigger types: time-based (morning brief 7am), threshold-
-  based (unread mail from $person crosses N), state-based
-  (calendar event in 15min + commute → "leave now")
-- Proposals app (new content app in `shell/src/apps/proposals/`)
-- Accepted proposals execute through Sprint 7's confirmation pattern
-- Rejected proposals write to a preference store (consumer in
-  Sprint 12's memory node)
-- Sprint 8.5 cleanup
-- Sprint 9 retro
+- Schema + broker work for confirmation envelopes
+- Voice rendering of confirmation prompts (raven speaks "About to send this email — confirm?")
+- Confirmation visualization (visualizer intent: `confirmation_prompt` — renders the action as a styled overlay panel with accept/reject)
+- First dangerous actor: `macos_mail.send` or `calendar.create_event` — pick whichever lands cleanest
 
-This is where Aether stops feeling like "a mesh with voice on it"
-and starts feeling like an OS with opinions.
+Sprint 7's sensors don't need confirmation (read-only). Sprint 8 is the first time the mesh writes to the world on its own.
 
-### Sprint 10 — Aether-Architect draft-only
+### Sprint 9 — Planner runtime (first composing-unasked behavior)
 
-**Theme:** conversational self-extension lands as a read-only
-capability.
+**Theme:** Aether composes daily briefing without being asked. Planner node fires at boot + on focus-state changes, reads sensor surfaces, composes a briefing.
 
 **Lanes:**
-- `aether_architect` mesh node (Mixer category)
-- Conversation surface: takes "I want X" prompt, returns an Issue
-  draft + Implementer prompt draft (using canonical template from
-  `docs/implementer-prompt-template.md`)
-- Pre-flight grep findings auto-included from corpus of past PRs
-- Read-only: does NOT create Issues, does NOT spawn CC sessions,
-  does NOT touch worktrees
-- Director fires manually (pastes draft into `gh issue create` +
-  fresh CC session)
-- Sprint 9.5 cleanup
-- Sprint 10 retro — banks the calibration data corpus
+- `nodes/planner/` — a Mixer node
+- Briefing rendered as a visualizer panel (intent: `briefing`)
+- Voice reads it aloud if user is around
+- Test mesh edges added from planner to relevant sensors
 
-The corpus the Architect consults is what's been accumulating
-since Sprint 4: governance-log entries, PR bodies, retro docs.
-By Sprint 10 there's enough pattern data for the drafts to be
-useful.
+### Sprint 10 — Daemon-planner + proposal overlays
 
-### Sprint 11 — Aether-Architect fire-and-watch (narrow surface)
-
-**Theme:** narrow self-extension goes live.
+**Theme:** Planner runs continuously, surfaces suggestions as proposal overlays via visualizer. User accepts/rejects via voice or CLI.
 
 **Lanes:**
-- Architect can fire CC sessions in fresh worktrees, but ONLY
-  for: new sensor nodes following established Pulse pattern
-- Other surface classes still require Director-fired CC sessions
-- Director merge gate stays intact
-- Cost telemetry on auto-fired lanes (compare against manual baseline)
-- Sprint 10.5 cleanup
-- Sprint 11 retro
+- Daemon-mode planner
+- Proposal visualization (intent: `proposal`)
+- Accept/reject wiring back to mesh
 
-Sprint 11 closes the six-piece arc. After this, the platform can
-extend itself within a tightly bounded scope.
+### Sprint 11 — Aether-Architect (draft-only)
 
-### Sprint 12 — Memory / personal preferences node
-
-**Theme:** the system starts knowing you.
+**Theme:** A node that converses with Director to draft new mesh extensions. Cannot fire CC yet. Output: a written spec + visualizer rendering of what the new node would look like in the topology.
 
 **Lanes:**
-- `memory` mesh node (Sensor category — read-write but exposed
-  to consumers as read)
-- Schema for preference types: liked / rejected / asked / corrected
-- Daemon-planner from Sprint 9 starts writing rejected-proposal
-  data here
-- Planner from Sprint 8 starts consulting it before composing
-- Privacy boundaries: which surfaces can read what
-- Sprint 11.5 cleanup
-- Sprint 12 retro
+- `nodes/architect/` — a Mixer node
+- Read access to `mesh_introspection.topology` + manifest descriptions
+- Visualizer intent: `architect_draft` — renders the proposed node + edges as a preview panel
+- Conversation surface (voice and CLI)
 
-This is the first capability whose value compounds over time. By
-Sprint 15, the memory node has months of data. By Sprint 19, the
-architect itself can read it.
+### Sprint 12 — Aether-Architect fire-and-watch + agent queue visualization
 
-### Sprint 13 — Voice depth pass 1
-
-**Theme:** voice becomes daily-reliable.
+**Theme:** Architect fires CC sessions for new sensor nodes (whitelisted to sensors only). Visualizes the agent queue. **Critical addition from Sprint 5.5 direction-shift conversation:** the deployment agent state — what's queued, what's running, what's completed — gets its own visualizer intent so Director can see what the Architect is doing.
 
 **Lanes:**
-- Multi-turn context for raven (conversation memory across
-  exchanges)
-- Wake word ("Hey Aether") via local detection
-- Latency improvements on tool calls
-- Reads from memory node — can reference "what you asked me
-  yesterday"
-- Sprint 12.5 cleanup
-- Sprint 13 retro
+- Architect → CC subprocess wiring
+- Agent queue surface (a Mixer surface on the Architect node)
+- Visualizer intent: `agent_queue` — renders queue state
+- Whitelist enforcement (sensor nodes only this sprint)
+- New mesh edges audited per the substrate-stays-human-architected ADR (Architect can add new nodes, cannot rewrite graph between existing nodes)
 
-This is when voice stops being a demo and starts being a real
-input modality.
+### Sprint 13 — Memory / personal preferences
 
-### Sprint 14 — Aether-Architect surface class: Mixers
-
-**Theme:** the architect can draft mixers, not just sensors.
+**Theme:** Aether accumulates personal preference state (what user rejected, what stuck, voice patterns, content preferences). Memory is a sensor surface.
 
 **Lanes:**
-- Architect's whitelist extends from sensors to mixers
-- Test case: architect builds a `morning_brief` mixer (or
-  similar) composing existing surfaces
-- Mixer template added to the corpus
-- Sprint 13.5 cleanup
-- Sprint 14 retro
+- `nodes/memory/` — a Sensor node
+- Surfaces: `memory.preferences`, `memory.history`
+- Visualizer intent: `preferences` — renders what Aether knows about the user
 
-Mixers are inherently more complex than sensors (they consume
-multiple surfaces, produce composed output). Calibration data
-from Sprints 11–13 sensor-class auto-fires is the prerequisite.
+### Sprint 14 — Voice depth pass 1
 
-### Sprint 15 — 1.0 stabilize and ship
-
-**Theme:** first serious tagged release.
+**Theme:** Wake word, multi-turn turn-taking, latency, voice introspection ("what can you do?"). The first sprint where voice feels less like a command shell and more like a conversation partner.
 
 **Lanes:**
-- Polish across all content apps
-- Documentation: install instructions, architecture overview,
-  one-page "what is Aether"
-- ADR finalization for everything pre-1.0
-- README rewrite for someone-not-the-Director
-- Tag `v1.0.0`
-- Sprint 14.5 cleanup
-- Sprint 15 retro
+- Wake word integration
+- Multi-turn state machine
+- Latency profiling + reduction
+- Voice introspection lane — raven reads `mesh_introspection.topology` + manifest descriptions on "what can you do?" trigger; visualizer renders the capability surface inventory as an overlay while voice speaks the summary
 
-Doesn't add capability — promotes existing to public-facing.
-Worth doing before the architecture starts diverging in
-Sprints 16+.
+### Sprint 15 — Architect Mixer expansion
 
-### Sprint 16 — Voice depth pass 2 OR alternative
-
-**Theme:** TBD at Sprint 15 retro.
-
-If voice has shown weak spots through Sprints 13–15 (audio
-quality, push-to-talk, long-form conversation), this becomes
-voice depth pass 2.
-
-If voice is solid by then, alternative candidates from the
-Sprint 12+ pool fill this slot.
-
-### Sprint 17 — Aether-Architect surface class: Content apps
-
-**Theme:** architect can draft new renderer-side apps.
+**Theme:** Architect whitelist grows to include Mixers (not just Sensors). The Architect can now propose mesh-level composition logic, not just data sources.
 
 **Lanes:**
-- Whitelist extends to content apps (the mesh-viz / proposals /
-  news shape)
-- Test case: architect builds a content app from scratch (e.g.,
-  a `clipboard-viewer` or similar)
-- Content app template added to corpus
-- Sprint 16.5 cleanup
-- Sprint 17 retro
+- Whitelist expansion
+- New audit gates (Mixer code touches more surfaces; more review)
+- Test of the substrate-human-architected boundary — Architect proposing a new Mixer that would touch broker is the exact case the ADR forbids; verify the guard holds
 
-By Sprint 17 the architect has 3 surface classes available
-(sensors, mixers, content apps) and roughly 60+ lanes of
-calibration data.
+### Sprint 16 — 1.0 stabilize
 
-### Sprint 18 — Cross-surface action recording / replay
-
-**Theme:** macros emerge.
+**Theme:** Reduce risk before AVP collaborator joins. Bug fixes, performance, crash resilience, deployment hardening.
 
 **Lanes:**
-- Record sequences of voice/mesh actions
-- Replay as named macros, optionally on triggers
-- "Every morning at 7am, daily-brief + summarize new mail" becomes
-  a named macro you save once
-- Composes with Sprint 8 planner, Sprint 9 daemon-planner,
-  Sprint 12 memory
-- Sprint 17.5 cleanup
-- Sprint 18 retro
+- Bug bash sweep
+- Performance profiling (mesh broker latency, scene server WebSocket throughput, shell render cost)
+- Crash resilience (scene server crash → does shell reconnect gracefully? mesh broker crash → does shell recover?)
+- Deployment hardening (Tailscale + RAVEN_AVP scene server: add minimal auth for cross-machine use)
+- Documentation pass (READMEs, CLAUDE.md, DECISIONS.md, this roadmap doc)
 
-### Sprint 19 — Aether-Architect self-improvement (gated)
+### Sprint 17 — AVP shell joins
 
-**Theme:** the platform learns how its principal prompts.
+**Theme:** Vision Pro shell starts active development by collaborator. Both shells subscribe to the same SceneDoc; coordinate via mesh contracts.
 
-**Gating condition** (must be met before scheduling):
-- Architect has filed ≥30 PRs successfully across sensors +
-  mixers + content apps
-- No architect-erosion incidents in preceding 90 days
-- Director explicit-fire required (not auto-scheduled)
+**Lanes:**
+- AVP shell skeleton — Xcode project, connects to scene server WebSocket over Tailscale
+- Cross-machine scene server access — when does Aether's scene server run on Director's machine vs collaborator's machine vs both?
+- Cross-shell coordination patterns — both shells smoke-test against every mesh contract change going forward (new failure mode: inter-shell substrate drift)
+- AVP-specific extensions to SceneDoc — entities with rotate animations, hand gestures, 3D placements that don't apply to 2D shell
 
-**If gated:** architect files PRs that improve its own prompts
-based on lane-success patterns. Reads corpus of past lanes,
-identifies prompt structures that correlate with fix-forward
-incidents vs. clean lands, drafts prompt-template improvements.
+This is the sprint where the "Aether is the data layer" commitment pays off — the AVP shell can stand up without ANY changes to mesh or scene server, just by being another scene subscriber.
 
-**If gating condition not met:** slot becomes voice depth pass 2
-or another candidate from the pool.
+### Sprint 18 — Architect content/visualization expansion
 
-This is the recursive capability. Substrate-stays-human-architected
-ADR is the wall against runaway.
+**Theme:** Architect can now draft visualizer intents and new sensors that synthesize multiple data sources. Whitelist expanded further; audit gates tightened in parallel.
 
-### Sprint 20 — Open / candidate slot
+**Lanes:**
+- Visualizer intent registration via Architect-generated code
+- Multi-source sensor proposals
+- Audit gate hardening
 
-Reserved. Plausible content based on Sprints 12–19 outcomes:
+### Sprint 19 — Cross-surface macros
 
-- Federation (Aether-on-laptop talks to Aether-on-server)
-- Multi-user (second principal invited to a shared surface)
-- Continued voice depth
-- Continued architect surface expansion
+**Theme:** Voice + CLI commands can trigger multi-step flows ("get me caught up" → planner briefing + email summary + calendar preview, all composed and rendered together).
 
-Decision deferred to Sprint 19 retro.
+**Lanes:**
+- Macro registry
+- Macro composition surface on planner
+- Visualizer intent: `macro_result` — multi-panel composition
 
-## Candidate Themes Beyond Sprint 20
+### Sprint 20 — Architect self-improvement (gated)
 
-These are real directions; placement deferred.
+**Theme:** Architect can amend its own prompts based on accumulated outcomes. Gated by Director review of every prompt change. Substrate-stays-human-architected ADR holds: only Architect's *prompts* are self-modifiable, never substrate code.
 
-- **Peripheral integration**: room-distributed speakers and
-  microphones, cameras for vision, controlled devices (TV, lights,
-  thermostat). Each becomes a node; auto-architect can ship them
-  by then.
-- **Federation**: Aether mesh spans multiple machines. Personal-OS
-  on laptop, sensor-OS on home server, edge devices report into
-  both.
-- **Multi-user**: a second principal joins a shared surface. New
-  permissions model required.
-- **Mesh ecosystem**: third-party mesh nodes from outside the repo,
-  loaded with permission gates.
-- **Continued voice depth**: voice as a multi-modal interface
-  (gesture, gaze, environment-aware).
-- **Architect cross-substrate work**: architect can draft work in
-  related repos, not just Aether's main.
+**Lanes:**
+- Architect prompt versioning
+- Self-amendment surface (proposes prompt change, Director accepts/rejects)
+- Outcome tracking — what proposals succeeded, what got rejected
 
-These are not promises. They are *what we've imagined* and the
-roadmap should not pretend they're scheduled.
+---
 
-## Failure Modes
+## Candidate themes beyond Sprint 20
 
-Three patterns that have nothing to do with capability and
-everything to do with how this project gets unwound.
+Not banked as sprint lanes; held as "themes worth pursuing if Aether's 1.0+ trajectory needs them."
 
-### Substrate erosion
+- **Peripherals federation.** Aether on macOS coordinates with Aether on iOS via shared mesh state. Phone becomes a sensor (location, focus, notifications).
+- **Multi-user shared spaces.** Two principals each running Aether, with selective cross-mesh edges. Privacy boundaries enforced at the mesh layer.
+- **Network of personal substrates.** Federation of Aethers across friends/family; capabilities like "share this calendar event with my partner's Aether."
+- **Speech-to-anything pipeline.** Voice → arbitrary action via visualizer-mediated confirmation.
+- **Long-context memory with structured recall.** Memory as a queryable corpus, not just preference accumulation.
 
-A future lane argues that Aether-Architect should be allowed to
-touch the broker, manifest edge-graph, or confirmation pattern.
-The argument might sound reasonable in isolation ("it's just one
-small change," "the architect's draft for this is solid"). The
-ADR exists precisely for this moment.
+These are not roadmap; they're a sketch of what 2.0+ could mean.
 
-**Rule:** if substrate-erosion is being argued, that is the moment
-to slow down, not speed up. ADR exists to defend against the
-seemingly-reasonable case, not the obviously-wrong case.
+---
 
-### Skipping rungs
+## Personalization arc
 
-Sprints 6–8 land cleanly; impatience suggests pulling Aether-
-Architect work forward. The gradient is the discipline. Each rung's
-calibration data is the basis for the next rung's competence.
+A short narrative of how Aether becomes personal-to-Director over the next 12 sprints, restated for the post-shift architecture:
 
-**Rule:** the architect's surface class expansion order is locked
-(sensors → mixers → content apps) and tied to calibration data
-volume, not calendar time. If Sprint 11 underperforms, slow Sprint
-14, not speed it.
+- **Sprints 6-7:** Aether observes (sensors expand, observability deepens). Director's life-state flows through the mesh as data.
+- **Sprints 8-9:** Aether composes briefings unasked. The visualizer renders these as overlays Director can react to.
+- **Sprints 10-11:** Aether proposes via Daemon-planner; the Architect appears. Director starts negotiating new sensors into existence by conversation.
+- **Sprints 12-13:** Aether starts firing CC for new sensors itself. Memory of what Director said yes/no to begins accumulating.
+- **Sprint 14:** Voice depth means the principal conversation feels real. "Hey Aether" + something specific = real action.
+- **Sprints 15-17:** Aether becomes a multi-shell HUD. Same authoritative state across macOS dashboard and AVP immersive space.
+- **Sprints 18-20:** Aether self-extends within bounded autonomy. Substrate stays human-architected; everything else is fair game.
 
-### Velocity confusion
+By Sprint 20, Aether is conversational, multi-shell, partially self-extending, and accumulates a real model of Director. Pre-1.0 ships somewhere between Sprint 16 (stabilize) and Sprint 17 (AVP joins).
 
-Sprint 4 took ~3 weeks for 13 PRs. Sprint 5 substrate took ~4 days
-for 5 PRs. A future Director or Architect interpreting "look how
-fast we're moving" will under-budget every future sprint.
+---
 
-**Rule:** sprint variance is a feature. Some sprints are dense,
-some are quiet. Use the 4-phase shape, not lane count, as the
-sprint-completion signal. Retro is always Phase 4 regardless of
-how few lanes shipped.
+## Failure modes
 
-## How to Use This Document
+Five failure modes that are load-bearing to avoid. Sprint 5 banked three (substrate erosion, rung-skipping, velocity confusion); Sprint 5.5 adds two new ones.
 
-**Read it** at the start of every Sprint Phase 1 (roadmap setting).
-The current sprint's lane breakdown is the implementation of what
-this doc has framed.
+### 1. Substrate erosion (banked Sprint 5)
+The broker / manifest edge-graph / confirmation pattern gets touched by an automated agent (CC session run unsupervised, or eventually Aether-Architect). Mitigated by the substrate-stays-human-architected ADR; recurring vigilance required.
 
-**Update it** at every Sprint Phase 4 (retro). The retro PR
-includes any edits this doc needs. Most edits will be minor:
-adjusting a Sprint description after lessons banked, moving a
-candidate theme into a scheduled slot, recording an ADR that
-shifts a constraint.
+### 2. Rung-skipping (banked Sprint 5)
+A lane fires from a sprint several ahead of the current sprint because it "feels easy." Mitigated by Phase 1 lane spec discipline + roadmap doc as the canonical "what's next" reference.
 
-**Override it** only with explicit reasoning. The roadmap doc is
-the long-running anchor; it loses authority if it's drifted
-against without explanation. If a sprint's direction must change
-mid-flight, write down why in the next retro.
+### 3. Velocity confusion (banked Sprint 5)
+Sprint completion measured by lane count or calendar time rather than phase completion. Mitigated by the 4-phase sprint shape and roadmap-as-canonical-anchor.
 
-**Don't extend it** past Sprint 20 without lived experience.
-Sprints 21+ exist only after Sprint 19/20 have shipped and we know
-what came of the recursive self-improvement loop. The candidate
-themes section is for thinking about beyond — the sprint plan
-section is for committing.
+### 4. Inter-shell substrate drift (NEW post-Sprint-5.5)
+The macOS and AVP shells consume the same mesh contracts (via the scene server). A contract change made for one shell breaks the other. Mitigated by:
+- Every mesh contract change requires smoke verification against BOTH shells before merge
+- Both shell maintainers (Director for macOS, collaborator for AVP) sign off
+- The scene server's strict schema enforcement (Pydantic) catches contract violations early
+- Failure surfaces in scene server logs (panel-decode failures, etc.) — bank as known indicator
 
-**Operational details live elsewhere.** Working model (4-role,
-manual-completion playbook, §11 discipline, prompt template,
-canonical PR body): see `CLAUDE.md`. Lessons banked from past
-sprints: see `docs/governance-log.md`. Architectural decisions:
-see `DECISIONS.md`. This doc owns direction; those own how.
+This failure mode doesn't apply until Sprint 17 when AVP starts active dev. But the contract discipline starts NOW so that Sprint 17 doesn't need a retroactive cleanup of "everything we should have been doing."
+
+### 5. Presentation-layer creep into mesh (NEW post-Sprint-5.5)
+The temptation to "just add this rendering hint to a mesh surface" because it would make the visualizer's job easier. Mitigated by the Aether-is-data-layer ADR + the HTTP-everywhere protocol commitment. The visualizer composes; mesh emits raw state. If the visualizer needs a hint, it goes in the visualizer node's intent-routing logic, not the mesh schema.
+
+Test for whether something is creeping: does the proposed change make sense if there were FOUR shells consuming the mesh, with different rendering priorities each? If yes, it belongs in the mesh. If only one shell benefits, it belongs in the visualizer (or the shell itself).
+
+---
+
+## Process meta
+
+How the roadmap doc is used:
+
+- **Sprint Phase 1** opens by reading this doc + the most recent retro
+- **Each lane spec** references the roadmap's sprint section to confirm scope
+- **PR bodies** cite the roadmap when a lane introduces something architecturally load-bearing (e.g. "this is the first instance of <pattern named in the roadmap's architectural anchors>")
+- **Sprint retros** mention this doc only when something in here needs to change (new ADR, new failure mode, etc.)
+- **Direction shifts** rewrite this doc entirely (as Sprint 5.5 did)
+
+CLAUDE.md and DECISIONS.md are the operational layer below this roadmap. Roadmap owns *direction*; CLAUDE.md owns *how we work*; DECISIONS.md owns *what we committed to architecturally*. Governance-log owns *what we learned along the way*.
+
+Future Architect chats inherit this doc as their starting anchor. The cost of writing it well (this Sprint 5.5 rewrite is ~700 lines) is amortized across every future chat that reads it instead of reconstructing from PR bodies.
+
+---
+
+## Sprint 5.5 — what just happened
+
+Between Sprint 5 retro (#116) and the Sprint 6 Phase 1 start, two micro-lanes shipped (#117 voice swap, #118 manifest description throughput). After #118, Director discussed Aether with the creator of the RAVEN repos. The conversation surfaced a direction shift: rather than building windowed content apps, lean into Jarvis-style on-demand visualizations via the RAVEN_AVP scene server. This roadmap doc was rewritten at that point to reflect the new direction.
+
+PR #118 itself shipped under the new direction — its scope was reduced mid-flight from "manifest description threaded to mesh-viz hover" to "manifest description threaded to broker payload" (mesh-viz being archived in Sprint 6.1). That's documented in #118's PR body as the first mid-flight scope reduction precedent.
+
+Sprint 6 Phase 1 starts after this roadmap rewrite lands.

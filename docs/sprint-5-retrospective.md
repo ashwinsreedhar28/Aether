@@ -132,4 +132,18 @@ The cost of this discipline is real (the retro lane itself is ~5 hours of writin
 
 Sprint 5 Lane 1 (Mesh observability) is complete. The substrate is observable, categorized, visualizable. The roadmap doc anchors the long-horizon direction. The retro banks what we learned.
 
-Sprint 6 Phase 1 starts next.
+## Addendum (2026-05-26) — Sprint 5.5 direction shift
+
+This addendum was added the day after Sprint 5 retro merged.
+
+Between Sprint 5 retro (#116) and Sprint 6 Phase 1 start, two micro-lanes shipped (#117 voice swap Aoede → Charon, #118 manifest description threaded through broker payload) — both clean substrate-side completions.
+
+After #118 landed, Director discussed Aether's direction with the creator of the RAVEN repos (the upstream pattern source for Pulse and the original RAVEN substrate). The conversation surfaced that the windowed-content-app paradigm wasn't serving the actual interaction model Director wanted (Jarvis-style summoned visualizations over a persistent dashboard, not Finder-style app navigation). The collaborator shared `R-A-V-E-N-delegate/RAVEN_AVP` — a scene-state server he'd built that solves the visualization composition problem for Apple Vision Pro. Aether adopts it as the presentation layer for both the macOS shell (immediately) and the AVP shell (Sprint 17).
+
+The Sprint 6 plan documented in this retro's "Sprint 6 transition notes" section is **superseded**. The new Sprint 6 — Direction Shift Foundation — covers content-app archive, scene server vendor, CLI + dashboard, visualizer node v1, and voice integration. Sensor expansion (originally Sprint 6) shifts to Sprint 7. Subsequent sprints shift by one (Confirmation pattern Sprint 7 → 8; Planner runtime Sprint 8 → 9; etc.). Sprint 17 newly added for AVP shell active dev.
+
+See the rewritten roadmap doc (`docs/agent-platform-roadmap.md`) and the three new ADRs in DECISIONS.md (direction-shift, HTTP-everywhere, Aether-is-data-layer) for the full new architecture. The Sprint 5 substrate work continues to pay off — broker observability, manifest descriptions, categorization, and the substrate-stays-human-architected ADR are all kept intact and become foundations for the visualizer node.
+
+PR #118's mid-flight scope reduction (dropping mesh-viz hover code when the direction shift surfaced mid-lane) is documented in #118's PR body as the first instance of a new lane shape: **mid-flight scope reduction due to direction pivot**. The pattern: Implementer writes the full lane, stalls, Director resumes the next day with new context, reverts files no longer needed, rewrites obsolete forward-references in remaining content, ships smaller PR. Worth tracking; if this happens again in Sprint 6.1, bank as a CLAUDE.md §13.12 shape.
+
+Sprint 6 Phase 1 starts when this rewrite PR lands.

@@ -10,6 +10,20 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- RAVEN_AVP scene server vendored as a git submodule at
+  `daemons/raven-avp-server/` (upstream:
+  R-A-V-E-N-delegate/RAVEN_AVP). The shell now supervises an
+  external FastAPI daemon on port 5180 that holds visualization
+  state (SceneDoc panels + entities) and broadcasts mutations over
+  WebSocket. New `sceneServerDaemonManager` in
+  `shell/electron/main/services/` follows the vision daemon-manager
+  pattern simplified (no mesh registration — scene server is
+  external infrastructure, not a mesh node). Scene state persists
+  to `<userData>/data/raven-avp/scene_state.json` across restarts.
+  No shell-side consumption yet: subscriber + CLI + real dashboard
+  land in Sprint 6.3, visualizer mesh node lands in Sprint 6.4,
+  voice integration lands in Sprint 6.5. First Sprint 6 lane that
+  brings external code into Aether's tree.
 - `mesh-viz` content app — radial visualization of the live mesh topology, with `core` at center (toggleable) and 16 user nodes branching radially by category (Sensor/Actor/Mixer/Planner color and symbol coded). Edges drawn from `mesh_introspection.topology`. Live activity feed sidebar consumes `mesh_introspection.activity`. Always-visible node labels; hover state highlights node and its edges. Foundation for lane 108b (click-to-inspect) and lane 108c (live edge pulse). Closes #108.
 - Sprint 5 retrospective (`docs/sprint-5-retrospective.md`). Closes Sprint 5 (Phase 4). Banks 14+ lessons across process discipline, operational gotchas, and architectural decisions. Formalizes the substrate-stays-human-architected ADR in DECISIONS.md. Introduces the manifest `description` field convention (DECISIONS.md ADR + roadmap doc Sprint 6 lane). Expands CLAUDE.md §11 with two new heuristics (#10 pre-decide-load-bearing, #11 hand-written documentation lanes) and adds §13.10 / §13.11 (manual-completion kit expanded to five shapes, bundle-size reporting for deletion lanes). Adds sports + research as Sprint 6 sensor lanes in the roadmap doc. Closes Sprint 5.
 - Manifest `description` field formalized in schema and threaded through broker `/__introspection__` payload to the `mesh_introspection.topology` surface. Schema at `core/schemas/manifest.json` gains typed `metadata.description` with 280-char max-length. Built-in `core` node gets its first description. All 16 user nodes already had descriptions in `manifest.yaml`; no backfill needed. Substrate-only — renderer-side consumers will land with the visualizer node in Sprint 6, after the direction shift archives the current mesh-viz content app. Originally scoped as 108d (mesh-viz hover); reduced mid-flight when the direction shifted from windowed content apps to dashboard + on-demand visualization.

@@ -106,6 +106,26 @@ export function nodeDataDir(): string {
   return join(app.getPath('userData'), 'data')
 }
 
+// RAVEN_AVP scene server lives at <repo>/daemons/raven-avp-server/.
+// The submodule's server/main.py is the FastAPI entrypoint.
+export const SCENE_SERVER_DIR: string = join(
+  REPO_ROOT,
+  'daemons',
+  'raven-avp-server',
+  'server',
+)
+
+// State path for the scene server. Per Q2 of the Sprint 6.2 lane
+// spec: scene_state.json lives under userData to keep the submodule
+// clean across restarts.
+export function sceneServerDataDir(): string {
+  return join(app.getPath('userData'), 'data', 'raven-avp')
+}
+
+export function sceneServerStatePath(): string {
+  return join(sceneServerDataDir(), 'scene_state.json')
+}
+
 export const CORE_PID_FILE = (): string => join(meshRuntimeDir(), 'core.pid')
 export const CORE_LOG_FILE = (): string => join(meshRuntimeDir(), 'core.log')
 export const CORE_AUDIT_FILE = (): string => join(meshRuntimeDir(), 'audit.log')

@@ -21,6 +21,7 @@ import { registerFileHandlers } from './handlers/files'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
+import { SceneServerDaemonManager } from './services/sceneServerDaemonManager'
 import { registerPythonDaemonNode, waitForMeshReady } from './services/nodeRegistry'
 
 // Lock Electron's app name before any code calls app.getPath('userData') —
@@ -322,6 +323,12 @@ const raven = getRavenDaemonManager()
 const vision = new VisionDaemonManager()
 const calendar = new CalendarDaemonManager()
 
+// Scene server (RAVEN_AVP) — external FastAPI daemon on :5180, NOT a mesh
+// node. Holds visualization state and broadcasts deltas over WS. The shell
+// supervises its lifecycle but does not consume it yet (subscriber + UI
+// land in Sprint 6.3). Boot does not block on it (Sprint 6.2 Q3).
+const sceneServer = new SceneServerDaemonManager()
+
 // Reminders node — migrated to registerNode factory pattern (proof-of-concept).
 // Repo root is three levels up from compiled location at out/main/index.js.
 const repoRoot = resolve(__dirname, '..', '..', '..')
@@ -470,6 +477,23 @@ app.whenReady().then(() => {
       console.error('[aether] reminders ensureRunning threw:', err)
       void 0
     })
+
+  // Scene server (RAVEN_AVP) — external HTTP infrastructure, independent of
+  // the mesh. ensureRunning bootstraps a venv on first run (~30s) then polls
+  // GET /scene until healthy; on failure it schedules a backed-off restart.
+  // Fired async so boot stays off this path (Sprint 6.2 Q3).
+  void sceneServer
+    .ensureRunning()
+    .then(() => {
+      if (sceneServer.isRunning()) {
+        console.log('[aether] scene server healthy on :5180')
+      } else {
+        console.warn('[aether] scene server not yet healthy; will retry')
+      }
+    })
+    .catch((err) => {
+      console.error('[aether] scene server ensureRunning threw:', err)
+    })
 })
 
 // Clean shutdown. before-quit fires on user-initiated quits AND on
@@ -490,6 +514,7 @@ async function stopAllChildren(): Promise<void> {
     vision.stop(),
     calendar.stop(),
     reminders.stop(),
+    sceneServer.stop(),
   ])
   for (const r of results) {
     if (r.status === 'rejected') {

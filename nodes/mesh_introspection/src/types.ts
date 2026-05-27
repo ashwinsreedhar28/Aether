@@ -5,6 +5,7 @@
 export interface BrokerNode {
   id: string
   category: string
+  description: string // NEW — empty string if not set in manifest
   surfaces: string[]
   last_seen_ts: number | null
   status: string

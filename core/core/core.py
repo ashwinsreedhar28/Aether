@@ -407,7 +407,10 @@ class CoreState:
             "kind": "capability",
             "runtime": "in-process",
             "category": "Mixer",
-            "metadata": {"builtin": True},
+            "metadata": {
+                "builtin": True,
+                "description": "Mesh dispatch broker. Routes signed envelopes between every node, composes admin surfaces, and exposes the introspection endpoint that lets the rest of the mesh see itself.",
+            },
             "secret": self._core_secret,
             "surfaces": surfaces,
         }
@@ -1172,6 +1175,7 @@ async def handle_introspection(request: web.Request) -> web.Response:
         nodes.append({
             "id": nid,
             "category": decl.get("category", "uncategorized"),
+            "description": decl.get("metadata", {}).get("description", ""),
             "surfaces": sorted(decl["surfaces"].keys()),
             "last_seen_ts": last_seen,
             "status": _introspection_status(

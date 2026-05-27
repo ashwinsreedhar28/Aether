@@ -40,7 +40,15 @@
           "type": "string"
         },
         "metadata": {
-          "type": "object"
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "maxLength": 280,
+              "description": "Human-readable, one-or-two-sentence explanation of what the node does. Consumed by the visualizer node (Sprint 6), raven voice introspection ('what can you do?', Sprint 14), and Aether-Architect when reading existing surface inventory before drafting new ones (Sprint 11). Tweet-length (280 char) max keeps overlays and voice-spoken output reasonable."
+            }
+          },
+          "additionalProperties": true
         },
         "surfaces": {
           "type": "array",

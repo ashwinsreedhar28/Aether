@@ -160,9 +160,13 @@ Replace the placeholder dashboard with the real one. Two sub-features in one lan
 
 **Scene subscriber** — shell connects to `ws://127.0.0.1:5180/scene/stream`. Reconciles snapshots + deltas. Maintains an in-memory `RemoteSceneStore` (mirroring RAVEN_AVP's Swift client pattern). Renders panels + entities as 2D HTML/SVG instead of 3D RealityKit.
 
-The diagnostic dashboard backdrop is composed of panels that the visualizer node *seeds* on shell boot — mesh-health, raven status, active sensors, recent activity stream. These are always-present scene panels with stable IDs (e.g. `dashboard.mesh-health`, `dashboard.raven-status`). The visualizer node sees broker startup events (via `mesh_introspection.topology`) and POSTs these dashboard panels to the scene server. The shell renders them as the backdrop.
+**Sequencing note (decided in Sprint 6.3 architecture conversation):** Sprint 6.3 ships the *rendering pipeline only* — the scene subscriber, the panel renderer, and the CLI. It does NOT seed dashboard backdrop panels, because the visualizer node that seeds them doesn't exist until Sprint 6.4. On Sprint 6.3 boot, the dashboard renders whatever is in `scene_state.json` (initially the RAVEN_AVP seed panels: welcome, info, rotated-demo). The CLI's submit handler POSTs a text panel directly to `/scene/panel` — this proves the end-to-end transport (CLI → scene server → subscriber → dashboard render) works before the visualizer node is built. Visually, Sprint 6.3's dashboard is a development state, not the final backdrop.
 
-Transient overlays are panels with non-dashboard IDs, summoned by voice/CLI commands, that the visualizer node POSTs in response. They render over the backdrop.
+The diagnostic dashboard backdrop (composed of `dashboard.*` panels — mesh-health, raven status, active sensors, recent activity stream) is **seeded by the visualizer node in Sprint 6.4**, not 6.3. These are always-present scene panels with stable IDs (e.g. `dashboard.mesh-health`, `dashboard.raven-status`). The visualizer node sees broker startup events (via `mesh_introspection.topology`) and POSTs these dashboard panels to the scene server. The shell renders them as the backdrop.
+
+Transient overlays are panels with non-dashboard IDs, summoned by voice/CLI commands, that the visualizer node POSTs in response. They render over the backdrop. The `dashboard.*` namespace convention distinguishes persistent backdrop panels (re-seeded by the visualizer on its boot) from transient summoned panels (managed by intent).
+
+**Intent contract (designed here, consumed by voice later):** the CLI is one of two intent sources on the macOS shell — CLI and voice. Both produce the same intent shape that the visualizer node (Sprint 6.4) consumes via `visualizer.render(intent, args)`. Sprint 6.3 designs this contract with voice in mind even though voice doesn't wire until Sprint 6.5. The visualizer node is intent-source-agnostic: it does not care whether an intent originated from typing or speech.
 
 #### Sprint 6.4 — Visualizer mesh node v1
 
@@ -231,6 +235,10 @@ Voice instructions extended: "If the user asks to see something, call `visualize
 Voice calls `raven → visualizer.render` mesh edge. Visualizer composes panels + POSTs to scene. Shell's WebSocket connection receives the delta, renders new panels.
 
 End-to-end smoke at Sprint 6.5 close: Director says "Hey Aether, show me the mesh" → voice transcript appears in CLI output area → mesh-radial visualization renders as a panel in the shell's dashboard → Director says "thanks" → voice dismisses the visualization (POST removes the panels).
+
+**Scope clarification:** Sprint 6.5 is the *reactive* voice wire-up — voice produces the same intent shape the CLI produces (designed in Sprint 6.3), routed through `visualizer.render`. It is push-to-talk or wake-word-gated, single-turn, command-style. It is NOT the always-on ambient presence described below.
+
+**Voice ambience — elevated priority (was implicitly Sprint 14, now a candidate for a dedicated near-term sprint).** The target modality: the mic stays hot whenever the shell is running, Aether signals readiness (an "I'm here" cue, auditory and/or visual), and the principal speaks naturally without pushing a button. On macOS — where there is no AVP — voice is one of two interfaces (CLI being the other), so ambient voice presence is not a polish item; it is a peer interface. This requires a listen-state machine (idle → listening → processing, each with a user-visible signal), local cheap wake-word or attention detection (NOT a round-trip to Gemini per audio frame), a boot-time readiness announcement, and graceful degradation on mic-permission denial. This is substantial enough to merit its own sprint rather than being bolted onto 6.5's wire-up. It pulls forward the wake-word + turn-taking scope currently homed at Sprint 14 (Voice depth pass 1). When the Sprint 6 retro runs, evaluate slotting a dedicated voice-ambience sprint between Sprint 6 and Sprint 7, ahead of the sensor-breadth work.
 
 #### Sprint 6 also includes (Phase 2 cleanup work)
 
@@ -332,6 +340,8 @@ Sprint 7's sensors don't need confirmation (read-only). Sprint 8 is the first ti
 ### Sprint 14 — Voice depth pass 1
 
 **Theme:** Wake word, multi-turn turn-taking, latency, voice introspection ("what can you do?"). The first sprint where voice feels less like a command shell and more like a conversation partner.
+
+**Note (Sprint 6.3 conversation):** the wake-word + hot-mic + readiness-signal scope below is a candidate to pull forward into a dedicated voice-ambience sprint nearer to Sprint 6 — see the Sprint 6.5 ambience note. If that pull-forward happens, Sprint 14 narrows to the remaining depth work (latency reduction, multi-turn refinement, voice introspection) and this section gets revised at that time.
 
 **Lanes:**
 - Wake word integration

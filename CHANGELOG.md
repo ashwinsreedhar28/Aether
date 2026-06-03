@@ -10,6 +10,28 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Visualizer mesh node (Sprint 6.4) — `nodes/visualizer/`, a TypeScript
+  **Mixer** that bridges the mesh (data layer) to the RAVEN_AVP scene server
+  (presentation layer): the only mesh component that knows about both. It reads
+  mesh state via `node.invoke('mesh_introspection.topology')` and POSTs composed
+  SceneDoc panels over HTTP — "mesh in, HTTP out." One inbound surface,
+  `visualizer.render({ intent, args? })`, intent-routed to template functions:
+  `dashboard` composes the always-present `dashboard.*` backdrop
+  (`dashboard.mesh-health`, `dashboard.raven-status`), seeded on boot and
+  re-POSTed every ~5s to the merge endpoint so it stays live; `mesh` composes a
+  summoned topology overlay (`viz-mesh`); unknown intents return
+  `MeshDeny('unknown_intent')`. v1 panels are **script-free** (`text`/`markdown`
+  only) to render under the shell's `sandbox=""` iframe — a graphical SVG mesh
+  viz is a deferred fast-follow pending a sandbox-relaxation policy. All panels
+  pass through `coerceStyle` so every `style` value is a string before POST
+  (governance-log 2026-05-26). `SceneClient.upsertPanel` merges existing panel
+  ids in place (append-on-404) so dashboard re-POSTs never 409, and is
+  failure-tolerant: a down scene server logs and skips the cycle rather than
+  crashing the node. Wired into the shell's node-spawn path (nodeManager +
+  coreManager secret injection + paths + secrets); manifest gains the visualizer
+  node entry plus the `visualizer → mesh_introspection.topology` and
+  `shell → visualizer.render` edges (`raven → visualizer.render` deferred to the
+  Sprint 6.5 voice wire-up).
 - Dashboard UI (Sprint 6.3b) — the placeholder dashboard is replaced by a
   live scene dashboard. `Dashboard.tsx` subscribes to
   `window.aether.scene.onSceneEvent`, replacing the panel list on snapshots

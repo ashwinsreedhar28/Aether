@@ -91,6 +91,13 @@ export const MESH_INTROSPECTION_ENTRY: string = join(
   'dist',
   'index.js',
 )
+export const VISUALIZER_ENTRY: string = join(
+  REPO_ROOT,
+  'nodes',
+  'visualizer',
+  'dist',
+  'index.js',
+)
 
 export function meshRuntimeDir(): string {
   return join(app.getPath('userData'), 'mesh')

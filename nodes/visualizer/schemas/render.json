@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "visualizer.render",
+  "title": "visualizer.render",
+  "description": "Render a visualization. `intent` selects the template; v1 supports 'mesh' (summoned mesh-topology overlay) and 'dashboard' (always-present backdrop panels). `args` is reserved for per-intent options (unused in v1). Unknown intents return MeshDeny('unknown_intent').",
+  "type": "object",
+  "properties": {
+    "intent": {
+      "type": "string",
+      "description": "Which visualization to render. v1: 'mesh' | 'dashboard'."
+    },
+    "args": {
+      "type": "object",
+      "description": "Reserved per-intent options. Ignored in v1.",
+      "additionalProperties": true
+    }
+  },
+  "required": ["intent"],
+  "additionalProperties": false
+}

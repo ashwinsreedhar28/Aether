@@ -2,7 +2,8 @@ import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { MeshNode, MeshDeny } from '@aether/mesh-node-sdk'
 import { collectLanes } from './git'
-import type { Lane, LaneState, LanesSnapshot } from './types'
+import { collectPRs, type PRSnapshot } from './gh'
+import type { Lane, LaneState, LanesSnapshot, ServedLane } from './types'
 
 // lanes is a SENSOR mesh node. It polls `git worktree list` for the shared
 // Aether repo and exposes which development lanes (worktrees) are active vs
@@ -22,6 +23,12 @@ const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
 // git hiccup doesn't flag the cache stale (mirrors mesh_introspection's ratio).
 const POLL_INTERVAL_MS = 10_000
 const STALE_AFTER_MS = 30_000
+
+// PR state is fetched on a SEPARATE, slower cadence: the git tick stays a local
+// O(worktrees) read every 10s, while GitHub is consulted only every 60s. The
+// result is cached and merged into the served payload, so a slow or failing gh
+// call never delays serving cached git status (see collectPRs in gh.ts).
+const PR_POLL_INTERVAL_MS = 60_000
 
 // A lane is 'active' if its freshest activity is within this window. Overridable
 // via env purely so a smoke test can force an active→idle transition without
@@ -43,6 +50,9 @@ interface Cache {
 interface CacheState {
   cache: Cache | null
   lastError: string | null
+  // Latest PR snapshot from the slow gh poll. Starts unavailable (no fetch yet);
+  // the git poll and surface never wait on it. Decoupled by design.
+  prs: PRSnapshot
 }
 
 function log(msg: string): void {
@@ -60,10 +70,18 @@ function makeStatusHandler(getState: () => CacheState) {
       })
     }
     const ageMs = Date.now() - state.cache.fetchedAtMs
+    // Merge the cached PR snapshot in at serve time, keyed by branch. main
+    // (is_main) never carries a PR; any branch without a cached PR — including
+    // every branch when gh is unavailable — resolves to null.
+    const lanes: ServedLane[] = state.cache.data.lanes.map((lane) => ({
+      ...lane,
+      pr: lane.is_main ? null : (state.prs.byBranch.get(lane.branch) ?? null),
+    }))
     return {
-      lanes: state.cache.data.lanes,
+      lanes,
       fetched_at_ms: state.cache.fetchedAtMs,
       stale: ageMs > STALE_AFTER_MS,
+      gh_available: state.prs.available,
     }
   }
 }
@@ -84,7 +102,11 @@ async function main(): Promise<void> {
   mkdirSync(nodeDir, { recursive: true })
   const markerPath = join(nodeDir, 'running')
 
-  const state: CacheState = { cache: null, lastError: null }
+  const state: CacheState = {
+    cache: null,
+    lastError: null,
+    prs: { available: false, byBranch: new Map() },
+  }
   const getState = (): CacheState => state
 
   const node = new MeshNode(NODE_ID, secret, CORE_URL)
@@ -148,11 +170,27 @@ async function main(): Promise<void> {
     }
   }
 
+  // PR poll: own slow cadence, fully decoupled from the git tick. Replaces the
+  // cached snapshot wholesale each run; logs only on an availability flip so a
+  // persistently-absent gh stays quiet after the first line.
+  const pollPRs = async (): Promise<void> => {
+    const snap = await collectPRs(REPO_ROOT)
+    if (snap.available !== state.prs.available) {
+      log(snap.available ? 'gh available; PR state resolving' : 'gh unavailable; PR state degraded to null')
+    }
+    state.prs = snap
+  }
+
   // Warm the cache before the first surface invocation, then settle into cadence.
+  // Warm PRs too, but never block the git warm-up on the network gh call.
   await poll()
+  void pollPRs()
   const timer = setInterval(() => {
     void poll()
   }, POLL_INTERVAL_MS)
+  const prTimer = setInterval(() => {
+    void pollPRs()
+  }, PR_POLL_INTERVAL_MS)
 
   let shuttingDown = false
   const shutdown = async (sig: NodeJS.Signals): Promise<void> => {
@@ -160,6 +198,7 @@ async function main(): Promise<void> {
     shuttingDown = true
     log(`received ${sig}, stopping`)
     clearInterval(timer)
+    clearInterval(prTimer)
     try {
       unlinkSync(markerPath)
     } catch {

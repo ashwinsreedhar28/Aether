@@ -678,6 +678,11 @@ relationships:
   # same consume-surface pattern as mesh_introspection.topology above.
   - from: visualizer
     to: lanes.status
+  # The Lanes view (renderer-side) reads the same lane-activity snapshot
+  # directly through the mesh — same consume-surface pattern as the shell
+  # finance/mesh_introspection edges above.
+  - from: shell
+    to: lanes.status
   # The lanes sensor fires a host notification on an observed active→idle lane
   # transition ("Lane idle: <branch>"). A raven→lanes.status read edge (voice
   # "which lanes are working?") is a deferred follow-up micro-lane, not wired here.

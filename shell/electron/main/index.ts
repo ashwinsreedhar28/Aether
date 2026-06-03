@@ -5,7 +5,7 @@
 // Must stay the FIRST import in this file.
 import './env-loader'
 
-import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell, dialog } from 'electron'
+import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell, dialog, Notification } from 'electron'
 import { existsSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -369,8 +369,68 @@ function broadcastToRenderers(channel: string, payload: unknown): void {
   }
 }
 
-raven.on('availability', (a) => broadcastToRenderers('voice:availability-changed', a))
-raven.on('status', (state) => broadcastToRenderers('voice:status-changed', state))
+// Ambient voice (ambient-voice-v1). Hot mic while the shell is open: the
+// moment raven becomes reachable we auto-start its listening session, so the
+// Director never has to POST /listen/start by hand. Defaults ON (the
+// Director's explicit hot-mic call on a single-user machine); the hard-off is
+// `AETHER_VOICE_AMBIENT=0`, which skips auto-start entirely — the dashboard
+// listening indicator then sits in its off state because nothing ever flips
+// the daemon to 'running'.
+const AMBIENT_VOICE = process.env.AETHER_VOICE_AMBIENT !== '0'
+// Announce readiness once per shell session. A mid-session re-engage (daemon
+// or child restart) re-runs listenStart but stays silent on the notification
+// channel — the console log is the re-engage confirmation.
+let ambientAnnounced = false
+// In-flight guard + cooldown so a child that dies on spawn (e.g. bad config)
+// can't drive a tight listenStart loop via the status-event re-ensure below.
+let ambientEngaging = false
+let ambientLastStart = 0
+
+// Idempotent "ensure listening." Called on every availability transition to
+// 'available' (covers a full node-daemon restart: unavailable→available) AND
+// on status pushes (covers a Python-child death: the node daemon stays up and
+// only emits a status transition to 'stopped'/'error', so availability never
+// moves — the child kill in the smoke test re-engages through this path, which
+// is what "the daemon manager restarts it" actually is). Control plane only:
+// listenStart is a POST the daemon no-ops if already running
+// (ravenManager.ts:69), so re-firing on reconnect is safe.
+async function ensureAmbientListening(state?: { status?: string }): Promise<void> {
+  if (!AMBIENT_VOICE) return
+  if (raven.getAvailability().kind !== 'available') return
+  // On a status push, only re-engage when the session has actually dropped.
+  // 'running'/'starting' mean listening is already (re)engaging; re-firing
+  // would be noise. (state is undefined on an availability-driven call.)
+  if (state && state.status !== 'stopped' && state.status !== 'error') return
+  if (ambientEngaging) return
+  const now = Date.now()
+  if (now - ambientLastStart < 3000) return
+  ambientEngaging = true
+  ambientLastStart = now
+  try {
+    await raven.listenStart()
+    console.log('[aether] ambient voice: listening')
+    // Native shell-internal notification — NOT the mesh host_notifications
+    // node. "Mic is hot" is shell state, not a mesh event, so it must not
+    // take a mesh hop.
+    if (!ambientAnnounced && Notification.isSupported()) {
+      new Notification({ title: 'Aether', body: 'Listening, sir.' }).show()
+      ambientAnnounced = true
+    }
+  } catch (err) {
+    console.error('[aether] ambient voice: listenStart failed:', err)
+  } finally {
+    ambientEngaging = false
+  }
+}
+
+raven.on('availability', (a) => {
+  broadcastToRenderers('voice:availability-changed', a)
+  if (a.kind === 'available') void ensureAmbientListening()
+})
+raven.on('status', (state) => {
+  broadcastToRenderers('voice:status-changed', state)
+  void ensureAmbientListening(state as { status?: string })
+})
 raven.on('transcript', (entry) => broadcastToRenderers('voice:transcript', entry))
 raven.on('toolCall', (entry) => broadcastToRenderers('voice:tool-call', entry))
 

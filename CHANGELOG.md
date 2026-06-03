@@ -24,6 +24,16 @@ historical record.
   personalization arc. Adds the canonical full-stack worktree recipe to
   CLAUDE.md §13.12. The deferred 6.5 voice smoke is recorded as CLOSED
   (2026-06-03).
+- Ambient listening v1 (ambient-voice-v1) — hot mic while the shell is open.
+  The shell auto-starts raven's listening session the moment the daemon
+  becomes reachable (no manual `POST /listen/start`), announces readiness once
+  per session with a native Electron notification ("Aether — Listening, sir."),
+  and surfaces a listening dot in the dashboard top strip. The ensure is
+  idempotent and re-engages on both a node-daemon restart (availability
+  transition) and a Python-child death (status transition), so the mic comes
+  back hot after a crash without any manual step. Control plane only — no
+  daemon code touched. Hard-off: launch with `AETHER_VOICE_AMBIENT=0` to skip
+  auto-start entirely (the indicator then shows "voice off"). Defaults ON.
 - Visualize voice tool (Sprint 6.5) — "show me the mesh" now summons the
   mesh-topology panel by voice. `daemons/raven-core/raven_core/tools/visualize_tool.py`
   is a thin tool that calls `mesh_invoke('visualizer.render', { intent: 'mesh' })`;

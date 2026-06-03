@@ -10,6 +10,15 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Voice routing for the `lanes` visualization intent — raven's prompt
+  (`daemons/raven-core/raven_core/prompts/prompts.json`) now maps spoken
+  requests about lanes/agents ("show me my lanes", "what are my agents doing",
+  "which lanes are active") to `visualize({ intent: 'lanes' })`, connecting the
+  6.5 `visualize` tool to the `lanes` intent PR #130 added to the visualizer.
+  `'mesh'` remains the topology intent. Prompt-only change: no new tool, no
+  manifest edge (the visualizer reads `lanes.status` itself), no code. The
+  ack-not-narrate guard applies to lanes exactly as to mesh — brief spoken
+  acknowledgment, panel contents never read aloud.
 - Lanes sensor + dashboard (Sprint 6.5b) — `nodes/lanes/`, a TypeScript
   **Sensor** that polls `git worktree list` for the shared repo every 10s and
   exposes which development lanes (worktrees) are active vs idle through one

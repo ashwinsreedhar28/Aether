@@ -62,6 +62,58 @@ function reconcile(prev: ScenePanel[], changes: unknown[]): ScenePanel[] {
   return next
 }
 
+// Ambient-listening indicator for the top strip. Display-only (no interactive
+// children, so it stays inside the strip's drag region without a no-drag
+// override). Listening state is derived purely from the daemon status field:
+// 'running'/'starting' = mic is hot, anything else = off. When the shell is
+// launched with AETHER_VOICE_AMBIENT=0 nothing ever starts the session, so the
+// status stays 'stopped' and this naturally reads "voice off" — the indicator
+// needs no knowledge of the env flag itself.
+function VoiceIndicator(): React.ReactElement {
+  const [listening, setListening] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    const isLive = (status: string): boolean =>
+      status === 'running' || status === 'starting'
+
+    // Seed from the current status, then track pushed transitions.
+    window.aether.voice
+      .status()
+      .then((s) => {
+        if (active) setListening(isLive(s.status))
+      })
+      .catch(() => {
+        /* daemon unreachable → leave off */
+      })
+    const unsubscribe = window.aether.voice.onStatusChanged((s) => {
+      setListening(isLive(s.status))
+    })
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
+
+  return (
+    <div
+      className="absolute right-3 flex items-center gap-1.5 text-[10px] tracking-[0.2em]"
+      style={{ color: 'var(--holo-muted)' }}
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: '50%',
+          background: listening ? 'var(--holo-accent)' : 'var(--holo-muted)',
+          boxShadow: listening ? '0 0 6px var(--holo-glow)' : 'none',
+        }}
+      />
+      {listening ? 'LISTENING' : 'VOICE OFF'}
+    </div>
+  )
+}
+
 // The live scene dashboard. Subscribes to the main-process scene subscriber
 // (window.aether.scene.onSceneEvent), maintains the panel list in React state,
 // and renders panels as an arrival-order column of cards with the CLI strip
@@ -98,12 +150,15 @@ export function Dashboard(): React.ReactElement {
           never sits under the macOS traffic lights (titleBarStyle:
           'hiddenInset', frame: false). The label is centered so it clears the
           top-left traffic lights on macOS without a platform branch; the whole
-          strip is a drag region (no interactive children → no no-drag needed). */}
+          strip is a drag region (no interactive children → no no-drag needed).
+          The voice indicator is absolutely positioned at the right edge (clear
+          of the top-left traffic lights) so it doesn't disturb the centering. */}
       <div
-        className="shrink-0 h-9 flex items-center justify-center text-[10px] tracking-[0.3em]"
+        className="relative shrink-0 h-9 flex items-center justify-center text-[10px] tracking-[0.3em]"
         style={{ color: 'var(--holo-muted)', WebkitAppRegion: 'drag' }}
       >
         AETHER · SCENE
+        <VoiceIndicator />
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">

@@ -10,6 +10,21 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Instrument views — top bar + Lanes view v1. The cockpit gains a navigable
+  top bar (Scene · Chats · Mesh · Lanes) above the always-present CLI. **Scene**
+  is the unchanged ambient panel dashboard and stays the default home (kept
+  mounted across switches so summoned panels survive a view change). **Lanes**
+  renders a sidebar of git-worktree lanes (semantic order: main → active →
+  recent, matching #130) with a detail pane (branch, state, activity, dirty
+  count, last commit, PR) fed by `lanes.status`, polled ~10s while mounted with
+  a manual refresh; it consumes the #133 enrichment (`last_commit_msg`, `pr`,
+  `gh_available`) and renders "—" / a "PR data unavailable" note as the graceful
+  fallback when a field is absent/null. A lanes-node-down state degrades
+  gracefully. **Mesh** is a minimal stub showing live node/edge counts from
+  `mesh_introspection.topology` with a mount point reserved for the full graph
+  (next lane). **Chats** is a tasteful "soon" placeholder. Renderer-only; no
+  changes to main, preload, daemons, nodes, or manifest. VoiceIndicator moved
+  into the shared top bar (visible in every view).
 - Lanes PR-state + commit-message enrichment — `nodes/lanes/` now reports two
   extra fields per lane for the upcoming Lanes view. `last_commit_msg` is the
   HEAD commit subject (`git log -1 --format=%s`), gathered in the existing 10s

@@ -74,7 +74,7 @@ function Fallback({ label }: { label: string }): React.ReactElement {
 
 // Renders the body of a single panel by kind. Pure — no state, no IPC except
 // the anchor → openExternal hop above. The card chrome (id header, border)
-// lives in Dashboard so this stays a kind-switch.
+// lives in SceneView so this stays a kind-switch.
 export function PanelRenderer({ panel }: { panel: ScenePanel }): React.ReactElement {
   const kind = panel.kind ?? 'text'
 

@@ -1,5 +1,5 @@
-import { Dashboard } from './dashboard/Dashboard'
+import { Shell } from './dashboard/Shell'
 
 export function App() {
-  return <Dashboard />
+  return <Shell />
 }

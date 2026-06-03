@@ -10,6 +10,19 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Dashboard UI (Sprint 6.3b) — the placeholder dashboard is replaced by a
+  live scene dashboard. `Dashboard.tsx` subscribes to
+  `window.aether.scene.onSceneEvent`, replacing the panel list on snapshots
+  and reconciling deltas by panel id (add/update upsert, remove filter;
+  entity changes skipped this lane). `PanelRenderer.tsx` renders panels by
+  kind — `text` (preformatted), `markdown` (react-markdown + remark-gfm),
+  `html` (maximally-sandboxed iframe); unknown kinds get a labeled fallback.
+  `Cli.tsx` is a permanent Claude-Code-style bottom input strip that POSTs a
+  text panel on Enter (Shift+Enter for newline), surfaces POST failures
+  inline, and recalls history with the up/down arrows. The CLI-posted panel
+  appears via the scene delta, proving the CLI → server → subscriber →
+  dashboard round-trip. Second half of Sprint 6.3; the 6.3a transport probe
+  is removed.
 - Scene transport (Sprint 6.3a) — the shell now subscribes to the
   RAVEN_AVP scene server's WebSocket (`ws://127.0.0.1:5180/scene/stream`)
   from the main process via a new `sceneSubscriber` service, forwarding

@@ -10,6 +10,16 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Scene transport (Sprint 6.3a) — the shell now subscribes to the
+  RAVEN_AVP scene server's WebSocket (`ws://127.0.0.1:5180/scene/stream`)
+  from the main process via a new `sceneSubscriber` service, forwarding
+  snapshots + deltas to the renderer over a `scene:event` IPC push.
+  Renderer can POST panels via `window.aether.scene.postPanel()` (main
+  proxies the HTTP call; the renderer never opens a socket). Reconnects
+  with backoff on scene-server restart. First half of Sprint 6.3; a
+  trivial renderer probe (console-logs events + a test-panel button)
+  proves the transport end-to-end. The real Dashboard + PanelRenderer +
+  CLI land in 6.3b.
 - RAVEN_AVP scene server vendored as a git submodule at
   `daemons/raven-avp-server/` (upstream:
   R-A-V-E-N-delegate/RAVEN_AVP). The shell now supervises an

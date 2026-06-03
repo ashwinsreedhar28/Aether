@@ -22,6 +22,7 @@ import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
 import { SceneServerDaemonManager } from './services/sceneServerDaemonManager'
+import { SceneSubscriber } from './services/sceneSubscriber'
 import { registerPythonDaemonNode, waitForMeshReady } from './services/nodeRegistry'
 
 // Lock Electron's app name before any code calls app.getPath('userData') —
@@ -377,6 +378,41 @@ vision.on('availability', (a) => broadcastToRenderers('vision:availability-chang
 calendar.on('availability', (a) => broadcastToRenderers('calendar:availability-changed', a))
 reminders.on('availability', (a) => broadcastToRenderers('reminders:availability-changed', a))
 
+// Scene subscriber — main owns the WS to the scene server; it forwards
+// snapshots + deltas to the renderer over the 'scene:event' push channel.
+// The renderer never opens a socket. start() is idempotent and does not block
+// boot: if the scene server isn't up yet (Sprint 6.2 Q3), the subscriber
+// retries with backoff until it's reachable, and reconnects if the daemon
+// manager restarts it mid-session.
+const sceneSubscriber = new SceneSubscriber()
+sceneSubscriber.on('scene-event', (ev) => broadcastToRenderers('scene:event', ev))
+sceneSubscriber.on('connection-changed', (connected: boolean) =>
+  console.log('[aether] scene subscriber connection:', connected ? 'up' : 'down'),
+)
+sceneSubscriber.start()
+
+// Scene panel POST — the renderer asks main to POST a panel to the scene
+// server; main does the HTTP call so the renderer never touches :5180
+// directly. NOTE: panel.style values MUST be strings — the scene server's AVP
+// client decodes style as [String: String] (governance-log 2026-05-26). This
+// proxy does not validate that; callers (the CLI in 6.3b) own the contract.
+ipcMain.handle('scene:post-panel', async (_e, panel: Record<string, unknown>) => {
+  try {
+    const resp = await fetch('http://127.0.0.1:5180/scene/panel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(panel),
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!resp.ok) {
+      return { ok: false, status: resp.status, error: await resp.text() }
+    }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
 app.whenReady().then(() => {
   // macOS dev mode: set Dock icon explicitly. In packaged builds the .icns
   // from electron-builder handles this, but `pnpm dev` shows the generic
@@ -515,6 +551,7 @@ async function stopAllChildren(): Promise<void> {
     calendar.stop(),
     reminders.stop(),
     sceneServer.stop(),
+    Promise.resolve(sceneSubscriber.stop()),
   ])
   for (const r of results) {
     if (r.status === 'rejected') {

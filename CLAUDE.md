@@ -560,6 +560,16 @@ Example: PR #115 removed three content-app directories. Renderer JS dropped from
 
 Format in PR body: include `pnpm -r build` output's bundle size lines under "Verification," noting delta from previous build.
 
+## 13.12 Full-Stack Worktree Setup
+
+A fresh worktree is not a fresh clone. `git worktree add` does NOT initialize submodules, copy gitignored local config (`.env.local`), or materialize `node_modules` for workspace packages. Any lane that runs the full stack (scene server, voice, or a new workspace package) needs all three. Canonical recipe:
+
+```
+git worktree add <dir> -b <branch> && cd <dir> && git submodule update --init --recursive && cp ~/aether/.env.local . && pnpm install
+```
+
+Teardown gotcha: a worktree with an initialized submodule needs `git submodule deinit -f <path>` BEFORE `git worktree remove --force`, and `deinit` is GLOBAL across worktrees sharing a `.git` — re-run `git submodule update --init --recursive` in main afterward. Full rationale in `docs/governance-log.md` (2026-06-03).
+
 ---
 
 *End of CLAUDE.md. If you reached this line and something above contradicts itself, or doesn't cover a situation you hit, raise it in the next PR's description under "Open questions for Architect." This file is meant to grow.*

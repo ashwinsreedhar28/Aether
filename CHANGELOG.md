@@ -10,6 +10,20 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Sprint 6 retro — closes Sprint 6 (Phase 4). Banks seven Sprint 6 lessons in
+  `docs/governance-log.md` (2026-06-03): the full-stack worktree operational
+  notes (submodules/`.env.local`/deinit ordering/post-merge `pnpm install`), the
+  `frame-src` CSP allowance for html panels, the merge-first/append-on-404 upsert
+  idiom, `pkill -f` missing daemon-spawned processes, manual-completion as a
+  routine lane shape, estimate undershoot on wiring-edit counts, and the voice
+  front-door finding. Adds a "Sprint 6 — what just happened" retro section to
+  `docs/agent-platform-roadmap.md`, marks Sprint 6 complete, promotes ambient
+  voice to the immediate next lane and adds a graphical-mesh-viz + iframe-sandbox
+  relaxation candidate lane, reframes Sprint 11 (Aether-Architect) as
+  failure-driven, and notes the "living brain" context layer in the
+  personalization arc. Adds the canonical full-stack worktree recipe to
+  CLAUDE.md §13.12. The deferred 6.5 voice smoke is recorded as CLOSED
+  (2026-06-03).
 - Visualize voice tool (Sprint 6.5) — "show me the mesh" now summons the
   mesh-topology panel by voice. `daemons/raven-core/raven_core/tools/visualize_tool.py`
   is a thin tool that calls `mesh_invoke('visualizer.render', { intent: 'mesh' })`;

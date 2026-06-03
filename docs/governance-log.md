@@ -380,3 +380,40 @@ Same heuristic applies to integration PRs (Sprint 6.2 vendoring RAVEN_AVP as a s
 Count after PR #119 merge: 5 dated ADRs. Pre-Sprint-5 had 0 dated ADRs (the file existed as a Decision Records log without the date-prefixed format). Sprint 5 retro PR #116 added 2 (substrate-stays-human-architected, manifest-description-convention). Sprint 5.5 PR #119 added 3 (direction-shift, HTTP-everywhere, Aether-is-data-layer) plus an amendment to one of the Sprint 5 ADRs.
 
 Rate of ADR accumulation: ~5 ADRs across one and a half sprints. If this rate sustains, DECISIONS.md is the file most likely to hit the choke-file threshold first (currently 636 lines, will probably exceed 1000 by Sprint 10). Bank for Sprint 10ish retro: consider per-ADR file split (e.g. `docs/decisions/2026-05-26-direction-shift.md`) when DECISIONS.md becomes unwieldy.
+
+
+---
+
+## 2026-06-03 — Sprint 6 lessons banked
+
+### Full-stack worktree operational notes (consolidated, 5 lessons)
+A fresh worktree is not a fresh clone — several pieces of local state don't follow `git worktree add`, and each gap surfaced during Sprint 6 as a confusing runtime symptom rather than a clean error.
+
+1. **Submodules don't initialize in fresh worktrees.** Run `git submodule update --init --recursive` immediately after `git worktree add` for any lane touching the scene server (`daemons/raven-avp-server/`).
+2. **Gitignored local config doesn't carry into worktrees.** Copy `.env.local` from main for any lane that runs voice (Gemini key). Surfaced in the 6.5 worktree: raven came up healthy but had no key (no `.env.local` → no Gemini session).
+3. **Removing a worktree with an initialized submodule requires `git submodule deinit -f <path>` BEFORE `git worktree remove --force`.** The reverse order leaves git in a confused state.
+4. **`git submodule deinit` is GLOBAL across worktrees sharing a common `.git`.** After any such removal, re-run `git submodule update --init --recursive` in main, or main loses the submodule too.
+5. **Merging a PR that ADDS a workspace package leaves main un-buildable until `pnpm install`.** The `node_modules` links created in the lane worktree don't carry back. Surfaced when main failed to build `nodes/visualizer` post-#126 merge.
+
+Canonical full-stack worktree recipe:
+```
+git worktree add <dir> -b <branch> && cd <dir> && git submodule update --init --recursive && cp ~/aether/.env.local . && pnpm install
+```
+
+### HTML panels require a frame-src CSP allowance (6.3b)
+The renderer CSP had no `frame-src`, so html-panel iframes were silently refused under the `default-src 'self'` fallback (blank iframe + a console refusal, no thrown error). Fixed with `frame-src http://127.0.0.1:5180`, scoped to the scene server only. Any future panel pointing at a different local origin needs a deliberate `frame-src` widening. Related locked principle (not yet implemented): iframe script-enabling is a property of ORIGIN (a trusted-origins allowlist), never of the individual panel.
+
+### Merge-first / append-on-404 upsert idiom (6.4)
+For stable-id scene panels: try `POST /scene/panel/{id}` (merge); on 404, `POST /scene/panel` (append). One code path covers both first-seed and steady-state re-POSTs; no 409 storms, no separate "does it exist yet?" probe.
+
+### `pkill -f <path>` misses daemon-spawned processes (6.3a / 6.4 smokes)
+Children spawned with `cwd` set have argv like `python3 main.py` — the full path isn't in argv, so path-based `pkill -f` patterns match nothing and the smoke "cleanup" silently leaves the daemon running. Kill by PID instead (`lsof -i :PORT` → `kill <pid>`).
+
+### Manual-completion lane shape, now standard (recurred 3× in Sprint 6: #124, #125, #126)
+CC drafts clean code but the session ends before commit/smoke. Recovery: verify the build, read the full diff directly (never trust a nonexistent "report"), fix environment gaps, smoke, then commit with a trailer separating authorship (Implementer) from completion (Director). This is no longer a hostile-API fallback — it's a routine Sprint 6 shape. Cross-reference CLAUDE.md §13.10.
+
+### Estimate undershoot extends to wiring-edit counts (6.4)
+Recon predicted 5 shell touch points for the visualizer node; reality was 6 — the Core-env secret injection (`coreManager.ts`), needed by EVERY new mesh node, was the missed one. Treat recon counts as soft anchors; new-node lanes should assume the secret-injection edit on top of whatever recon names.
+
+### Voice front door (Sprint 6 headline finding)
+Archiving the voice toggle UI (6.1) without a replacement trigger left voice unreachable — raven was healthy, but nothing could start a session. The PLUMBING survived (preload `voice.start/stop`, main `voice:start` IPC, daemon `POST /listen/start`); only the UI died. The deferred 6.5 smoke CLOSED 2026-06-03 via a curl-activated session (`curl -X POST :7433/listen/start`): "show me the mesh" spoken aloud summoned the topology panel. Lesson: when archiving UI, inventory the entry points it was the sole caller of. Ambient voice (the replacement trigger) is the immediate next lane.

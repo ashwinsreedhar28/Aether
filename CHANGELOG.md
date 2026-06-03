@@ -10,6 +10,20 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Lanes PR-state + commit-message enrichment — `nodes/lanes/` now reports two
+  extra fields per lane for the upcoming Lanes view. `last_commit_msg` is the
+  HEAD commit subject (`git log -1 --format=%s`), gathered in the existing 10s
+  git tick via one combined `git log` call (no extra spawn); the main worktree
+  gets it too. `pr` is `{ number, state, url }` resolved from
+  `gh pr list --state all` so merged/closed PRs still surface — fetched on a
+  **separate 60s cadence**, async (`execFile`) and cached, never on the git
+  tick and never blocking the cached-status serve. `pr` is null for the main
+  worktree, branches with no PR, and whenever gh is unavailable; a top-level
+  `gh_available:false` then accompanies the payload. gh missing /
+  unauthenticated / erroring degrades silently — no crash, no stall. Both
+  fields may be absent/null; the Lanes view renders "—". Schema description
+  and README updated; the `lanes.status` params schema is unchanged (the
+  surface still takes no params).
 - CLI text routing to raven — one brain. Typing in the dashboard CLI now
   routes to the live raven (Gemini) session exactly like speaking: same tools,
   same routing, same spoken reply. New `POST /text {text}` on the raven node

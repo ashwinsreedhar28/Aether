@@ -5,6 +5,15 @@
 
 export type LaneState = 'active' | 'idle'
 
+// A pull request for a lane's branch, as resolved from `gh pr list`. `state` is
+// gh's own value ('OPEN' | 'CLOSED' | 'MERGED') passed through verbatim — the
+// Lanes view maps it to a colour; we don't normalise it here.
+export interface PullRequest {
+  number: number
+  state: string
+  url: string
+}
+
 export interface Lane {
   // basename of the worktree path (e.g. 'aether-lanes').
   name: string
@@ -18,11 +27,20 @@ export interface Lane {
   dirty_count: number
   // epoch-ms of the last commit (HEAD), or null if the worktree has no commits.
   last_commit_ms: number | null
+  // subject line (%s) of the HEAD commit, or null if the worktree has no commits.
+  last_commit_msg: string | null
   // max(mtime of each dirty file, last_commit_ms) — the freshest signal we have
   // that someone is working this lane. File-mtime heuristic only (see README).
   last_activity_ms: number
   // 'active' if last_activity_ms is within the active window, else 'idle'.
   state: LaneState
+}
+
+// The served shape of a lane: the git-collected Lane plus the PR resolved on the
+// slower gh cadence. `pr` is null for the main worktree (is_main), for branches
+// with no PR, and whenever gh is unavailable (see LanesSnapshot.gh_available).
+export interface ServedLane extends Lane {
+  pr: PullRequest | null
 }
 
 export interface LanesSnapshot {

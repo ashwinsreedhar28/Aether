@@ -80,11 +80,18 @@ function collectLane(wt: RawWorktree, now: number, activeWindowMs: number): Lane
   // snapshot — `git worktree list` already proved the repo itself is readable.
   let dirtyLines: string[] = []
   let lastCommitMs: number | null = null
+  let lastCommitMsg: string | null = null
   try {
     const status = git(['status', '--porcelain'], wt.path)
     dirtyLines = status.split('\n').filter((l) => l.trim() !== '')
-    const ct = git(['log', '-1', '--format=%ct'], wt.path).trim()
+    // One `git log` call yields both the commit time (%ct) and subject (%s),
+    // newline-separated, so we don't spawn git twice. Subject is single-line.
+    const logOut = git(['log', '-1', '--format=%ct%n%s'], wt.path)
+    const logLines = logOut.split('\n')
+    const ct = (logLines[0] ?? '').trim()
     if (ct !== '') lastCommitMs = Number.parseInt(ct, 10) * 1000
+    const subject = (logLines[1] ?? '').trim()
+    if (subject !== '') lastCommitMsg = subject
   } catch {
     /* worktree unreadable — best-effort defaults below */
   }
@@ -109,6 +116,7 @@ function collectLane(wt: RawWorktree, now: number, activeWindowMs: number): Lane
     is_main: branch === 'main',
     dirty_count: dirtyLines.length,
     last_commit_ms: lastCommitMs,
+    last_commit_msg: lastCommitMsg,
     last_activity_ms: lastActivityMs,
     state: now - lastActivityMs <= activeWindowMs ? 'active' : 'idle',
   }

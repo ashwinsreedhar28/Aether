@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lanes.status",
+  "title": "lanes.status",
+  "description": "Return the latest cached snapshot of development lanes (git worktrees) and whether each is active or idle, derived from git worktree state. No params.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

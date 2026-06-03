@@ -416,6 +416,23 @@ nodes:
         invocation_mode: request_response
         schema: nodes/visualizer/schemas/render.json
 
+  - id: lanes
+    runtime: local-process
+    category: Sensor
+    identity_secret: env:MESH_LANES_SECRET
+    metadata:
+      description: |
+        Lanes sensor. Polls `git worktree list` every 10s and exposes
+        which dev lanes (worktrees) are active vs idle via lanes.status.
+        Activity is a file-mtime heuristic (NOT live process detection).
+        Cache-then-serve, `stale` past 30s; notifies host_notifications
+        on active→idle.
+    surfaces:
+      - name: status
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/lanes/schemas/status.json
+
 
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
@@ -655,3 +672,14 @@ relationships:
   # acknowledgment rather than narrating the topology.
   - from: raven
     to: visualizer.render
+
+  # Lanes sensor (Sprint 6.5b): the visualizer reads lane activity through the
+  # mesh and composes the dashboard.lanes backdrop + the viz-lanes overlay —
+  # same consume-surface pattern as mesh_introspection.topology above.
+  - from: visualizer
+    to: lanes.status
+  # The lanes sensor fires a host notification on an observed active→idle lane
+  # transition ("Lane idle: <branch>"). A raven→lanes.status read edge (voice
+  # "which lanes are working?") is a deferred follow-up micro-lane, not wired here.
+  - from: lanes
+    to: host_notifications.notify

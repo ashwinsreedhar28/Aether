@@ -10,6 +10,27 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Lanes sensor + dashboard (Sprint 6.5b) — `nodes/lanes/`, a TypeScript
+  **Sensor** that polls `git worktree list` for the shared repo every 10s and
+  exposes which development lanes (worktrees) are active vs idle through one
+  surface, `lanes.status`. Per worktree it reports name, branch, `is_main`,
+  dirty-file count, last-commit time, and `last_activity_ms` =
+  `max(last commit, mtime of each dirty file)`; a lane is `active` if that is
+  within 5 minutes (window overridable via `LANES_ACTIVE_WINDOW_MS` for smoke
+  tests), else `idle`. Cache-then-serve with a `stale` flag past 30s;
+  `MeshDeny('repo_unreadable')` if git itself fails. Activity is a **file-mtime
+  heuristic, not live CC-process detection** (documented limit; process
+  detection is a future enhancement). On an **observed** `active → idle`
+  transition (never on first sight of a lane) it fires
+  `host_notifications.notify` (`"Lane idle: <branch>"`); notify failures are
+  logged and swallowed. The visualizer gains a third intent, `lanes`: a
+  `dashboard.lanes` backdrop panel seeded + refreshed in the existing ~5s loop
+  (resilient — renders "lanes sensor unavailable" rather than disappearing when
+  the sensor is down) and a `viz-lanes` summoned overlay. manifest: `lanes`
+  node entry + edges `visualizer → lanes.status` and
+  `lanes → host_notifications.notify` (a `raven → lanes.status` voice edge is a
+  deferred follow-up). Shell spawn-wiring mirrors the visualizer (paths,
+  secrets, nodeManager, coreManager `MESH_LANES_SECRET` Core-env injection).
 - Sprint 6 retro — closes Sprint 6 (Phase 4). Banks seven Sprint 6 lessons in
   `docs/governance-log.md` (2026-06-03): the full-stack worktree operational
   notes (submodules/`.env.local`/deinit ordering/post-merge `pnpm install`), the

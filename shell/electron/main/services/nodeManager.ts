@@ -6,6 +6,7 @@ import {
   DIGEST_ENTRY,
   FINANCE_ENTRY,
   HOST_NOTIFICATIONS_ENTRY,
+  LANES_ENTRY,
   MACOS_MAIL_ENTRY,
   MACOS_MESSAGES_ENTRY,
   MESH_INTROSPECTION_ENTRY,
@@ -74,6 +75,7 @@ export class NodeManager {
       this.spawnTime(),
       this.spawnMeshIntrospection(),
       this.spawnVisualizer(),
+      this.spawnLanes(),
     ])
   }
 
@@ -289,6 +291,26 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/visualizer build`',
       secretEnvName: 'MESH_VISUALIZER_SECRET',
       secretValue: this.secrets.visualizerSecret,
+      extraEnv: {
+        AETHER_DATA_DIR: dataDir,
+      },
+    })
+  }
+
+  private async spawnLanes(): Promise<void> {
+    // lanes Sensor — polls `git worktree list` for the shared repo and exposes
+    // active/idle lane state via lanes.status. Like the visualizer it needs no
+    // ADMIN_TOKEN (no broker endpoint); it derives the repo root from its own
+    // compiled path, so it works in any worktree. AETHER_DATA_DIR is the
+    // writable root for the running marker, matching the data-node pattern.
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'lanes',
+      entry: LANES_ENTRY,
+      buildHint: '`pnpm --filter @aether/lanes build`',
+      secretEnvName: 'MESH_LANES_SECRET',
+      secretValue: this.secrets.lanesSecret,
       extraEnv: {
         AETHER_DATA_DIR: dataDir,
       },

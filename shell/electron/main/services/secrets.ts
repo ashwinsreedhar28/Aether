@@ -29,6 +29,7 @@ export interface MeshSecrets {
   timeSecret: string
   meshIntrospectionSecret: string
   visualizerSecret: string
+  lanesSecret: string
 }
 
 function hex32(): string {
@@ -64,5 +65,6 @@ export function generateMeshSecrets(): MeshSecrets {
     timeSecret: getNodeSecret('time'),
     meshIntrospectionSecret: getNodeSecret('mesh_introspection'),
     visualizerSecret: getNodeSecret('visualizer'),
+    lanesSecret: getNodeSecret('lanes'),
   }
 }

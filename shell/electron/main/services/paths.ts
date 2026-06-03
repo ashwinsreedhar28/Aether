@@ -98,6 +98,13 @@ export const VISUALIZER_ENTRY: string = join(
   'dist',
   'index.js',
 )
+export const LANES_ENTRY: string = join(
+  REPO_ROOT,
+  'nodes',
+  'lanes',
+  'dist',
+  'index.js',
+)
 
 export function meshRuntimeDir(): string {
   return join(app.getPath('userData'), 'mesh')

@@ -12,6 +12,7 @@ import {
   NEWS_FEEDS_ENTRY,
   SYSTEM_INFO_ENTRY,
   TIME_ENTRY,
+  VISUALIZER_ENTRY,
   WEATHER_ENTRY,
   NODE_LOG_FILE,
   NODE_PID_FILE,
@@ -72,6 +73,7 @@ export class NodeManager {
       this.spawnMacosMail(),
       this.spawnTime(),
       this.spawnMeshIntrospection(),
+      this.spawnVisualizer(),
     ])
   }
 
@@ -267,6 +269,27 @@ export class NodeManager {
       secretValue: this.secrets.meshIntrospectionSecret,
       extraEnv: {
         ADMIN_TOKEN: this.secrets.adminToken,
+        AETHER_DATA_DIR: dataDir,
+      },
+    })
+  }
+
+  private async spawnVisualizer(): Promise<void> {
+    // visualizer Mixer — reads mesh_introspection.topology via the mesh and
+    // POSTs composed scene panels to the local RAVEN_AVP scene server. Unlike
+    // mesh_introspection it does NOT need ADMIN_TOKEN: it reads a mesh surface
+    // (mesh-authed with its own secret), not the broker's admin endpoint.
+    // AETHER_DATA_DIR is the writable root for the running marker, matching
+    // the data-node pattern.
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'visualizer',
+      entry: VISUALIZER_ENTRY,
+      buildHint: '`pnpm --filter @aether/visualizer build`',
+      secretEnvName: 'MESH_VISUALIZER_SECRET',
+      secretValue: this.secrets.visualizerSecret,
+      extraEnv: {
         AETHER_DATA_DIR: dataDir,
       },
     })

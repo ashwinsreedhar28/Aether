@@ -399,6 +399,23 @@ nodes:
         invocation_mode: request_response
         schema: nodes/mesh_introspection/schemas/activity.json
 
+  - id: visualizer
+    runtime: local-process
+    category: Mixer
+    identity_secret: env:MESH_VISUALIZER_SECRET
+    metadata:
+      description: |
+        Mixer bridging mesh state to the local RAVEN_AVP scene server
+        — the only mesh component aware of both layers. One render
+        surface, intent-routed: 'dashboard' seeds + refreshes the
+        dashboard.* backdrop (~5s), 'mesh' summons a topology overlay.
+        Script-free markdown panels in v1.
+    surfaces:
+      - name: render
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/visualizer/schemas/render.json
+
 
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
@@ -620,3 +637,15 @@ relationships:
     to: mesh_introspection.topology
   - from: shell
     to: mesh_introspection.activity
+
+  # Visualizer (Sprint 6.4): the Mixer reads mesh topology through the
+  # mesh — same consume-surface pattern as the shell above — and composes
+  # it into scene panels. This is the only outbound mesh edge it needs
+  # (its other half, the scene-server POST, is plain HTTP, not a mesh hop).
+  - from: visualizer
+    to: mesh_introspection.topology
+  # CLI/shell intent source: the shell invokes visualizer.render to summon a
+  # visualization (e.g. "show me the mesh"). Voice (raven → visualizer.render)
+  # is wired in Sprint 6.5, so that edge is deferred to that lane.
+  - from: shell
+    to: visualizer.render

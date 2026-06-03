@@ -2,8 +2,13 @@ import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { MeshNode, MeshDeny, type Envelope, type Handler } from '@aether/mesh-node-sdk'
 import { SceneClient } from './scene_client'
-import { renderDashboardPanels, renderMeshPanels } from './templates'
-import type { RenderResult, ScenePanel, Topology } from './types'
+import {
+  renderDashboardPanels,
+  renderLanesBackdropPanels,
+  renderLanesOverlayPanels,
+  renderMeshPanels,
+} from './templates'
+import type { LanesStatus, RenderResult, ScenePanel, Topology } from './types'
 
 // The visualizer is a MIXER mesh node: it composes other surfaces
 // (mesh_introspection.topology) into a presentation (scene panels). It is the
@@ -22,6 +27,7 @@ const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
 const SCENE_SERVER_URL = process.env.AETHER_SCENE_SERVER_URL ?? 'http://127.0.0.1:5180'
 
 const TOPOLOGY_SURFACE = 'mesh_introspection.topology'
+const LANES_SURFACE = 'lanes.status'
 // Re-POST the dashboard backdrop on this cadence so it stays live. Uses the
 // merge endpoint (via upsert) so re-POSTs update in place — no 409 storm.
 const DASHBOARD_INTERVAL_MS = 5_000
@@ -52,6 +58,22 @@ async function fetchTopology(node: MeshNode): Promise<Topology> {
     throw new Error(`${TOPOLOGY_SURFACE} denied: ${reason}`)
   }
   return env.payload as unknown as Topology
+}
+
+// Same mesh-read pattern as fetchTopology, against the lanes sensor. Throws on a
+// denied/error envelope or transport failure; renderLanes catches that and still
+// renders an "unavailable" panel so the dashboard never goes blank.
+async function fetchLanes(node: MeshNode): Promise<LanesStatus> {
+  const resp = await node.invoke(LANES_SURFACE, {})
+  if (!('kind' in resp)) {
+    throw new Error(`${LANES_SURFACE} returned no response envelope`)
+  }
+  const env = resp as Envelope
+  if (env.kind === 'error') {
+    const reason = typeof env.payload?.reason === 'string' ? env.payload.reason : 'unknown'
+    throw new Error(`${LANES_SURFACE} denied: ${reason}`)
+  }
+  return env.payload as unknown as LanesStatus
 }
 
 async function main(): Promise<void> {
@@ -101,6 +123,35 @@ async function main(): Promise<void> {
     return { ok: true, intent, panels: posted }
   }
 
+  // Lanes variant of renderIntent. Distinct from the topology path in ONE way:
+  // a failed read does NOT abort — it composes the panel with a null status (an
+  // "unavailable" body) and still POSTs it, so dashboard.lanes never disappears
+  // when the lanes sensor is down (6.4 resilience standard). Only a scene-server
+  // POST failure yields { ok: false }.
+  const renderLanes = async (
+    intent: string,
+    compose: (s: LanesStatus | null) => ScenePanel[],
+  ): Promise<RenderResult> => {
+    let status: LanesStatus | null = null
+    try {
+      status = await fetchLanes(node)
+    } catch (err) {
+      log(`lanes read failed (rendering unavailable): ${errMsg(err)}`)
+    }
+    const panels = compose(status)
+    let posted = 0
+    const failures: string[] = []
+    for (const panel of panels) {
+      const res = await scene.upsertPanel(panel)
+      if (res.ok) posted += 1
+      else failures.push(`${panel.id}: ${res.error ?? res.status ?? 'unknown'}`)
+    }
+    if (posted === 0 && failures.length > 0) {
+      return { ok: false, intent, error: `scene_post_failed: ${failures.join('; ')}` }
+    }
+    return { ok: true, intent, panels: posted }
+  }
+
   // The single inbound surface. {intent, args} arrives in the envelope payload;
   // route via switch. Unknown intent is a request-level rejection → MeshDeny
   // (distinct from a downstream failure, which returns { ok: false }).
@@ -115,6 +166,11 @@ async function main(): Promise<void> {
       case 'dashboard': {
         const result = await renderIntent('dashboard', renderDashboardPanels)
         log(`render('dashboard') → ${result.ok ? `posted ${result.panels} panel(s)` : result.error}`)
+        return result
+      }
+      case 'lanes': {
+        const result = await renderLanes('lanes', renderLanesOverlayPanels)
+        log(`render('lanes') → ${result.ok ? `posted ${result.panels} panel(s)` : result.error}`)
         return result
       }
       default:
@@ -134,6 +190,7 @@ async function main(): Promise<void> {
   // server killed) doesn't spam the log. Resilient by construction: a failed
   // cycle is logged and skipped, and the next tick retries.
   let lastOk: boolean | null = null
+  let lastLanesOk: boolean | null = null
   const refreshDashboard = async (): Promise<void> => {
     const result = await renderIntent('dashboard', renderDashboardPanels)
     if (result.ok && lastOk !== true) {
@@ -142,6 +199,18 @@ async function main(): Promise<void> {
     } else if (!result.ok && lastOk !== false) {
       log(`dashboard refresh failing: ${result.error}`)
       lastOk = false
+    }
+    // Third backdrop: dashboard.lanes from the lanes sensor (separate source).
+    // renderLanes is resilient — it posts an "unavailable" panel rather than
+    // failing when the sensor is down — so this rarely reports !ok (only a
+    // scene-server POST failure does).
+    const lanesResult = await renderLanes('dashboard.lanes', renderLanesBackdropPanels)
+    if (lanesResult.ok && lastLanesOk !== true) {
+      log(`lanes backdrop live (posted ${lanesResult.panels} panel(s))`)
+      lastLanesOk = true
+    } else if (!lanesResult.ok && lastLanesOk !== false) {
+      log(`lanes backdrop refresh failing: ${lanesResult.error}`)
+      lastLanesOk = false
     }
   }
 

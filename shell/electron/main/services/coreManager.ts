@@ -157,6 +157,11 @@ export class CoreManager {
       // child's env. No ADMIN_TOKEN: the visualizer reads mesh state via
       // mesh.invoke(mesh_introspection.topology), not the broker endpoint.
       MESH_VISUALIZER_SECRET: this.secrets.visualizerSecret,
+      // Lanes is a TypeScript Sensor node (spawned by nodeManager). Same env
+      // contract — Core resolves env:MESH_LANES_SECRET at manifest load so
+      // nodeManager can inject the same value into the child's env. No
+      // ADMIN_TOKEN: lanes reads only local git state, no broker endpoint.
+      MESH_LANES_SECRET: this.secrets.lanesSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

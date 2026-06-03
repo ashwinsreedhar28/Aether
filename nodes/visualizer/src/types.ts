@@ -38,6 +38,27 @@ export interface Topology {
   fetched_at_ms?: number
 }
 
+// ── Inbound: lanes status (lanes.status payload) ──────────────────────────────
+
+// One development lane = one git worktree of the shared repo. Mirrors the lanes
+// sensor's Lane shape (nodes/lanes/src/types.ts); `unknown`-tolerant like the
+// topology types above.
+export interface LaneInfo {
+  name: string
+  branch: string
+  is_main: boolean
+  dirty_count: number
+  last_commit_ms: number | null
+  last_activity_ms: number
+  state: string // 'active' | 'idle'
+}
+
+export interface LanesStatus {
+  lanes: LaneInfo[]
+  stale?: boolean
+  fetched_at_ms?: number
+}
+
 // ── Outbound: scene-server panel ──────────────────────────────────────────────
 
 export interface Transform {

@@ -1,4 +1,4 @@
-import type { MeshNodeInfo, ScenePanel, Topology, Transform } from './types'
+import type { LaneInfo, LanesStatus, MeshNodeInfo, ScenePanel, Topology, Transform } from './types'
 
 // Pure panel composition. Each function turns a mesh `Topology` snapshot into a
 // list of SceneDoc panels; it performs NO I/O (no mesh reads, no scene POSTs) —
@@ -19,6 +19,9 @@ export const PANEL_MESH_HEALTH = 'dashboard.mesh-health'
 export const PANEL_RAVEN_STATUS = 'dashboard.raven-status'
 // Transient summoned overlay (non-dashboard id → marks it as not-backdrop).
 export const PANEL_MESH_OVERLAY = 'viz-mesh'
+// Lanes: a third always-present backdrop (dashboard.*) + a summoned overlay.
+export const PANEL_LANES_BACKDROP = 'dashboard.lanes'
+export const PANEL_LANES_OVERLAY = 'viz-lanes'
 
 // Canonical four-category vocabulary order (roadmap architectural anchor #1).
 // Semantic ordering, not alphabetical (CLAUDE.md §11.1).
@@ -69,13 +72,19 @@ function toEpochMs(ts: number): number {
   return ts < 1e12 ? ts * 1000 : ts
 }
 
-function freshnessLine(t: Topology): string {
+// Shared freshness footer for any cache-then-serve surface (topology, lanes).
+// `label` names what was fetched so the line reads naturally per panel.
+function freshnessFrom(stale: boolean | undefined, fetchedAtMs: number | undefined, label: string): string {
   const parts: string[] = []
-  if (t.stale) parts.push('⚠ data is stale')
-  if (typeof t.fetched_at_ms === 'number') {
-    parts.push(`topology fetched ${formatAge(Date.now() - t.fetched_at_ms)} ago`)
+  if (stale) parts.push('⚠ data is stale')
+  if (typeof fetchedAtMs === 'number') {
+    parts.push(`${label} fetched ${formatAge(Date.now() - fetchedAtMs)} ago`)
   }
   return parts.length > 0 ? parts.join(' · ') : 'freshness unknown'
+}
+
+function freshnessLine(t: Topology): string {
+  return freshnessFrom(t.stale, t.fetched_at_ms, 'topology')
 }
 
 // Categories present, ordered by the canonical vocabulary then any extras
@@ -226,6 +235,78 @@ export function renderMeshPanels(t: Topology): ScenePanel[] {
       transformAt(0, 1.2),
       { width: 0.7, height: 0.5 },
       'mesh-overlay',
+    ),
+  ]
+}
+
+// ── 'lanes' — backdrop + summoned overlay ─────────────────────────────────────
+
+// Semantic ordering (CLAUDE.md §11.1), NOT alphabetical: the main lane first
+// (the canonical checkout), then active lanes ahead of idle ones, then most
+// recently active first within each group. This puts "who's working right now"
+// at the top of the panel where the eye lands.
+function laneSortKey(a: LaneInfo, b: LaneInfo): number {
+  if (a.is_main !== b.is_main) return a.is_main ? -1 : 1
+  const aActive = a.state === 'active'
+  const bActive = b.state === 'active'
+  if (aActive !== bActive) return aActive ? -1 : 1
+  return b.last_activity_ms - a.last_activity_ms
+}
+
+function laneLine(lane: LaneInfo): string {
+  const state = lane.state === 'active' ? '**ACTIVE**' : 'idle'
+  const dirty = `${lane.dirty_count} dirty`
+  const ago = `active ${formatAge(Date.now() - lane.last_activity_ms)} ago`
+  const mainTag = lane.is_main ? ' · main' : ''
+  return `- **${lane.name}** \`${lane.branch}\` — ${state} · ${dirty} · ${ago}${mainTag}`
+}
+
+// `status` is nullable on purpose: when the lanes sensor is unavailable the
+// visualizer still renders this panel (with an explicit unavailable note) rather
+// than dropping it — the dashboard must NEVER go blank on a missing dependency
+// (6.4 resilience standard).
+function lanesMarkdown(status: LanesStatus | null): string {
+  if (!status) {
+    return ['## Lanes', '', '_lanes sensor unavailable_'].join('\n')
+  }
+  const lanes = [...(status.lanes ?? [])].sort(laneSortKey)
+  const active = lanes.filter((l) => l.state === 'active').length
+  const lines = lanes.map(laneLine)
+  return [
+    '## Lanes',
+    '',
+    `**${lanes.length} lane${lanes.length === 1 ? '' : 's'}** · ${active} active`,
+    '',
+    lines.join('\n') || '- (no worktrees)',
+    '',
+    `_${freshnessFrom(status.stale, status.fetched_at_ms, 'lanes')}_`,
+  ].join('\n')
+}
+
+// Third always-present backdrop panel (dashboard.* id → re-POSTed in place on
+// the ~5s loop alongside mesh-health + raven-status). x=1.65 continues the 1.1
+// spacing of the existing two backdrops (-0.55, 0.55).
+export function renderLanesBackdropPanels(status: LanesStatus | null): ScenePanel[] {
+  return [
+    makeMarkdownPanel(
+      PANEL_LANES_BACKDROP,
+      lanesMarkdown(status),
+      transformAt(1.65),
+      { width: 0.5, height: 0.4 },
+      'lanes',
+    ),
+  ]
+}
+
+// Summoned lanes overlay (stable viz-lanes id; a repeat summon updates in place).
+export function renderLanesOverlayPanels(status: LanesStatus | null): ScenePanel[] {
+  return [
+    makeMarkdownPanel(
+      PANEL_LANES_OVERLAY,
+      lanesMarkdown(status),
+      transformAt(0, 1.2),
+      { width: 0.7, height: 0.5 },
+      'lanes-overlay',
     ),
   ]
 }

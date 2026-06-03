@@ -1,0 +1,27 @@
+{
+  "name": "@aether/lanes",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Sensor mesh node that polls git worktree state and exposes which development lanes are active vs idle via lanes.status.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node ./dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@aether/mesh-node-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.18.0",
+    "typescript": "~5.7.0",
+    "typescript-eslint": "^8.20.0"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}

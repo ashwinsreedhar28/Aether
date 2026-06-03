@@ -12,7 +12,7 @@
 # SDK at core/node_sdk imports aiohttp for its HTTP + SSE client. It is
 # a transitive dep of Core itself, so most dev machines already have it
 # in their global Python — this pins it into raven-core's venv too.
-google-genai
+google-genai==2.2.0
 opencv-python
 pyaudio
 pillow

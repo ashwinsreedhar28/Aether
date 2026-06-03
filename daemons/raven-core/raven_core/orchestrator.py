@@ -677,6 +677,18 @@ class Orchestrator:
                 else:
                     print("[INIT] Connected to Gemini API successfully")
 
+                # The SDK completes the setup handshake inside connect() —
+                # setup_complete never traverses the receive loop (verified on
+                # google-genai 2.2.0 AND 2.8.0), so the receive-loop gate at
+                # setup_complete never fired and _live_ready never set: every
+                # typed turn buffered forever. Connected IS ready. Set the
+                # text-turn gate here; the setup_complete branch in
+                # receive_audio stays as a harmless fallback for any SDK
+                # version that does surface it.
+                self._live_ready.set()
+                while self._pending_text:
+                    await self._inject_text(self._pending_text.popleft())
+
                 self.audio_in_queue = asyncio.Queue()
                 self.out_queue = asyncio.Queue(maxsize=5)
                 if not JsonLogger.is_enabled():

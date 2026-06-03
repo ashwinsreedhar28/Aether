@@ -82,6 +82,28 @@ export interface VoiceStatus extends RavenState {
   lastToolCall?: ToolCallEntry
 }
 
+// ---- Scene types (kept in sync with main/services/sceneSubscriber.ts) ------
+// Duplicated rather than imported so the preload (a sandbox-loaded script)
+// stays free of cross-package imports.
+
+export interface SceneEventSnapshot {
+  type: 'snapshot'
+  scene: { version: number; seq: number; panels: unknown[]; entities: unknown[] }
+}
+export interface SceneEventDelta {
+  type: 'delta'
+  seq: number
+  version: number
+  changes: unknown[]
+}
+export type SceneEvent = SceneEventSnapshot | SceneEventDelta
+
+export interface ScenePostResult {
+  ok: boolean
+  status?: number
+  error?: string
+}
+
 // ---- Files types ----------------------------------------------------------
 
 interface FileFilter {
@@ -162,6 +184,23 @@ const voice = {
     subscribe('voice:tool-call', cb),
 }
 
+// Scene namespace — the renderer talks to the scene server only through main.
+// Main owns the WS (snapshots + deltas arrive via the 'scene:event' push) and
+// proxies panel POSTs over loopback HTTP. The renderer never opens a socket.
+const scene = {
+  // POST a panel to the scene server. Panel must be a fully-specified SceneDoc
+  // panel (id, kind, text/url/data, transform, size, style?).
+  // NOTE: panel.style values MUST be strings — the scene server's AVP client
+  // decodes style as [String: String]. Numbers/bools break the decode
+  // silently. See governance-log 2026-05-26.
+  postPanel: (panel: Record<string, unknown>): Promise<ScenePostResult> =>
+    ipcRenderer.invoke('scene:post-panel', panel),
+  // Subscribe to scene events (snapshot on connect, deltas on mutation).
+  // Returns an unsubscribe function.
+  onSceneEvent: (cb: (ev: SceneEvent) => void): Unsubscribe =>
+    subscribe('scene:event', cb),
+}
+
 const api = {
   signalReady: (): void => {
     ipcRenderer.send('shell:renderer-ready')
@@ -177,6 +216,7 @@ const api = {
   files,
   mesh,
   voice,
+  scene,
   shell: shellApi,
 }
 

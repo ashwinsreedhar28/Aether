@@ -73,6 +73,8 @@ Three subsystems, fully decoupled, communicating over HTTP/WS:
 
 The visualizer mesh node is the *only* component that knows about both layers: it consumes mesh state and composes scene mutations. Every other piece sees one side or the other, never both.
 
+The deeper principle behind the split: **software is ephemeral, context is valuable.** Panels are disposable, regenerable views — summon them, dismiss them, recompose them at will; losing one costs nothing. The mesh surfaces (the data) are the durable layer worth preserving. This is why presentation lives in a detachable scene server and the mesh knows nothing about rendering: the thing that endures is the context, not the picture drawn of it. (Provenance: Blomfield/YC AI-loop talk, banked 2026-06-02.)
+
 ---
 
 ## The six-piece arc (unchanged through Sprint 5.5)
@@ -124,7 +126,9 @@ The schema + broker + daemon types side of any change outlives the renderer side
 
 Sprints 5 closed and retro'd. Sprint 5.5 was the direction-shift conversation + this rewrite. Sprint 6 starts with the direction shift's foundation work; Sprints 7+ shift downstream by one number.
 
-### Sprint 6 — Direction Shift Foundation
+### Sprint 6 — Direction Shift Foundation ✅ COMPLETE (2026-06-03)
+
+**Status:** all lanes shipped and verified; the deferred 6.5 voice smoke closed 2026-06-03. See "Sprint 6 — what just happened" at the bottom of this doc for the retro.
 
 **Theme:** Archive the content-app paradigm. Stand up the diagnostic dashboard shell and CLI input. Vendor the RAVEN_AVP scene server. Ship the visualizer mesh node v1. Wire voice through to scene mutations.
 
@@ -199,7 +203,7 @@ These three are the smallest viable set that proves the visualizer pattern. New 
 
 ```yaml
 - id: visualizer
-  runtime: local-process-ts
+  runtime: local-process
   category: Mixer
   identity_secret: env:MESH_VISUALIZER_SECRET
   metadata:
@@ -212,7 +216,7 @@ These three are the smallest viable set that proves the visualizer pattern. New 
     - name: render
       type: tool
       invocation_mode: request_response
-      schema: schemas/render.schema.json
+      schema: schemas/render.json
 ```
 
 New edges from `manifest.yaml`:
@@ -238,7 +242,7 @@ End-to-end smoke at Sprint 6.5 close: Director says "Hey Aether, show me the mes
 
 **Scope clarification:** Sprint 6.5 is the *reactive* voice wire-up — voice produces the same intent shape the CLI produces (designed in Sprint 6.3), routed through `visualizer.render`. It is push-to-talk or wake-word-gated, single-turn, command-style. It is NOT the always-on ambient presence described below.
 
-**Voice ambience — elevated priority (was implicitly Sprint 14, now a candidate for a dedicated near-term sprint).** The target modality: the mic stays hot whenever the shell is running, Aether signals readiness (an "I'm here" cue, auditory and/or visual), and the principal speaks naturally without pushing a button. On macOS — where there is no AVP — voice is one of two interfaces (CLI being the other), so ambient voice presence is not a polish item; it is a peer interface. This requires a listen-state machine (idle → listening → processing, each with a user-visible signal), local cheap wake-word or attention detection (NOT a round-trip to Gemini per audio frame), a boot-time readiness announcement, and graceful degradation on mic-permission denial. This is substantial enough to merit its own sprint rather than being bolted onto 6.5's wire-up. It pulls forward the wake-word + turn-taking scope currently homed at Sprint 14 (Voice depth pass 1). When the Sprint 6 retro runs, evaluate slotting a dedicated voice-ambience sprint between Sprint 6 and Sprint 7, ahead of the sensor-breadth work.
+**Voice ambience — now the IMMEDIATE next lane (resolved at the Sprint 6 retro).** What was a "candidate for a dedicated near-term sprint" is now load-bearing: the Sprint 6 voice front-door finding (archiving the toggle UI in 6.1 left voice unreachable until the 6.5 curl smoke) proved that ambient voice is *how voice becomes usable on macOS at all*, not polish. The target modality: the mic stays hot whenever the shell is running, Aether signals readiness (an "I'm here" cue, auditory and/or visual), and the principal speaks naturally without pushing a button. On macOS — where there is no AVP — voice is one of two interfaces (CLI being the other), so ambient voice presence is a peer interface. This requires a listen-state machine (idle → listening → processing, each with a user-visible signal), local cheap wake-word or attention detection (NOT a round-trip to Gemini per audio frame), a boot-time readiness announcement, and graceful degradation on mic-permission denial. It pulls forward the wake-word + turn-taking scope currently homed at Sprint 14 (Voice depth pass 1). See the "Near-term lanes" section below.
 
 #### Sprint 6 also includes (Phase 2 cleanup work)
 
@@ -256,6 +260,14 @@ End-to-end smoke at Sprint 6.5 close: Director says "Hey Aether, show me the mes
 - 6.5 after 6.4 lands (depends on visualizer node)
 
 This serializes nicely: archive + vendor → CLI/dashboard → visualizer → voice. 4-5 actual "wait points" for Director review/merge.
+
+### Near-term lanes (post-Sprint-6, ahead of Sprint 7)
+
+Two lanes promoted out of their original sprint homes by Sprint 6 findings. They run before the sensor-breadth work because each closes a gap Sprint 6 exposed.
+
+1. **Ambient voice (IMMEDIATE next lane).** Hot mic + readiness signal + listen-state machine, per the elevated Sprint 6.5 note above. This is the front-door fix: Sprint 6 left voice reachable only via curl, so ambient presence is the next thing that makes voice usable end-to-end. Pulls forward the wake-word + turn-taking scope from Sprint 14.
+
+2. **Graphical mesh visualization + iframe sandbox relaxation.** Sequence: *after* ambient voice. v1 visualizer panels are script-free (`text`/`markdown` only) because the shell renders panels under `sandbox=""`; a graphical SVG mesh viz needs scripts. The relaxation is a **trusted-origins allowlist**: a panel gets `allow-scripts` because its *origin* is trusted (the local scene server), never because the individual panel asks for it. This lands the SVG radial mesh viz deferred from 6.4 and establishes the origin-trust policy that any future scripted panel inherits.
 
 ### Sprint 7 — Sensor breadth (was Sprint 6 pre-shift)
 
@@ -311,9 +323,11 @@ Sprint 7's sensors don't need confirmation (read-only). Sprint 8 is the first ti
 
 **Theme:** A node that converses with Director to draft new mesh extensions. Cannot fire CC yet. Output: a written spec + visualizer rendering of what the new node would look like in the topology.
 
+**Trigger is FAILURE-DRIVEN (reframed at Sprint 6 retro).** The Architect node does not wait to be asked "design me a new node." It watches the intents and queries Aether *could not resolve* — voice/CLI requests that hit no surface, intents the visualizer had no template for, sensor data that didn't exist — and proposes the specific node or surface that would have closed the gap. This is the monitoring-agent pattern: the system observes its own failures and drafts the fix. Still human-gated per the substrate-stays-human-architected ADR — the Architect proposes, Director disposes; the Architect never touches broker, edge-graph topology, or the confirmation pattern. (Provenance: Blomfield/YC AI-loop talk, banked 2026-06-02.)
+
 **Lanes:**
 - `nodes/architect/` — a Mixer node
-- Read access to `mesh_introspection.topology` + manifest descriptions
+- Read access to `mesh_introspection.topology` + manifest descriptions + the unresolved-intent feed
 - Visualizer intent: `architect_draft` — renders the proposed node + edges as a preview panel
 - Conversation surface (voice and CLI)
 
@@ -438,6 +452,8 @@ A short narrative of how Aether becomes personal-to-Director over the next 12 sp
 
 By Sprint 20, Aether is conversational, multi-shell, partially self-extending, and accumulates a real model of Director. Pre-1.0 ships somewhere between Sprint 16 (stabilize) and Sprint 17 (AVP joins).
 
+**Note (banked Sprint 6 retro):** the diarized/synthesized "living brain" layer — the pipeline that turns raw capture (speech, activity, sensor streams) into usable context — is more central to this arc than the current ~Sprint 13 memory scoping suggests. Memory-as-preference-accumulation undersells it; the durable context layer (per "software is ephemeral, context is valuable") may be the load-bearing personalization primitive, not a sensor surface bolted on at Sprint 13. Revisit its weight and sprint placement at Sprint 11 design.
+
 ---
 
 ## Failure modes
@@ -492,3 +508,29 @@ Between Sprint 5 retro (#116) and the Sprint 6 Phase 1 start, two micro-lanes sh
 PR #118 itself shipped under the new direction — its scope was reduced mid-flight from "manifest description threaded to mesh-viz hover" to "manifest description threaded to broker payload" (mesh-viz being archived in Sprint 6.1). That's documented in #118's PR body as the first mid-flight scope reduction precedent.
 
 Sprint 6 Phase 1 starts after this roadmap rewrite lands.
+
+---
+
+## Sprint 6 — what just happened
+
+Sprint 6 executed the direction shift's foundation work end-to-end. Seven PRs, all shipped and verified:
+
+- **#121 (6.1)** — archived the content-app paradigm (`news`, `finance`, `voice-control`, `mesh-viz`) to `_archive/`, stripped the `AppDefinition`/launcher pattern, stood up a placeholder dashboard.
+- **#122 (6.2)** — vendored the RAVEN_AVP scene server as a submodule at `daemons/raven-avp-server/`, wired into shell boot via a daemon-manager.
+- **#123** — mid-sprint roadmap amendment: elevated voice-ambience priority, corrected the Sprint 6.3 sequencing.
+- **#124 (6.3a)** — scene transport: shell WS subscriber + IPC, the rendering pipeline half of 6.3.
+- **#125 (6.3b)** — dashboard UI: panel rendering + CLI input.
+- **#126 (6.4)** — visualizer mesh node v1 (`nodes/visualizer/`), the only component that knows both the mesh and the scene server.
+- **#127 (6.5)** — `visualize` voice tool: "show me the mesh" routed through `raven → visualizer.render`.
+
+**The end-to-end now works.** Voice → raven → `visualizer.render` → composed SceneDoc panels → scene server → shell WS subscriber → dashboard render. Verified by spoken smoke on 2026-06-03: a curl-activated voice session heard "show me the mesh" spoken aloud and summoned the mesh-topology panel into the dashboard. The 6.5 smoke deferred at PR time is recorded as **CLOSED**.
+
+**Headline findings (full detail in `docs/governance-log.md`, 2026-06-03):**
+
+1. **The voice front door.** Archiving the voice toggle UI in 6.1 without a replacement trigger left voice unreachable — raven healthy, but no way to start a session. The plumbing survived; only the UI died. This made ambient voice load-bearing rather than polish, and it's now the immediate next lane (see "Near-term lanes" above). General lesson: when archiving UI, inventory the entry points it was the sole caller of.
+
+2. **Manual-completion is now a routine lane shape, not a hostile-API fallback.** It recurred three times in Sprint 6 (#124, #125, #126): CC drafts clean code, the session ends before commit/smoke, Director verifies the build, reads the full diff directly, fixes environment gaps, smokes, and commits with an authorship/completion trailer. Cross-referenced to CLAUDE.md §13.10.
+
+3. **Worktree operational notes banked.** Fresh worktrees aren't fresh clones: submodules, `.env.local`, submodule deinit ordering, and post-merge `pnpm install` each bit during the sprint. The consolidated five-lesson recipe is in governance-log and the canonical one-liner is now in CLAUDE.md.
+
+Sprint 6 is complete. Phase 4 (this retro) banks the lessons and applies the roadmap amendments decided in the Sprint 6 Architect conversations.

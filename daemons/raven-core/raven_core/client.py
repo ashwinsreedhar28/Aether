@@ -82,6 +82,13 @@ def create_live_config(config: Config) -> types.LiveConnectConfig:
             ),
         ),
         input_audio_transcription=types.AudioTranscriptionConfig(),
+        # output_audio_transcription: symmetric to the input side — Gemini
+        # transcribes its OWN spoken reply onto
+        # response.server_content.output_transcription. The audio model
+        # otherwise gives the client no text for what Aether said. The
+        # orchestrator tees these onto the "raven" transcript channel so the
+        # CLI (and any transcript view) can echo the reply chat-style.
+        output_audio_transcription=types.AudioTranscriptionConfig(),
         tools=tools,
     )
 

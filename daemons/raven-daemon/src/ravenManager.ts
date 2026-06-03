@@ -136,6 +136,28 @@ export class RavenManager extends EventEmitter {
   }
 
   /**
+   * Forward a typed user turn to the live session. Writes a JSON envelope
+   * line to the child's stdin, where orchestrator.send_text reads it and
+   * injects it via send_client_content — the same brain a spoken turn
+   * reaches. JSON (not a bare line) so a user typing literally "q" or a
+   * multi-line message can't trip the 'q\n' shutdown sentinel that shares
+   * this stdin channel (see stop()).
+   *
+   * Returns false when there's no live session to inject into — no running
+   * child or a destroyed stdin. The HTTP layer maps that to 409 no_session.
+   * Acceptance only: the model's reply arrives as audio + the existing
+   * transcript / tool-call pushes, not on this call's return.
+   */
+  sendText(text: string): boolean {
+    if (this.state.status !== 'running') return false;
+    if (!this.process || !this.process.stdin || this.process.stdin.destroyed) {
+      return false;
+    }
+    this.process.stdin.write(JSON.stringify({ type: 'text', text }) + '\n');
+    return true;
+  }
+
+  /**
    * Stop the Python child. SIGTERM first, 5s grace, then SIGKILL.
    */
   async stop(): Promise<RavenState> {

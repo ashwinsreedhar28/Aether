@@ -659,6 +659,17 @@ export class RavenDaemonManager extends EventEmitter {
     return this.request('POST', '/listen/stop')
   }
 
+  /**
+   * POST /text — route a typed user turn to raven (the same brain as voice).
+   * Resolves with the daemon's {ok:true} ack on accept; rejects with
+   * Error('no_session') when nothing is listening (daemon 409) so the caller
+   * can render the cold-mic case. The model's reply arrives as spoken audio +
+   * the existing transcript / tool-call pushes, not on this promise.
+   */
+  async sendText(text: string): Promise<unknown> {
+    return this.request('POST', '/text', { text })
+  }
+
   /** GET /status. */
   async status(): Promise<unknown> {
     return this.request('GET', '/status')

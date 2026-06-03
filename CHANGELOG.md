@@ -10,6 +10,34 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- CLI text routing to raven — one brain. Typing in the dashboard CLI now
+  routes to the live raven (Gemini) session exactly like speaking: same tools,
+  same routing, same spoken reply. New `POST /text {text}` on the raven node
+  daemon validates non-empty text and forwards it to the Python child as a JSON
+  envelope over the child's existing **stdin** pipe (the conduit the daemon
+  already used for the `q\n` shutdown sentinel — not a WebSocket; the task's WS
+  framing was recon-corrected, see PR); 409 `{error:'no_session'}` when nothing
+  is listening, 202 `{ok:true}` on accept (acceptance, not completion — the
+  reply arrives as audio + the existing transcript/tool-call pushes).
+  `orchestrator.send_text` injects the turn via google-genai
+  `send_client_content(turn_complete=True)`. Shell adds `raven.sendText` +
+  `voice:send-text` IPC + `voice.sendText` preload. The CLI's old post-a-panel
+  behavior survives as the `/post <text>` slash-command; unknown slash-commands
+  get an inline ✗, an accepted send a ✓. Typed input does **not** auto-start a
+  session (deferred product decision): with ambient off, typing yields a
+  graceful ✗ `no_session`. The CLI now echoes the conversation chat-style: it
+  subscribes to the existing `voice.onTranscript` push and renders a scrolling
+  log (typed line + raven's reply). To make raven's spoken reply visible as
+  text, `output_audio_transcription` is enabled and teed onto the `raven`
+  transcript channel (previously only user audio was transcribed). The
+  orchestrator buffers any turn arriving during the spawn→ready gap and injects
+  it once the server's `setup_complete` lands (a bounded buffer-until-ready
+  guard for fast typists racing connect). The **verbal ready cue** deferred from
+  #129 is **not shipped enabled**: the injection mechanism (buffer-until-ready)
+  is in place and sound, but injecting a greeting *instruction* as a user turn
+  on `setup_complete` interleaves with the user's first real turn — the greeting
+  is disabled pending a redesign (orchestrator speaking natively on
+  `setup_complete` rather than the shell flushing an instruction turn).
 - Voice routing for the `lanes` visualization intent — raven's prompt
   (`daemons/raven-core/raven_core/prompts/prompts.json`) now maps spoken
   requests about lanes/agents ("show me my lanes", "what are my agents doing",

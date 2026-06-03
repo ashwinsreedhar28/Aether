@@ -22,6 +22,9 @@
  *                        lastToolCall
  *   POST /listen/start   spawn the Python child and begin listening
  *   POST /listen/stop    stop the Python child
+ *   POST /text           inject a typed user turn into the live session
+ *                        (same brain as voice). 202 {ok:true} on accept,
+ *                        409 {error:'no_session'} when nothing is listening
  *
  * WebSocket (same port):
  *   subscribe to channels "status" | "transcripts" | "tool-calls" | "all".
@@ -146,6 +149,24 @@ async function handleRequest(
     if (pathname === '/listen/stop' && method === 'POST') {
       const state = await ravenManager.stop();
       sendJson(res, 200, state);
+      return;
+    }
+
+    if (pathname === '/text' && method === 'POST') {
+      const body = await parseBody<{ text?: unknown }>(req);
+      const text = typeof body.text === 'string' ? body.text.trim() : '';
+      if (!text) {
+        sendError(res, 400, 'text required');
+        return;
+      }
+      // Acknowledge acceptance, not completion: the reply lands as audio +
+      // transcript / tool-call pushes, exactly like a spoken turn. Do not
+      // block this response on the model.
+      if (!ravenManager.sendText(text)) {
+        sendError(res, 409, 'no_session');
+        return;
+      }
+      sendJson(res, 202, { ok: true });
       return;
     }
 

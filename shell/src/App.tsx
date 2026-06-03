@@ -1,5 +1,5 @@
-import { PlaceholderDashboard } from './dashboard/PlaceholderDashboard'
+import { Dashboard } from './dashboard/Dashboard'
 
 export function App() {
-  return <PlaceholderDashboard />
+  return <Dashboard />
 }

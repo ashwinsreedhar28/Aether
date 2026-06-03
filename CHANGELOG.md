@@ -10,6 +10,19 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Visualize voice tool (Sprint 6.5) — "show me the mesh" now summons the
+  mesh-topology panel by voice. `daemons/raven-core/raven_core/tools/visualize_tool.py`
+  is a thin tool that calls `mesh_invoke('visualizer.render', { intent: 'mesh' })`;
+  the new `raven → visualizer.render` manifest edge (deferred from 6.4) authorises
+  the hop. Auto-discovered by the tools registry like every other tool (no manual
+  registration). raven's **first side-effect-with-ack tool**: unlike every other
+  voice tool it returns a tiny success/failure signal rather than data to read
+  aloud, and the prompt instructs raven to speak only a brief acknowledgment
+  ("Showing you the mesh, sir.") — explicitly **not** to narrate the panel's nodes,
+  edges, or counts. v1 wires intent `mesh` only into the voice path; the dashboard
+  backdrop stays auto-seeded. `prompts.json` gains the 15th tool-list entry, a
+  Visualizations instruction paragraph, success + failure examples, and a
+  `function_descriptions` entry.
 - Visualizer mesh node (Sprint 6.4) — `nodes/visualizer/`, a TypeScript
   **Mixer** that bridges the mesh (data layer) to the RAVEN_AVP scene server
   (presentation layer): the only mesh component that knows about both. It reads

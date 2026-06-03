@@ -645,7 +645,13 @@ relationships:
   - from: visualizer
     to: mesh_introspection.topology
   # CLI/shell intent source: the shell invokes visualizer.render to summon a
-  # visualization (e.g. "show me the mesh"). Voice (raven → visualizer.render)
-  # is wired in Sprint 6.5, so that edge is deferred to that lane.
+  # visualization (e.g. "show me the mesh").
   - from: shell
+    to: visualizer.render
+  # Voice intent source (Sprint 6.5): the visualize voice tool routes
+  # "show me the mesh" through raven → visualizer.render({ intent: 'mesh' }),
+  # which composes + POSTs the topology panel the Dashboard renders. raven's
+  # first side-effect-with-ack tool — it summons a panel and speaks a brief
+  # acknowledgment rather than narrating the topology.
+  - from: raven
     to: visualizer.render

@@ -13,6 +13,7 @@ import base64
 import json
 import time
 import traceback
+from collections import deque
 from typing import Any
 
 import pyaudio
@@ -67,6 +68,18 @@ class Orchestrator:
         # Session
         self.session = None
 
+        # Text-turn readiness. status flips to 'running' the moment the
+        # child spawns, but the Gemini live session only accepts input once
+        # the server's setup_complete arrives (a few hundred ms later). A
+        # text turn injected in that gap is silently dropped — most visibly
+        # the boot greeting (verbal ready cue), but also a fast typist
+        # racing connect. So we gate injection on _live_ready (set in
+        # receive_audio when setup_complete lands) and buffer the last few
+        # turns until then. Bounded: a stale boot greeting matters less than
+        # unbounded growth if the session never establishes.
+        self._live_ready = asyncio.Event()
+        self._pending_text: deque[str] = deque(maxlen=3)
+
         # PyAudio instance
         self._pya: pyaudio.PyAudio | None = None
 
@@ -112,22 +125,62 @@ class Orchestrator:
 
     async def send_text(self) -> None:
         """
-        Handle text input from console. The daemon sends 'q\\n' on stdin to
-        request a graceful shutdown; outside daemon mode this is a CLI
-        prompt for ad-hoc text turns. The prompt is suppressed when JSON
-        logging is enabled because writing "message > " (no newline) to
-        stdout pollutes every subsequent print on the same line — most
-        notably the JSON status events emitted by JsonLogger, which then
-        fail JSON.parse on the Node daemon side and silently drop status
-        transitions (e.g. starting -> running). Discovered in PR #9 live
-        test, where the voice-control pill never flipped to "listening".
+        Handle text input on stdin. Two producers share this channel:
+
+        - The Node daemon writes ``q\\n`` to request graceful shutdown
+          (ravenManager.stop) and, since the CLI-text lane, a JSON envelope
+          ``{"type": "text", "text": ...}\\n`` per typed command
+          (ravenManager.sendText). JSON is used so a user typing literally
+          "q" — or a multi-line message — is injected as text rather than
+          tripping the bare-line shutdown sentinel.
+        - Standalone CLI usage (no daemon) still accepts a raw line as the
+          message body.
+
+        Either producer's text is injected as a complete user turn via
+        ``send_client_content(turn_complete=True)`` so the model responds —
+        the SAME live-session entry point a spoken turn reaches. One brain
+        for voice and typed input.
+
+        The prompt is suppressed when JSON logging is enabled because
+        writing "message > " (no newline) to stdout pollutes every
+        subsequent print on the same line — most notably the JSON status
+        events emitted by JsonLogger, which then fail JSON.parse on the
+        Node daemon side and silently drop status transitions (e.g.
+        starting -> running). Discovered in PR #9 live test, where the
+        voice-control pill never flipped to "listening".
         """
         prompt = "" if JsonLogger.is_enabled() else "message > "
         while True:
-            text = await asyncio.to_thread(input, prompt)
-            if text.lower() == "q":
+            line = await asyncio.to_thread(input, prompt)
+            if line.lower() == "q":
                 break
-            await self.session.send(input=text or ".", end_of_turn=True)
+            text = line
+            try:
+                envelope = json.loads(line)
+                if isinstance(envelope, dict) and envelope.get("type") == "text":
+                    text = str(envelope.get("text", ""))
+            except (ValueError, TypeError):
+                pass  # not an envelope — treat the raw line as the message
+            text = text.strip()
+            if not text:
+                continue
+            # Inject only once the live session can accept input; otherwise
+            # buffer (see _live_ready / _pending_text). The is_set() check and
+            # the append run with no await between them, so receive_audio's
+            # flush can't strand a turn enqueued here.
+            if self._live_ready.is_set():
+                await self._inject_text(text)
+            else:
+                self._pending_text.append(text)
+
+    async def _inject_text(self, text: str) -> None:
+        """Inject one typed turn into the live session as a complete user
+        turn so the model responds. Shared by the buffered-flush path and the
+        steady-state path in send_text."""
+        await self.session.send_client_content(
+            turns={"role": "user", "parts": [{"text": text}]},
+            turn_complete=True,
+        )
 
     async def send_realtime(self) -> None:
         """Send queued audio/image data to the API."""
@@ -316,6 +369,19 @@ class Orchestrator:
             interrupted = False
 
             async for response in turn:
+                # The server's setup_complete is the first message after
+                # connect and arrives WITHOUT any user turn — the reliable
+                # "the live session now accepts input" signal. (Gating on a
+                # model response instead would deadlock the boot greeting,
+                # whose own injection is what would produce that response.)
+                # Flush any turns buffered during the spawn→ready gap.
+                if getattr(response, "setup_complete", None) is not None:
+                    if not self._live_ready.is_set():
+                        self._live_ready.set()
+                        while self._pending_text:
+                            await self._inject_text(self._pending_text.popleft())
+                    continue
+
                 # Handle function calls (tool calls)
                 if response.tool_call and response.tool_call.function_calls:
                     if not JsonLogger.is_enabled():
@@ -369,6 +435,21 @@ class Orchestrator:
                         utterance_text = getattr(input_transcription, "text", None)
                         if utterance_text:
                             self._on_user_transcript(utterance_text)
+
+                    # Symmetric to the input side: output_audio_transcription
+                    # (client.create_live_config) makes Gemini transcribe its
+                    # own spoken reply here. Tee each non-empty fragment onto
+                    # the "raven" transcript channel so the CLI can echo what
+                    # Aether said. Fragments are incremental (like the input
+                    # side); downstream consumers concatenate adjacent
+                    # same-speaker fragments into one line.
+                    output_transcription = getattr(
+                        server_content, "output_transcription", None
+                    )
+                    if output_transcription is not None:
+                        reply_text = getattr(output_transcription, "text", None)
+                        if reply_text and JsonLogger.is_enabled():
+                            JsonLogger.transcript("raven", reply_text)
 
                 if data := response.data:
                     audio_chunk_count += 1

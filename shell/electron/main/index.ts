@@ -349,6 +349,20 @@ ipcMain.handle('voice:status', () => {
 })
 ipcMain.handle('voice:start', () => raven.listenStart())
 ipcMain.handle('voice:stop', () => raven.listenStop())
+ipcMain.handle('voice:send-text', async (_e, text: unknown) => {
+  // Default CLI input routes here — typed and spoken commands hit one brain.
+  // Normalize the daemon's throw (e.g. 409 no_session) into a renderer-shaped
+  // result so the CLI can paint a ✗ without try/catch in the component.
+  const value = typeof text === 'string' ? text.trim() : ''
+  if (!value) return { error: 'empty' }
+  if (raven.getAvailability().kind !== 'available') return { error: 'no_session' }
+  try {
+    await raven.sendText(value)
+    return { ok: true as const }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'send failed' }
+  }
+})
 ipcMain.handle('voice:recent-transcripts', (_e, limit?: number) => {
   if (raven.getAvailability().kind !== 'available') {
     return { transcripts: [] }
@@ -381,6 +395,15 @@ const AMBIENT_VOICE = process.env.AETHER_VOICE_AMBIENT !== '0'
 // or child restart) re-runs listenStart but stays silent on the notification
 // channel — the console log is the re-engage confirmation.
 let ambientAnnounced = false
+// Verbal ready cue (#129's deferred ask) is DISABLED pending redesign. The
+// mechanism it relied on — text-injection + buffer-until-ready — shipped and
+// is sound (it's the same path typed input uses, verified working). But
+// injecting a greeting *instruction* as a user turn on setup_complete
+// interleaves with the user's first real turn and scrambles the opening
+// exchange. The fix is a different mechanism, not a different policy: have the
+// orchestrator speak natively on setup_complete (a model-initiated greeting),
+// rather than the shell flushing an instruction turn. Tracked as a known issue
+// on the CLI-text PR. Re-enabling here is the wrong layer; leave it off.
 // In-flight guard + cooldown so a child that dies on spawn (e.g. bad config)
 // can't drive a tight listenStart loop via the status-event re-ensure below.
 let ambientEngaging = false
@@ -430,6 +453,8 @@ raven.on('availability', (a) => {
 raven.on('status', (state) => {
   broadcastToRenderers('voice:status-changed', state)
   void ensureAmbientListening(state as { status?: string })
+  // Verbal ready cue intentionally NOT fired here — disabled pending redesign
+  // (see the greeting note above ensureAmbientListening).
 })
 raven.on('transcript', (entry) => broadcastToRenderers('voice:transcript', entry))
 raven.on('toolCall', (entry) => broadcastToRenderers('voice:tool-call', entry))

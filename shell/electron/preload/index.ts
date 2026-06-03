@@ -170,6 +170,10 @@ const voice = {
   status: (): Promise<VoiceStatus> => ipcRenderer.invoke('voice:status'),
   start: (): Promise<RavenState> => ipcRenderer.invoke('voice:start'),
   stop: (): Promise<RavenState> => ipcRenderer.invoke('voice:stop'),
+  // Route a typed turn to raven — the same brain a spoken turn reaches.
+  // Resolves {ok:true} on accept, {error} on a cold mic / daemon-down.
+  sendText: (text: string): Promise<{ ok: true } | { error: string }> =>
+    ipcRenderer.invoke('voice:send-text', text),
   recentTranscripts: (limit = 5): Promise<{ transcripts: TranscriptEntry[] }> =>
     ipcRenderer.invoke('voice:recent-transcripts', limit),
   recentToolCalls: (limit = 5): Promise<{ toolCalls: ToolCallEntry[] }> =>

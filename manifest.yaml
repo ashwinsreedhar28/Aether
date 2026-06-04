@@ -721,6 +721,15 @@ relationships:
   # mesh.invoke('intents.record', { text }). This is the write edge.
   - from: raven
     to: intents.record
+  # The read edge (Architect v0): when the user asks "what should we build
+  # next" raven calls the review_gaps voice tool → mesh.invoke('intents.list')
+  # → clusters its own recorded gaps into 1–3 concrete lane proposals. raven
+  # could already WRITE gaps (the edge above); reading them is a NEW
+  # relationship, and every consumer needs its own edge (#136's lesson — the
+  # shell pre-grant below does not cover raven). Proposing only; building stays
+  # human-gated.
+  - from: raven
+    to: intents.list
   # The shell edge is a DELIBERATE PRE-GRANT (Architect decision). The
   # gap-visibility view — the renderer surface that lists what Aether couldn't
   # do — is the named next lane, and #136 (mesh graph view) taught us every

@@ -10,6 +10,22 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Architect v0 — Aether proposes its own next builds. A new `review_gaps` voice
+  tool (`daemons/raven-core/.../tools/review_gaps_tool.py`) reads the recorded
+  gap log back through the mesh (`intents.list`, newest ~50) and hands raven the
+  gaps as CONTENT to reason over — the read-side counterpart to `report_gap`'s
+  write. When the user asks "what should we build next" / "propose improvements"
+  / "review your gaps and suggest something", raven clusters related gaps and
+  pitches 1–3 concrete lanes, each named with the gap(s) it closes and what it
+  would touch (node / tool / prompt / view), spoken and brief. It PROPOSES only —
+  building stays human-gated; raven never offers to build, spawn, or schedule.
+  manifest gains the `raven → intents.list` read edge (raven could already WRITE
+  gaps via `raven → intents.record`; reading is a new relationship, and every
+  consumer needs its own edge — #136's lesson, restated). `prompts.json` bumps
+  the tool count to eighteen, adds a "Proposing next builds" instruction section
+  kept distinct from the `report_gap` (records a gap) and `visualize` gaps
+  (displays the log) sections, plus a worked example. First brick of the
+  Architect era.
 - Encore bank — banks the 2026-06-03 (night) "encore" mail-RCA lessons in
   `docs/governance-log.md`: five entries covering measure-don't-reason (per-call
   wall-clock is timed, never inferred from payload size — two Architect estimates

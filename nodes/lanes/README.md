@@ -12,8 +12,9 @@ working" layer. First-class consumer is the visualizer, which composes a
 - `lanes.status` — latest snapshot of every worktree of the shared repo.
   No params. Returns `{ lanes, fetched_at_ms, stale, gh_available }` where
   each lane is `{ name, path, branch, is_main, dirty_count, last_commit_ms,
-  last_commit_msg, last_activity_ms, state, pr }` and `state` is
-  `'active' | 'idle'`.
+  last_commit_msg, last_activity_ms, state, agent, pr }`. `state` is
+  `'active' | 'idle'` (the file-mtime activity signal); `agent` is the
+  orthogonal live-process signal (see "Agent detection" below).
 
 Cache-then-serve: invocations return the most recent successfully-collected
 snapshot. If the cache is older than 30s, `stale: true` is set. If no poll
@@ -52,11 +53,36 @@ window, else `idle`. Per worktree the node runs `git status --porcelain`
 (dirty count + which files to stat) and `git log -1 --format=%ct` (last
 commit). It stats **only** the dirty-listed files; it never walks the tree.
 
-This is a file-mtime heuristic, **not** live process detection. A lane with
-a CC session attached but editing nothing reads `idle`; a lane whose files
-were touched by an unrelated tool reads `active`. Detecting the actual CC
-process per worktree is an explicit future enhancement, deliberately out of
-scope here.
+This is a file-mtime heuristic, **not** live process detection — that is a
+separate signal, `agent` (below). A lane with a CC session attached but editing
+nothing reads `state: idle` (yet `agent.active: true`); a lane whose files were
+touched by an unrelated tool reads `state: active` (with `agent.active: false`).
+The two signals are intentionally orthogonal.
+
+## Agent detection
+
+`agent` reports whether a **live Claude Code session** is attached to the
+worktree: `{ active, count }`, where `count` is how many `claude` processes have
+their cwd at or under the worktree path and `active` is `count > 0`. This is the
+"is an agent working this lane right now" signal, independent of whether any
+file changed.
+
+Mechanism (macOS): one `lsof -a -c claude -d cwd -Fpn` call per git tick. CC
+runs as a process literally named `claude`, and `lsof` is the only macOS way to
+read a process cwd (there is no `/proc`; `ps` has no cwd column). The call is
+local and ~25ms — same order as the git calls — so it rides the synchronous 10s
+poll rather than its own cadence. A cwd counts toward a lane when it equals the
+worktree path **or** sits beneath it (a session `cd`'d into `shell/`); a
+`path + separator` guard prevents a sibling-prefix false match (`…/aether-agents`
+never counts toward `…/aether`).
+
+`agent` is **null** when detection is unavailable — `lsof` missing, a timeout, or
+any unexpected failure. That is deliberately distinct from `{ active: false,
+count: 0 }`, which means detection ran and found no session. (Subtlety: `lsof`
+exits `1` with empty output when *nothing matches* — the node treats that as
+"zero sessions", not an error, so a quiet repo reports `{ active: false, count:
+0 }`, not null.) Detection never throws and never blocks or fails the git
+snapshot.
 
 ## Notifications
 

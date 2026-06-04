@@ -10,6 +10,20 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Lanes agent detection — live CC sessions per worktree. The `lanes` sensor now
+  reports a per-lane `agent: { active, count } | null` alongside the existing
+  file-mtime `state`, distinguishing "an agent is working this lane right now"
+  from "branch idle". Detection is one `lsof -a -c claude -d cwd -Fpn` call per
+  10s git tick (the only macOS way to read a process cwd; ~25ms, rides the
+  synchronous git poll) that matches the cwd of every live `claude` process to
+  the worktree it sits in (or under, with a sibling-prefix guard). `agent` is
+  `null` when detection is unavailable (lsof missing/errored) — deliberately
+  distinct from `{ active: false, count: 0 }` ("detected, none here"); note
+  `lsof` exits 1 on zero matches, which the node treats as "none", not an error.
+  Field rides the existing `lanes.status` payload (no manifest change). The
+  Lanes view gains a glowing accent `AGENT` badge on active lanes in the sidebar
+  and an `AGENT` row in the detail pane, both degrading to "—" when the signal
+  is absent. Node + renderer only; no manifest, daemon, or transport change.
 - Mesh graph view — interactive topology. The Mesh tab's stub becomes a
   renderer-native graph (React + hand-rolled SVG; no new deps, no d3) fed by
   `mesh_introspection.topology`, polled ~10s while mounted with a manual

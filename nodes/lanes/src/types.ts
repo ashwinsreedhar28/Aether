@@ -5,6 +5,16 @@
 
 export type LaneState = 'active' | 'idle'
 
+// Live Claude Code session detection for a lane (see agent.ts). `active` is
+// `count > 0`. The whole field is null on the Lane when process detection is
+// UNAVAILABLE (lsof missing/errored) — deliberately distinct from
+// `{ active: false, count: 0 }`, which means detection ran and found no live
+// session in the worktree.
+export interface AgentInfo {
+  active: boolean
+  count: number
+}
+
 // A pull request for a lane's branch, as resolved from `gh pr list`. `state` is
 // gh's own value ('OPEN' | 'CLOSED' | 'MERGED') passed through verbatim — the
 // Lanes view maps it to a colour; we don't normalise it here.
@@ -33,7 +43,13 @@ export interface Lane {
   // that someone is working this lane. File-mtime heuristic only (see README).
   last_activity_ms: number
   // 'active' if last_activity_ms is within the active window, else 'idle'.
+  // This is the FILE-MTIME activity signal; `agent` below is the orthogonal
+  // live-process signal (a lane can have an agent attached yet read file-idle,
+  // or read file-active with no agent because another tool touched files).
   state: LaneState
+  // Live CC session(s) whose cwd is at or under this worktree (lsof process
+  // detection; see agent.ts). null when detection is unavailable.
+  agent: AgentInfo | null
 }
 
 // The served shape of a lane: the git-collected Lane plus the PR resolved on the

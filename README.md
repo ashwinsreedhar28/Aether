@@ -71,13 +71,16 @@ nodes/                    Mesh nodes (one process each)
 
 daemons/                  Detached supervised processes
 ├─ raven-daemon/          Node HTTP+WS supervisor (port 7433, loopback-only)
-└─ raven-core/            Python Gemini Live orchestrator + tools
+├─ raven-core/            Python Gemini Live orchestrator + tools
+└─ raven-avp-server/      Vendored RAVEN_AVP scene server (FastAPI, port 5180)
 
 manifest.yaml             Mesh topology: nodes + edges
 _ingest/                  Reference repos (submodules, read-only)
 ```
 
 The mesh is the load-bearing primitive. Every cross-system interaction — voice asks a node for data, the shell triggers a node action — goes through signed envelopes that the manifest's edge graph authorizes. Single source of truth for what's allowed to talk to what.
+
+Rendering is a separate layer. The mesh's `visualizer` node composes panels and POSTs them to the **RAVEN_AVP scene server**, which holds the authoritative scene and broadcasts it to subscribers — the 2D macOS shell today, the 3D visionOS shell later. That client-facing wire contract (endpoints, panel shape, the snapshot/delta stream) is documented in [docs/scene-protocol.md](docs/scene-protocol.md); new renderers are built against that doc, not against our source.
 
 ## Governance
 

@@ -78,6 +78,37 @@ historical record.
   node updates the selected edge's endpoint status live (the selection only
   drops if an endpoint leaves the topology). Renderer-only (`MeshView.tsx`); the
   edges already exist in the manifest. Degrade/empty states unchanged.
+- Calendar agenda by voice + panel — "show me my agenda." The calendar voice
+  path was already wired end-to-end (the `calendar` node's `today` / `upcoming` /
+  `next_event` surfaces, the `calendar_today` / `calendar_next` /
+  `calendar_upcoming` tools, and the `raven → calendar.*` edges all shipped in the
+  Sprint 2 data-breadth lane), so this lane added only the two missing pieces: a
+  **viz-agenda panel** and the **prompt wiring**. The visualizer Mixer grows an
+  `agenda` intent: it reads `calendar.today` (today's full day) and
+  `calendar.upcoming` (the window it carves *tomorrow* out of by local date),
+  composes a single time-ordered markdown overlay (`viz-agenda`) with **Today**
+  and **Tomorrow** sections, and POSTs it to the scene server — same
+  read-compose-POST pattern as the mesh/lanes/gaps overlays, with each calendar
+  read independently resilient (a failed read renders that section "unavailable"
+  rather than failing the whole summon). Two new manifest edges
+  (`visualizer → calendar.today`, `visualizer → calendar.upcoming`) authorize the
+  reads; raven's existing `raven → visualizer.render` edge already covers the
+  voice summons. `prompts.json` gains a **Calendar & agenda** section: a spoken
+  agenda ask ("what's on my calendar today") answers concisely — count + soonest
+  event — and offers the panel, while "show me my agenda" summons
+  `visualize({ intent: 'agenda' })` and speaks only a brief acknowledgment. The
+  `calendar` node and voice tools are unchanged. Reaches across the visualizer
+  node (`types.ts` + `templates.ts` + `index.ts`), `manifest.yaml`,
+  `nodes/visualizer/schemas/render.json`, and `prompts.json`.
+  - **Event times are always local.** The agenda panel renders each event's
+    wall-clock by parsing the node's local-naive ISO stamp **literally**
+    (`parseLocalIso` — no `new Date()`), so the displayed time can't be shifted
+    by however the daemon's JS engine guesses a timezone for an offset-less
+    string. This matches the voice tool's `strftime` and Calendar.app's default
+    (system-local) display — a 4:30 PM Eastern meeting reads as 1:30 PM on a
+    Pacific machine, i.e. when it actually lands in the user's day. (The node
+    keeps its existing `datetime.fromtimestamp()` system-local conversion; an
+    event's own authored timezone is deliberately not honoured.)
 - Mail — "pull up my latest email." Closes the gap sensor's first recorded
   capture ("mail surface exposes sender and subject only, no body"), but by
   **opening the message** rather than narrating it (Architect §14.1 pivot — see

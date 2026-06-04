@@ -386,3 +386,169 @@ export function renderGapsPanels(result: GapsResult | null): ScenePanel[] {
     ),
   ]
 }
+
+// ── 'agenda' summoned overlay ─────────────────────────────────────────────────
+// Self-contained region (own type import below) so it rebases cleanly against
+// the parallel lifecycle lane, which edits the regions above.
+
+import type { AgendaData, CalendarEvent, CalendarResult } from './types'
+
+// Summoned overlay only (no backdrop — the agenda is summoned on demand, not an
+// always-present dashboard fixture). Stable non-dashboard id so a repeat "show
+// me my agenda" updates it in place rather than stacking copies.
+export const PANEL_AGENDA_OVERLAY = 'viz-agenda'
+
+// Deterministic weekday/month labels — avoids toLocale* locale variance across
+// machines (the panel must read the same on the dev Mac and the collaborator's).
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function dayLabel(d: Date): string {
+  return `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`
+}
+
+// Local Y-M-D key for a Date built from LOCAL getters (NOT toISOString, which is
+// UTC). Used only for "now" / "tomorrow" — genuine local Date objects from
+// `new Date()`. Event date keys come from eventDateKey (literal parse) instead.
+function localDateKey(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// Parse the calendar node's local-naive ISO stamp (e.g. "2026-06-05T10:00:00")
+// into its LITERAL wall-clock components, ignoring any trailing offset/Z.
+// Deliberately NOT `new Date(iso)`: the JS engine guesses a zone for an
+// offset-less string (UTC vs local varies by engine and by how the daemon
+// process is spawned — that is the 3-hours-off panel bug), and getHours() then
+// shifts the shown time. The node already emits system-local wall-clock, so we
+// render the components verbatim — the same approach as the Python spoken path
+// (datetime.fromisoformat → strftime, which also reads components literally).
+function parseLocalIso(
+  iso: string,
+): { year: number; month: number; day: number; hour: number; minute: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso)
+  if (!m) return null
+  // Groups 1-5 are guaranteed present when the regex matches; destructure +
+  // Number() rather than +m[i] so noUncheckedIndexedAccess is satisfied without
+  // per-field guards.
+  const [, year, month, day, hour, minute] = m
+  return {
+    year: Number(year),
+    month: Number(month),
+    day: Number(day),
+    hour: Number(hour),
+    minute: Number(minute),
+  }
+}
+
+// Local calendar-day key for an EVENT, from its literal ISO date components —
+// TZ-invariant (see parseLocalIso). Empty string for an unparseable stamp so it
+// never collides with a real tomorrow key. Exported for the isolated time check.
+export function eventDateKey(iso: string): string {
+  const p = parseLocalIso(iso)
+  if (!p) return ''
+  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`
+}
+
+// 12-hour wall-clock label from the event's literal components — TZ-invariant
+// (see parseLocalIso). Exported for the isolated time check.
+export function formatEventTime(iso: string): string {
+  const p = parseLocalIso(iso)
+  if (!p) return 'time unknown'
+  let h = p.hour
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  h = h % 12
+  if (h === 0) h = 12
+  return `${h}:${String(p.minute).padStart(2, '0')} ${ampm}`
+}
+
+function eventLine(e: CalendarEvent): string {
+  const time = e.is_all_day ? 'all day' : formatEventTime(e.start)
+  const title = e.title || 'Untitled'
+  const loc = e.location ? ` · ${e.location}` : ''
+  return `- **${time}** — ${title}${loc}`
+}
+
+// A non-null "blocking" reason means the section can't show events at all
+// (unavailable / denied) — distinct from 'no_events', which renders as the
+// friendlier empty label by the caller. null → there's nothing blocking, fall
+// through to the event list (or the empty label).
+function blockingNote(result: CalendarResult | null): string | null {
+  if (result === null) return 'calendar unavailable'
+  if (result.available) return null
+  switch (result.reason) {
+    case 'no_events':
+      return null
+    case 'permission_denied':
+      return 'calendar access not authorized'
+    case 'framework_unavailable':
+      return 'calendar unavailable on this platform'
+    default:
+      return 'calendar unavailable'
+  }
+}
+
+function eventsByStart(events: CalendarEvent[]): CalendarEvent[] {
+  return [...events].sort((a, b) => a.start.localeCompare(b.start))
+}
+
+function agendaSection(
+  heading: string,
+  result: CalendarResult | null,
+  events: CalendarEvent[],
+  emptyLabel: string,
+): string[] {
+  const note = blockingNote(result)
+  if (note) return [heading, '', `_${note}_`]
+  if (events.length === 0) return [heading, '', `_${emptyLabel}_`]
+  return [heading, '', ...eventsByStart(events).map(eventLine)]
+}
+
+function agendaMarkdown(data: AgendaData): string {
+  const now = new Date()
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const tomorrowKey = localDateKey(tomorrow)
+
+  // Today: every event the node returned for today's full day (midnight→midnight).
+  const todayEvents =
+    data.today && data.today.available ? data.today.events ?? [] : []
+
+  // Tomorrow: carved out of the upcoming window by local date. upcoming starts
+  // at "now", so it never includes today's earlier events — exactly the slice we
+  // want once today is sourced separately above. Beyond-tomorrow events drop out.
+  // Match on the event's LITERAL date key (eventDateKey) so the bucketing is
+  // TZ-invariant — same reason formatEventTime avoids new Date().
+  const upcomingEvents =
+    data.upcoming && data.upcoming.available ? data.upcoming.events ?? [] : []
+  const tomorrowEvents = upcomingEvents.filter((e) => eventDateKey(e.start) === tomorrowKey)
+
+  return [
+    '# Agenda',
+    '',
+    ...agendaSection(`## Today — ${dayLabel(now)}`, data.today, todayEvents, 'No events today'),
+    '',
+    ...agendaSection(
+      `## Tomorrow — ${dayLabel(tomorrow)}`,
+      data.upcoming,
+      tomorrowEvents,
+      'No events tomorrow',
+    ),
+  ].join('\n')
+}
+
+// Summoned agenda overlay (stable viz-agenda id; a repeat summon updates in
+// place). Same single-panel shape as the mesh/lanes/gaps overlays.
+export function renderAgendaPanels(data: AgendaData): ScenePanel[] {
+  return [
+    makeMarkdownPanel(
+      PANEL_AGENDA_OVERLAY,
+      agendaMarkdown(data),
+      transformAt(0, 1.2),
+      { width: 0.7, height: 0.5 },
+      'agenda-overlay',
+    ),
+  ]
+}

@@ -83,6 +83,47 @@ export interface GapsResult {
   counts?: { open: number; closed: number }
 }
 
+// ── Inbound: calendar events (calendar.today / calendar.upcoming payload) ──────
+
+// One calendar event. Mirrors the calendar node's format_event shape
+// (nodes/calendar/main.py): `start` / `end` are LOCAL naive ISO 8601 strings —
+// the node uses datetime.fromtimestamp(...).isoformat(), which emits the host's
+// system-local wall-clock with NO timezone offset (e.g. "2026-06-05T10:00:00").
+// The template reads those wall-clock components LITERALLY (parseLocalIso in
+// templates.ts) and never feeds them to `new Date()`: an offset-less stamp lets
+// the JS engine guess a zone (UTC vs local varies by engine and by how the
+// daemon is spawned), which silently shifts the rendered time. `unknown`-tolerant
+// like the types above.
+export interface CalendarEvent {
+  title: string
+  start: string
+  end: string
+  location: string
+  calendar_name: string
+  is_all_day: boolean
+  notes: string
+}
+
+// Raw payload from a calendar surface. The node returns either
+// { available: true, events } or a NORMAL { available: false, reason } —
+// reason is one of 'no_events' | 'permission_denied' | 'framework_unavailable'.
+// Both shapes arrive as ordinary response envelopes (not mesh errors), so the
+// template inspects `available` / `reason` to decide what to render.
+export interface CalendarResult {
+  available: boolean
+  events?: CalendarEvent[]
+  reason?: string
+}
+
+// Composed input to the agenda template: today's full day plus the upcoming
+// window the template carves "tomorrow" out of. Either side is null when its
+// surface read threw (mesh/edge failure) — distinct from an available:false
+// reason carried inside a CalendarResult.
+export interface AgendaData {
+  today: CalendarResult | null
+  upcoming: CalendarResult | null
+}
+
 // ── Outbound: scene-server panel ──────────────────────────────────────────────
 
 export interface Transform {

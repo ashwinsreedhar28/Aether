@@ -366,8 +366,11 @@ nodes:
         Mixer bridging mesh state to the local RAVEN_AVP scene server
         — the only mesh component aware of both layers. One render
         surface, intent-routed: 'dashboard' seeds + refreshes the
-        dashboard.* backdrop (~5s), 'mesh' summons a topology overlay.
-        Script-free markdown panels in v1.
+        dashboard.* backdrop (~5s), 'mesh' summons a topology overlay,
+        'lanes' the dev-lane panel, 'gaps' the capability-gap log, and
+        'agenda' the today/tomorrow calendar overlay (reads
+        calendar.today + calendar.upcoming). Script-free markdown
+        panels in v1.
     surfaces:
       - name: render
         type: tool
@@ -714,3 +717,14 @@ relationships:
   # (#136's lesson, restated when #145 granted the shell edge).
   - from: visualizer
     to: intents.list
+
+  # Agenda overlay: the visualizer Mixer reads the calendar to compose the
+  # summoned 'agenda' overlay (viz-agenda) — today's full day from calendar.today
+  # plus the upcoming window it carves "tomorrow" from. Same consume-surface
+  # pattern as its other read edges above; raven already has its own
+  # raven → calendar.* edges (the voice path), and those do NOT cover the
+  # visualizer (every consumer needs its own edge — #136's lesson).
+  - from: visualizer
+    to: calendar.today
+  - from: visualizer
+    to: calendar.upcoming

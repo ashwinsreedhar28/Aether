@@ -10,6 +10,23 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Day-2 bank — banks the 2026-06-04 "self-building day" lessons in
+  `docs/governance-log.md`: six entries covering the stale family completed
+  (stale runtime / stale detached daemon — raven's `_discover_tool_modules`
+  runs once at spawn so an orphan serves the old tool set, #168 / stale dist —
+  install ≠ build, TS runs compiled while python runs from source; "fresh"
+  proven at every layer the change rides), calibrate-the-oracle (a smoke's
+  external ground truth — e.g. Calendar.app's timezone — is part of the test
+  rig; verify the instrument before trusting the failure, #170's false
+  negative), recount-don't-inherit (parallel editors of one scalar — the tool
+  count — re-derive it from ground truth at merge, never adopt either branch's
+  value, #168), the recon-first guardrail (a fixed template line makes thin
+  machine-drafted specs self-limiting — recon and STOP at uncovered decisions,
+  rung 1), rung-1 expectations set (live-session drafts are fireable starts for
+  simple lanes, guarded skeletons for hard ones; depth is model-bounded; rung
+  1.5 offline-model composition banked), and routing-is-runtime-behavior (a
+  declared tool isn't a called tool — instruction strength earns the call in
+  the live session, not the harness). Docs-only.
 - Architect rung 1 — accepted proposals become paste-ready lane prompts on disk.
   A new `draft_lane` voice tool
   (`daemons/raven-core/raven_core/tools/draft_lane_tool.py`) takes ONE accepted

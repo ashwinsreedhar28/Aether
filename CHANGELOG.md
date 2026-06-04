@@ -10,6 +10,33 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Repo front v2 — README rewritten to describe what Aether is *today* (a voice-first
+  personal-OS substrate: signed mesh, `raven` voice brain, scene cockpit, and the
+  human-gated self-building loop `gaps → proposals → drafts`), with an honest
+  quickstart verified against the workspace scripts (`pnpm install && pnpm -r build`,
+  then `pnpm dev` from `shell/`), an ASCII architecture sketch, and a documentation
+  index. Added `docs/README.md` (documentation index) and `docs/releases/v0.10.0.md`
+  (release narrative). Set GitHub repo topics. See the PR body for the v0.10.0 version
+  proposal (pending Director confirmation) and the CHANGELOG-sectioning debt this cut
+  surfaces.
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.10.0] - 2026-06-04
+
+*Provenance note: per-version CHANGELOG sectioning lapsed after `[0.0.3]` — the tags
+`v0.1.0` through `v0.9.4` were cut without matching sections, so the entries below
+aggregate the entire `v0.1.0 → v0.10.0` arc rather than only the latest tag's work.
+The v0.10.0 cut dropped and reordered nothing: only this heading changed (it was
+`[Unreleased]`). Reconstructing per-tag sections from the tag history is deferred to
+a follow-up lane. For the v0.10.0 release narrative, see
+[docs/releases/v0.10.0.md](docs/releases/v0.10.0.md).*
+
+### Added
 - Architect rung 1 — accepted proposals become paste-ready lane prompts on disk.
   A new `draft_lane` voice tool
   (`daemons/raven-core/raven_core/tools/draft_lane_tool.py`) takes ONE accepted

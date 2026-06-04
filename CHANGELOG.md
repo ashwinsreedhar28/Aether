@@ -432,6 +432,22 @@ historical record.
 - Aether macOS app icon. Replaces the default Electron icon in Dock, Activity Monitor, Finder, and Cmd-Tab. Source assets in `docs/branding/`.
 
 ### Changed
+- Chores — three governance/manifest debts in one lane. (1) **Honored the
+  manifest schema's 280-char `metadata.description` bound**: trimmed the 14
+  over-length node descriptions so the loader's JSON-Schema check passes clean
+  on the `maxLength` rule (it had been silently unenforced). Pure prose
+  compression — the dropped operational detail (poll cadences, dedup
+  mechanics, file paths) already lives in each node's README. The one essential
+  fact a compression would have lost — finance's Sprint 2 surfaces, including
+  that `earnings` is a not-implemented stub — was relocated to
+  `nodes/finance/README.md`, whose intro also stopped claiming "three surfaces"
+  (the node exposes seven). (2) **`ship-it` skill co-author literal** corrected
+  `Claude Opus 4.7` → `Claude Opus 4.8` to match repo convention (flagged in
+  #149). (3) **Graduated the hand-edit hotfix to a formal `CLAUDE.md` §13.10
+  shape 6** (Architect-dictated, Director-applied, isolation-smoked),
+  fulfilling the graduation parked in the 2026-06-03 governance-log batch
+  (#134). Docs/config + manifest prose only — no source-code or wire-contract
+  changes.
 - CI pre-build step replaced with workspace-wide `pnpm -r build`; the
   hardcoded per-package `pnpm --filter` chain in `.github/workflows/ci.yml`
   is gone, as is the now-redundant terminal `shell — build` step (covered

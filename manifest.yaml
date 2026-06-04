@@ -48,11 +48,11 @@ nodes:
     identity_secret: env:MESH_RAVEN_SECRET
     metadata:
       description: |
-        Voice assistant daemon (Gemini Live). Outbound-only mesh client —
-        registers with Core so its signed envelopes are recognised, but
-        exposes no inbound surfaces. Voice tools that touch Aether data
-        or capabilities (e.g. notify) route through mesh.invoke instead
-        of living in raven's internal Python tool registry.
+        Voice assistant daemon (Gemini Live). Outbound-only mesh
+        client — registers with Core so its signed envelopes are
+        recognised but exposes no inbound surfaces. Voice tools route
+        capability calls (e.g. notify) through mesh.invoke, not
+        raven's internal tool registry.
     surfaces: []
 
   - id: news_feeds
@@ -61,11 +61,11 @@ nodes:
     identity_secret: env:MESH_NEWS_FEEDS_SECRET
     metadata:
       description: |
-        RSS/Atom news aggregator. Polls a hardcoded list of feeds every
-        15 minutes, dedupes by stable id, and exposes recent articles
-        ordered by published_at desc. Local SQLite storage at
-        $AETHER_DATA_DIR/news_feeds/news.db. First real *data* node on
-        the Aether mesh (host_notifications was the first action node).
+        RSS/Atom news aggregator. Polls a hardcoded feed list every
+        15 minutes, dedupes by stable id, exposes recent articles
+        ordered by published_at desc. Local SQLite. First real *data*
+        node on the Aether mesh (host_notifications was the first
+        action node).
     surfaces:
       - name: recent
         type: tool
@@ -90,11 +90,10 @@ nodes:
     identity_secret: env:MESH_CLIPBOARD_HISTORY_SECRET
     metadata:
       description: |
-        macOS clipboard history. Polls pbpaste every 500ms, dedupes by
-        SHA-256 content hash via an in-memory ring buffer + SQLite UNIQUE
-        constraint, retains the most recent 1000 entries. Local SQLite at
-        $AETHER_DATA_DIR/clipboard_history/clipboard.db. text/plain only
-        for this lane; PNG / RTF / file refs deferred to Wave 3.
+        macOS clipboard history. Polls pbpaste every 500ms, dedupes
+        by SHA-256 content hash (ring buffer + SQLite UNIQUE), retains
+        the most recent 1000 entries. Local SQLite. text/plain only
+        for this lane; PNG / RTF / file refs deferred.
     surfaces:
       - name: recent
         type: tool
@@ -108,13 +107,10 @@ nodes:
     metadata:
       description: |
         macOS iMessage/SMS mirror. Reads ~/Library/Messages/chat.db
-        read-only every 30s (better-sqlite3 readonly + 5s busy_timeout
-        to coexist with Messages.app), per-chat watermark on
-        date_delivered (Mac Absolute Time, ns since 2001-01-01),
-        composite UNIQUE(chat_id, message_id) dedup, INSERT OR IGNORE.
-        Local SQLite at $AETHER_DATA_DIR/macos_messages/messages.db.
-        Requires Full Disk Access; EACCES is logged once and returns
-        empty gracefully — the daemon stays up.
+        read-only every 30s (better-sqlite3 readonly, 5s busy_timeout)
+        with per-chat watermark dedup. Local SQLite. Requires Full
+        Disk Access; on EACCES logs once and returns empty — the
+        daemon stays up.
     surfaces:
       - name: recent
         type: tool
@@ -148,24 +144,11 @@ nodes:
     identity_secret: env:MESH_FINANCE_SECRET
     metadata:
       description: |
-        Stock-quote aggregator. Polls Yahoo Finance every 5 minutes for
-        a hardcoded list of US tickers (one symbol every 30s within a
-        cycle), with a Stooq CSV fallback when Yahoo flakes. No API
-        key — both providers are anonymous. Current-quote cache stays
-        in-memory — NOT SQLite, see DECISIONS.md "Second data node:
-        finance". Each poll ALSO appends a row to a SEPARATE 90-day
-        SQLite time series (history.db) backing the `history` surface;
-        the two stores are split deliberately — current-quote
-        in-memory so stale-after-restart can't mislead, historical
-        on-disk so the time series accumulates. See DECISIONS.md
-        "Finance historical quotes via passive accumulation". Exposes
-        per-symbol `quote`, full-grid `market_summary`, and
-        accumulated `history`. Second real *data* node — proves the
-        template established by news_feeds carries to API-shaped
-        sources, not just RSS. Extended in Sprint 2 with `movers`
-        (top gainers/losers), `sectors` (SPDR sector ETF performance),
-        `earnings` (upcoming earnings calendar, not-implemented stub),
-        and `market_overview` (broad market snapshot).
+        Stock-quote aggregator. Polls Yahoo Finance every 5 minutes
+        for a hardcoded US ticker list, Stooq CSV fallback, no API
+        key. Current quotes cached in-memory; a separate 90-day SQLite
+        series backs `history`. Seven surfaces: quotes, movers,
+        sectors, earnings, market overviews.
     surfaces:
       - name: quote
         type: tool
@@ -203,13 +186,10 @@ nodes:
     metadata:
       description: |
         Weather node. Polls Open-Meteo every 15 minutes for current
-        conditions and 7-day forecast. No API key — Open-Meteo public
-        tier. Requires AETHER_WEATHER_LAT/LON/LABEL env vars; starts
-        in graceful-degradation mode if unset (available: false on all
-        surfaces). In-memory cache only — no DB. Current + forecast
-        surfaces exposed. Third data node — proves the template works
-        for no-auth external APIs, not just Yahoo/Stooq (finance) or
-        RSS (news).
+        conditions and a 7-day forecast. No API key (public tier).
+        Requires AETHER_WEATHER_LAT/LON/LABEL; without them, starts
+        in graceful-degradation mode (available: false). In-memory
+        cache only.
     surfaces:
       - name: current
         type: tool
@@ -226,17 +206,11 @@ nodes:
     identity_secret: env:MESH_DIGEST_SECRET
     metadata:
       description: |
-        Briefing composer. First multi-hop mesh node on Aether: fans
-        out to news_feeds + finance + weather on each invocation and
-        synthesizes a morning or evening briefing. Two surfaces:
-        morning() (top news + market snapshot + weather) and evening()
-        (top news + market close + day's SPY range + weather).
-        Upstream failures degrade gracefully — each section either has
-        content or carries a brief "data unavailable" note; the
-        briefing never fails as a whole because one upstream returned
-        an error. Optional opt-in scheduler (DIGEST_SCHEDULED=true)
-        fires morning + evening briefings on local-time hour
-        boundaries via host_notifications.notify. Default off.
+        Briefing composer. First multi-hop mesh node: fans out to
+        news_feeds + finance + weather and synthesizes a morning() or
+        evening() briefing. Upstream failures degrade gracefully — the
+        briefing never fails as a whole. Optional opt-in scheduler
+        (DIGEST_SCHEDULED, default off).
     surfaces:
       - name: morning
         type: tool
@@ -254,13 +228,10 @@ nodes:
     metadata:
       description: |
         Vision capture node. Real-time camera frame access via
-        AVFoundation on macOS. Piece 1 of the vision arc (see
-        MASTER_SYNTHESIS.md §11.6). Implements 10fps capture with
-        5-second idle timeout for battery efficiency. Future surfaces
-        (pieces 2/3/4): vision.gestures() for hand gesture
-        recognition via MediaPipe, vision.pointing_target() to map
-        index finger pointing to on-screen UI elements. macOS only in
-        v0.1.x — no AVFoundation equivalent on other platforms yet.
+        AVFoundation. Piece 1 of the vision arc (MASTER_SYNTHESIS.md
+        §11.6): 10fps capture with a 5s idle timeout for battery.
+        Future pieces add vision.gestures() (MediaPipe) and
+        vision.pointing_target(). macOS only in v0.1.x.
     surfaces:
       - name: frame
         type: tool
@@ -274,16 +245,10 @@ nodes:
     metadata:
       description: |
         macOS Calendar.app integration via EventKit. Reads events
-        from the user's Calendar.app — all calendars visible to the
-        app (Personal, Work, subscribed, etc.). On first invocation
-        macOS prompts the user for Calendar access permission; if
-        denied, all three surfaces return {available: false, reason:
-        'permission_denied'}. Three surfaces: calendar.today (all
-        events on today's date, midnight to midnight),
-        calendar.upcoming (next N events from now, default 5, max
-        20), calendar.next_event (single next upcoming event). macOS
-        only — EventKit is macOS-specific. Sprint 2 data-breadth
-        lane.
+        from all calendars visible to the app. First invocation
+        prompts for access; if denied, surfaces return {available:
+        false, reason: 'permission_denied'}. Three surfaces: today,
+        upcoming (default 5, max 20), next_event.
     surfaces:
       - name: today
         type: tool
@@ -304,11 +269,11 @@ nodes:
     identity_secret: env:MESH_REMINDERS_SECRET
     metadata:
       description: |
-        macOS Reminders.app mesh node. Reads from Reminders.app via
-        pyobjc + EventKit. Three surfaces: reminders.due_today,
-        reminders.overdue, reminders.upcoming. Read-only in v1.
-        Permission prompt fires on first daemon spawn; daemon stays
-        alive returning permission_denied until user grants access.
+        macOS Reminders.app mesh node. Reads via pyobjc + EventKit.
+        Three surfaces: reminders.due_today, .overdue, .upcoming.
+        Read-only in v1. Permission prompt fires on first daemon
+        spawn; the daemon stays alive returning permission_denied
+        until the user grants access.
     surfaces:
       - name: due_today
         type: tool
@@ -328,11 +293,11 @@ nodes:
     identity_secret: env:MESH_SYSTEM_INFO_SECRET
     metadata:
       description: |
-        macOS system context node. Surfaces battery state, disk usage,
-        network/WiFi status, and active application via native shell
-        commands (pmset, df, networksetup, osascript). No API keys, no
-        OAuth — just shell access. Readings cached 5-15s in-memory.
-        TypeScript node spawned by nodeManager.
+        macOS system context node. Surfaces battery state, disk
+        usage, network/WiFi status, and active application via native
+        shell commands (pmset, df, networksetup, osascript). No API
+        keys, no OAuth. Readings cached 5-15s in-memory. TypeScript
+        node spawned by nodeManager.
     surfaces:
       - name: battery
         type: tool
@@ -363,10 +328,8 @@ nodes:
       description: |
         Stateless timezone-aware clock. One surface (time.now) returns
         the current wall-clock time in a requested IANA timezone via
-        Intl.DateTimeFormat. No SQLite, no poller, no cache —
-        Date.now() per invocation. Invalid IANA zones return
-        MeshDeny('time_bad_zone'). TypeScript node spawned by
-        nodeManager; running marker only under AETHER_DATA_DIR.
+        Intl.DateTimeFormat. No SQLite, poller, or cache — Date.now()
+        per invocation. Invalid zones return MeshDeny('time_bad_zone').
     surfaces:
       - name: now
         type: tool
@@ -379,17 +342,11 @@ nodes:
     identity_secret: env:MESH_MESH_INTROSPECTION_SECRET
     metadata:
       description: |
-        Mesh introspection sensor. Polls the broker's bearer-token-gated
-        /__introspection__ endpoint every 2s and re-exposes the live
-        mesh topology + recent invocation activity as signed mesh
-        surfaces — turning broker-only admin telemetry into something
-        any authorized mesh consumer can read. Cache-then-serve: when
-        a poll succeeds the surfaces return fresh data; when polling
-        stalls the last-known-good snapshot is returned with a `stale`
-        flag set if the last fetch was more than 10s ago. Foundation
-        for the renderer-side mesh-viz content app (sub-lane 3 of the
-        broker/viz roadmap, Issue #108). Reads ADMIN_TOKEN from the
-        shell-injected env to authenticate to /__introspection__.
+        Mesh introspection sensor. Polls the broker's token-gated
+        /__introspection__ endpoint every 2s and re-exposes live mesh
+        topology + recent invocation activity as signed surfaces —
+        admin telemetry any authorized consumer can read. Cache-then-
+        serve, `stale` past 10s.
     surfaces:
       - name: topology
         type: tool
@@ -440,21 +397,11 @@ nodes:
     identity_secret: env:MESH_INTENTS_SECRET
     metadata:
       description: |
-        The gap sensor. Records the things Aether cannot do — requests with
-        no tool, no surface, or no data behind them — and serves them back.
-        Gaps have a lifecycle: recorded open, marked closed once the capability
-        they noted exists, so the ledger reflects what's been answered.
-        intents.record { text, context? } appends one gap to an fsync'd
-        append-only JSONL log at $AETHER_DATA_DIR/intents/gaps.jsonl and
-        returns { ok, id }; intents.list { limit?, status? } returns recorded
-        gaps newest-first (open by default) plus whole-log open/closed counts;
-        intents.close { id | match } appends a closure event marking gap(s)
-        closed. Classified Sensor like the other data nodes (it holds a
-        queryable record and exposes it), but its data arrives by push
-        (raven → intents.record) rather than by polling the world — it senses
-        Aether's own gaps. The mesh's first node that persists *mesh-authored*
-        data rather than a re-fetchable cache of an external source. First
-        brick of the self-building arc.
+        The gap sensor. Records what Aether cannot do — gaps with no
+        tool, surface, or data behind them. Gaps have an open/closed
+        lifecycle: intents.record logs one (fsync'd JSONL), intents.list
+        reads them, intents.close marks them done. First brick of the
+        self-building arc.
     surfaces:
       - name: record
         type: tool

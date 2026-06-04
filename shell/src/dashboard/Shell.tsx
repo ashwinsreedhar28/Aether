@@ -19,6 +19,14 @@ const TABS: { id: View; label: string }[] = [
   { id: 'lanes', label: 'LANES' },
 ]
 
+// TABS is the single source of truth for the navigable view set. The
+// navigate voice tool (raven-core) returns a validated view name; we
+// re-validate it here before switching so a daemon/renderer drift fails
+// safe (an unknown view is ignored, never switched to).
+function isView(v: unknown): v is View {
+  return typeof v === 'string' && TABS.some((tab) => tab.id === v)
+}
+
 // The shell: a draggable top bar (brand · tabs · voice indicator), the active
 // view, and the always-present CLI bar. Owns view-switch state and the
 // renderer-ready signal.
@@ -43,6 +51,23 @@ export function Shell(): React.ReactElement {
       .catch(() => {
         /* keep the navigator guess */
       })
+  }, [])
+
+  // Voice/typed navigation. The navigate tool makes no mesh call — it
+  // validates a view name and returns { ok, view }. Every tool call is
+  // pushed to the renderer over voice:tool-call (the same channel
+  // visualize rides), so navigation needs zero new transport: we pick
+  // navigate calls out of the stream and flip the view. The push fires
+  // twice per call (once on dispatch with no result, once on completion
+  // with it); keying on the tool's VALIDATED result.view rather than the
+  // raw args means the first (result-less) push is skipped and only a
+  // successful switch acts.
+  useEffect(() => {
+    return window.aether.voice.onToolCall((entry) => {
+      if (entry.toolName !== 'navigate') return
+      const next = entry.result?.view
+      if (isView(next)) setView(next)
+    })
   }, [])
 
   return (

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "macos_mail.open_message",
+  "title": "macos_mail.open_message",
+  "description": "Open a specific inbox message in macOS Mail.app via the message:// URL scheme (LaunchServices, not AppleScript — stays responsive when Mail's scripting interface is slow). `id` is the RFC Message-ID returned as the uid/id field of macos_mail.recent. Side-effect surface: brings Mail.app to the message and returns only a success signal.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RFC Message-ID of the message to open (the uid from macos_mail.recent, without angle brackets)."
+    }
+  },
+  "required": ["id"],
+  "additionalProperties": false
+}

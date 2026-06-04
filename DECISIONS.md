@@ -8,6 +8,162 @@ are preserved verbatim as historical record.
 
 ---
 
+## [2026-06-04] ADR: mail lane headline pivots from "read body aloud" to "pull the email up" (open_message actor)
+
+**Status:** accepted (amends the 2026-06-03 "full-vertical" and "latency-hardened
+capture" ADRs below — the body-capture machinery they describe stays, but it is
+no longer the headline deliverable)
+**Decided by:** both (Architect-authorized direction change, §14.1; Director relayed)
+**Context:** The body-capture path is correct but unverifiable while Mail.app's
+AppleScript interface is degraded (even a 6-event bulk header timed out at 30s
+after a restart). Reading a full body aloud is also poor voice UX. Meanwhile,
+opening a message in Mail.app via the `message://<rfc-message-id>` URL through
+**LaunchServices** (`open` CLI) is a *different code path* from AppleScript and
+stays responsive — measured 0.06s the same night AppleScript reads were timing
+out at 30–120s. The stored `uid` is already the RFC Message-ID (Mail's `message
+id` property), exactly what the `message:` scheme matches, so no new id capture
+is needed.
+**Decision:** Pivot the lane's headline from "read the body aloud" to "pull the
+email up."
+1. New **actor surface `macos_mail.open_message {id}`** opens the message via
+   `open "message://%3c<id>%3e"` (LaunchServices, deliberately NOT AppleScript).
+   `manifest.yaml` declares the surface and the `raven → macos_mail.open_message`
+   edge (scope amendment authorized — the original lane said "NO manifest").
+2. `mail_tool.mail_open_latest()` + the voice prompt route "read / show / open /
+   pull up my latest email" to: speak **ONE line** (sender + subject, plus a
+   short gist only if a body was captured) **and** open the message. Full bodies
+   are never narrated.
+3. **Body capture stays in the node, explicitly non-blocking** — it backfills
+   when Mail recovers and feeds the optional one-line gist and future summaries;
+   the `mail_meta` diagnostic is unchanged.
+**Consequences:** The lane's primary capability is now verifiable independent of
+Mail's AppleScript latency (the open path was verified live: `open` exit 0, Mail
+frontmost, 0.06s). macos_mail gains an actor surface (the node is now sensor +
+actor; category stays Sensor as its primary role). "Read my latest email" no
+longer narrates content — it surfaces a one-liner and brings the message up,
+which is also better voice UX. Body capture's value shifts from "read aloud" to
+"gist + future summaries," so its current `bodies=0` (Mail degraded) no longer
+blocks the headline.
+**Alternatives considered:** (a) Keep waiting for Mail's AppleScript to recover to
+verify read-aloud — rejected: open-via-LaunchServices is both more robust and
+better UX. (b) Narrate the body on open — rejected by the Architect: one line +
+pull-up, never a wall of spoken body. (c) Drop body capture entirely now that we
+don't read it aloud — rejected: it's non-blocking and feeds gists/summaries; kept.
+
+---
+
+## [2026-06-03] ADR: macos_mail capture is latency-hardened — bulk-read headers, bounded one-per-tick bodies, DB observability
+
+**Status:** accepted
+**Decided by:** both (Director directed the debug + per-message/retry-cap/visibility shape; Architect/Director to ratify the specifics surfaced from measurement)
+**Context:** The root constraint is **Mail.app's highly variable Apple-Event
+latency** — measured sub-second when idle but 30–120s for a *single* property
+read when Mail is busy syncing/indexing a large (~5 GB) store. (osascript itself
+and other apps stay sub-second; isolated to Mail.) Two failures flowed from
+mis-modelling this. (1) The first body implementation read `content of msg` for
+all 20 messages inside the header poll; at ~31–45s/message it blew the 30s bridge
+timeout and captured nothing, silently. I initially mis-attributed the cost to a
+fixed "~28s per-invocation content overhead." (2) The redesign moved bodies out
+but kept the original **per-message header loop** (~100 Apple Events: 20 messages
+× 5 properties). Under a Mail-latency burst that loop itself timed out at 30s, so
+the tick returned before arming and the body phase never even ran — observed live
+as a silent `47|0|0` (47 stale rows, 0 bodies, 0 attempts). Both are the
+graceful-degrade-masks-systemic-breakage class banked in `docs/governance-log.md`.
+**Decision:** Three coupled choices.
+1. **Bulk-read the header poll.** Read each property of the whole range in one
+   Apple Event (`message id of messages 1 thru 20 of inbox`, then `subject of …`,
+   etc.) — ~6 events instead of ~100 — so the poll survives moderate Mail latency
+   rather than timing out. Properties are read directly on the range, not via an
+   intermediate `set msgList to …` (which hands back message-id-keyed references
+   that fail `-1728`); `«class isot»` date coercion runs in a local, event-free
+   loop inside the `tell`.
+2. **Bounded one-per-tick bodies.** A separate pass fetches **one** `content`
+   body per tick (50s budget) for the newest message in a 3-message window
+   (`BODY_WINDOW`) still lacking one — newest first, so "read me my latest email"
+   fills on the first backfill tick and the window fills over ~3 ticks. A
+   per-message `body_attempts` counter (SQLite v3) writes a message off after 3
+   failed/empty fetches. One call per message isolates a slow/unreadable message
+   from its siblings (the Director's goal), achieved across ticks.
+3. **DB-visible observability.** A `mail_meta(key,value)` table records
+   `last_header_status`, `last_body_status`, `body_fetch_failures`, last error,
+   and timestamps each tick — because the node's stdout is invisible in the
+   running shell, so the failure counter alone "a signal nobody can see isn't a
+   signal." `last_header_status = timeout` now names a stalled poll at a glance.
+**Consequences:** Capture is robust through moderate Mail slowness and degrades
+*visibly* (not silently) during severe bursts, self-recovering when Mail responds.
+Only the newest ~3 messages carry bodies — enough for "read my latest" + digest;
+full-inbox body mirroring stays **foreclosed** at this latency. Five separate
+range reads in the header poll admit a sub-millisecond misalignment if mail
+arrives mid-poll (one row's fields paired wrong); tolerated by the per-row try and
+self-corrected next poll. Establishes the rule: **any Mail AppleScript must
+minimise Apple-Event count (bulk reads, never per-element loops) and treat Mail
+latency as adversarial** — never batch unbounded `content` reads into a timed
+bridge call, and surface poll health where it can be seen.
+**Alternatives considered:** (a) Keep the per-message header loop and just raise
+the timeout — rejected: 100 events × a latency spike is unbounded; bulk reads fix
+the cause. (b) Batch top-3 bodies in one call (~40s when Mail is moderate) —
+rejected as default: a single slow message times out the whole batch and loses
+all three, the fault-coupling the per-message design avoids. (c) Read Mail's
+`Envelope Index` SQLite + `.emlx` files directly (bypass AppleScript entirely,
+fast) — deferred as a large redesign; banked as the real long-term fix with an
+explicit trigger: **pick this up if Mail.app is still AppleScript-degraded after
+~48h of normal use** (i.e. the slowness is chronic on this machine, not the
+anomalous burst seen the night this lane shipped — the node captured 47 header
+rows via the heavier old path earlier, so Mail normally answers AppleScript
+here). (d) On-demand body fetch at the `recent` surface — deferred:
+adds latency to the voice call and couples the surface to a running Mail.app.
+
+---
+
+## [2026-06-03] ADR: mail-body lane expanded to a full vertical (node + tool + prompt)
+
+**Status:** accepted
+**Decided by:** both (Director authorized in chat; §14.1 intentional direction change)
+**Context:** The mail-body lane was scoped node-only — "`nodes/macos_mail` + its
+schema + README + CHANGELOG. NO prompts.json (the richer result needs no prompt
+change), NO manifest." Pre-flight reads contradicted that premise on three
+points: (1) `prompts.json` hardcodes a worked example telling RAVEN that "read
+me my latest email" is a capability gap → `report_gap`, and Gemini Live's
+`system_instruction` is fixed at connect, so the gap would still be logged no
+matter what the node returns (fails smoke #1 and #3); (2) `mail_tool.py` builds
+its `spoken` field from sender + subject only, so a body added to the node
+payload would never be read aloud; (3) `mail_tool.py` already sends
+`unread_only`, which the surface schema (`additionalProperties: false`,
+`limit`/`since` only) rejects — Core validates payloads strictly
+(`core/core/core.py`), so `mail_recent` was returning `denied_schema_invalid`
+for every call (smoke #2 was already broken). A node-only change therefore could
+not meet the lane's own GOAL or smoke tests.
+**Decision:** Expand the lane to the full mail vertical with Director approval:
+node body capture (schema v2) **plus** `daemons/raven-core/raven_core/tools/mail_tool.py`
+(surface the body; speak it on a single-message read) **plus**
+`daemons/raven-core/raven_core/prompts/prompts.json` (rewrite the email worked
+example into the now-working read-aloud flow). The freed `report_gap` worked
+example is **replaced**, not deleted, with a still-true gap ("dim the lights" /
+no home-control surface) so the prompt keeps a valid worked example. The
+`unread_only` schema mismatch is fixed in-scope as a drive-by (own CHANGELOG
+line) since the lane was already editing the schema and node. `manifest.yaml`
+was left untouched per the original scope; its prose `description` now slightly
+under-describes the surface (omits body) — flagged for a follow-up.
+**Consequences:** "Reading the latest email aloud" works end-to-end and the gap
+sensor's first capture is closed. Future mail-surface lanes touch a known
+three-tier path (node → `mail_tool.py` → `prompts.json`), not just the node.
+The voice prompt is now coupled to the mail tool's single-message `spoken`
+contract (`limit: 1` ⇒ body in `spoken`). Establishes precedent: a lane scoped
+to a node may need to reach into the raven-core tool + prompt tier to actually
+land a user-visible capability; the gap-sensor → close-the-gap loop is inherently
+cross-tier. `manifest.yaml` description drift is now outstanding.
+**Alternatives considered:** (a) Ship node-only and defer the tool+prompt wiring
+to a follow-up lane — rejected because the PR would not close the gap it claims
+to, and the gap sensor would keep re-recording the same capture (smoke #3 would
+fail), making the lane misleading. (b) Pause and have the Architect re-spec —
+viable but slower; the Director chose to expand in-flight with the deviation
+documented here. (c) Delete the email `report_gap` example outright — rejected
+per Director rider (a): it would strip a worked example and risk the model
+generalizing report_gap poorly; replacing it with a still-true gap preserves the
+teaching value.
+
+---
+
 ## [2026-05-20] ADR: `pnpm -r build` before typecheck for SDK-shape workspace package auto-discovery
 
 **Status:** Accepted (enacted 2026-05-19 — `.github/workflows/ci.yml` and `shell/package.json` updated; see CHANGELOG entry)

@@ -127,19 +127,20 @@ nodes:
     identity_secret: env:MESH_MACOS_MAIL_SECRET
     metadata:
       description: |
-        macOS Mail.app inbox mirror. Polls Mail.app every 60 seconds via
-        the @aether/macos-applescript bridge for the most recent 50
-        inbox messages. Dedupes by message UID with INSERT OR IGNORE;
-        persists subject / sender / date_received / read_status to
-        per-node SQLite at $AETHER_DATA_DIR/macos_mail/mail.db. Requires
-        Mail.app Automation permission (System Settings → Privacy &
-        Security → Automation); denial is logged once and the daemon
-        stays up, retrying silently until granted.
+        macOS Mail.app inbox mirror + opener. Bulk-reads recent headers
+        every 60s and backfills plain-text bodies for the newest few into
+        per-node SQLite. The open_message surface pulls a message up in
+        Mail.app via the message:// URL scheme (LaunchServices, not
+        AppleScript).
     surfaces:
       - name: recent
         type: tool
         invocation_mode: request_response
         schema: nodes/macos_mail/schemas/recent.json
+      - name: open_message
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/macos_mail/schemas/open_message.json
 
   - id: finance
     runtime: local-process
@@ -498,6 +499,9 @@ relationships:
   # recent Mail.app inbox messages mirrored via the AppleScript bridge.
   - from: raven
     to: macos_mail.recent
+
+  - from: raven
+    to: macos_mail.open_message
 
   # News keyword search. Shell edge is reserved for a future UI search
   # bar inside the News app (not consumed in the PR that introduces the

@@ -1,8 +1,12 @@
 import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { MeshNode, MeshDeny, type Envelope } from '@aether/mesh-node-sdk'
 import { MailPoller } from './poller'
 import { MailStore } from './storage'
+
+const execFileP = promisify(execFile)
 
 const NODE_ID = 'macos_mail'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
@@ -13,6 +17,7 @@ const MAX_LIMIT = 500
 interface RecentArgs {
   limit?: number
   since?: string
+  unread_only?: boolean
 }
 
 function log(msg: string): void {
@@ -41,9 +46,51 @@ function makeRecentHandler(store: MailStore) {
         throw new MeshDeny('macos_mail_bad_since', { since })
       }
     }
-    const messages = store.recent({ limit, since })
+    const unreadOnly = payload?.unread_only === true
+    // Each message carries its captured body (plain-text, normalized,
+    // ~1500-char cap) and bodyTruncated flag; body is null when unreadable
+    // or for rows captured before the v2 schema.
+    const messages = store.recent({ limit, since, unreadOnly })
     return { messages }
   }
+}
+
+interface OpenMessageArgs {
+  id?: unknown
+}
+
+// Actor surface: open a specific message in Mail.app. Deliberately via
+// LaunchServices (`open message://…`) and NOT AppleScript — the message: URL
+// scheme is handled by Mail's URL handler, which stays responsive even when
+// Mail's Apple-Event interface is degraded (the latency that blocks the
+// poller). The stored uid IS the RFC Message-ID (Mail's `message id`), which
+// is exactly what the message: scheme matches on.
+async function handleOpenMessage(env: Envelope): Promise<Record<string, unknown>> {
+  if (process.platform !== 'darwin') {
+    throw new MeshDeny('macos_mail_unsupported', {
+      platform: process.platform,
+      reason: 'macOS-only; message:// open is a LaunchServices/Mail.app path',
+    })
+  }
+  const payload = env.payload as OpenMessageArgs
+  const id = typeof payload?.id === 'string' ? payload.id.trim() : ''
+  // A real RFC Message-ID is a dot-atom@domain (or quoted) token — never
+  // contains whitespace or angle brackets. Reject anything that would break
+  // the URL rather than handing junk to LaunchServices.
+  if (id.length === 0 || /[\s<>]/.test(id)) {
+    throw new MeshDeny('macos_mail_bad_message_id', { id: payload?.id })
+  }
+  // Angle brackets are percent-encoded (%3c/%3e); the Message-ID itself is a
+  // URL-safe token and used as-is (verified against the live message: scheme).
+  const url = `message://%3c${id}%3e`
+  try {
+    await execFileP('open', [url])
+  } catch (e) {
+    throw new MeshDeny('macos_mail_open_failed', {
+      details: (e as Error).message,
+    })
+  }
+  return { opened: true, id }
 }
 
 async function main(): Promise<void> {
@@ -72,6 +119,7 @@ async function main(): Promise<void> {
 
   const node = new MeshNode(NODE_ID, secret, CORE_URL)
   node.on('recent', makeRecentHandler(store))
+  node.on('open_message', handleOpenMessage)
   await node.start()
   log(`registered with core at ${CORE_URL}`)
 

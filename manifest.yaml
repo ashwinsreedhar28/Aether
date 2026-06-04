@@ -433,6 +433,33 @@ nodes:
         invocation_mode: request_response
         schema: nodes/lanes/schemas/status.json
 
+  - id: intents
+    runtime: local-process
+    category: Sensor
+    identity_secret: env:MESH_INTENTS_SECRET
+    metadata:
+      description: |
+        The gap sensor. Records the things Aether cannot do — requests with
+        no tool, no surface, or no data behind them — and serves them back.
+        intents.record { text, context? } appends one gap to an fsync'd
+        append-only JSONL log at $AETHER_DATA_DIR/intents/gaps.jsonl and
+        returns { ok, id }; intents.list { limit? } returns recorded gaps
+        newest-first. Classified Sensor like the other data nodes (it holds a
+        queryable record and exposes it), but its data arrives by push
+        (raven → intents.record) rather than by polling the world — it senses
+        Aether's own gaps. The mesh's first node that persists *mesh-authored*
+        data rather than a re-fetchable cache of an external source. First
+        brick of the self-building arc.
+    surfaces:
+      - name: record
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/intents/schemas/record.json
+      - name: list
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/intents/schemas/list.json
+
 
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
@@ -688,3 +715,18 @@ relationships:
   # "which lanes are working?") is a deferred follow-up micro-lane, not wired here.
   - from: lanes
     to: host_notifications.notify
+
+  # Gap sensor (the self-building arc, first brick): when raven cannot fulfil a
+  # request it records the gap via the report_gap voice tool →
+  # mesh.invoke('intents.record', { text }). This is the write edge.
+  - from: raven
+    to: intents.record
+  # The shell edge is a DELIBERATE PRE-GRANT (Architect decision). The
+  # gap-visibility view — the renderer surface that lists what Aether couldn't
+  # do — is the named next lane, and #136 (mesh graph view) taught us every
+  # renderer consumer needs its own edge before it can read a surface. Granting
+  # shell → intents.list now means the next lane is pure renderer work with no
+  # manifest round-trip. Same reserved-edge pattern the news/finance/digest
+  # shell edges use; not consumed by any renderer code in THIS PR.
+  - from: shell
+    to: intents.list

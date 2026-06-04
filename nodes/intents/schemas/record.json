@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "intents.record",
+  "title": "intents.record",
+  "description": "Persist a gap — a request Aether could not fulfil (no tool, no surface, no data). Appends one record to an fsync'd JSONL log and returns { ok, id }. Params: { text: string (the one-line gap description), context?: string (optional extra detail) }.",
+  "type": "object",
+  "required": ["text"],
+  "additionalProperties": false,
+  "properties": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "context": { "type": "string", "maxLength": 4000 }
+  }
+}

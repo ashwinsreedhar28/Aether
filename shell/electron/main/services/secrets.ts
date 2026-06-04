@@ -30,6 +30,7 @@ export interface MeshSecrets {
   meshIntrospectionSecret: string
   visualizerSecret: string
   lanesSecret: string
+  intentsSecret: string
 }
 
 function hex32(): string {
@@ -66,5 +67,6 @@ export function generateMeshSecrets(): MeshSecrets {
     meshIntrospectionSecret: getNodeSecret('mesh_introspection'),
     visualizerSecret: getNodeSecret('visualizer'),
     lanesSecret: getNodeSecret('lanes'),
+    intentsSecret: getNodeSecret('intents'),
   }
 }

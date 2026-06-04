@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "intents.list",
+  "title": "intents.list",
+  "description": "Return persisted gap records (things Aether could not do), newest-first. Params: { limit?: number (default 100, max 1000) }. Returns { gaps: [{ id, ts, text, context }] } where ts is an ISO 8601 UTC timestamp and context is a string or null.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "limit": { "type": "integer", "minimum": 1, "maximum": 1000 }
+  }
+}

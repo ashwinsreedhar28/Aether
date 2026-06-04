@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "macos_mail.recent",
   "title": "macos_mail.recent",
-  "description": "Return the most recent inbox messages mirrored from the macOS Mail.app, newest first.",
+  "description": "Return the most recent inbox messages mirrored from the macOS Mail.app, newest first. Each message includes a plain-text, whitespace-normalized body (capped at ~1500 chars with a bodyTruncated flag; null when the body could not be read or predates body capture).",
   "type": "object",
   "properties": {
     "limit": {
@@ -15,6 +15,10 @@
       "type": "string",
       "format": "date-time",
       "description": "ISO 8601 timestamp; only return messages received at or after this time."
+    },
+    "unread_only": {
+      "type": "boolean",
+      "description": "If true, return only unread messages (read_status = 0). Default false."
     }
   },
   "additionalProperties": false

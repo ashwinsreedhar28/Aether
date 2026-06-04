@@ -10,6 +10,32 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Mail — "pull up my latest email." Closes the gap sensor's first recorded
+  capture ("mail surface exposes sender and subject only, no body"), but by
+  **opening the message** rather than narrating it (Architect §14.1 pivot — see
+  DECISIONS.md). New actor surface **`macos_mail.open_message {id}`** opens a
+  message in Mail.app via the `message://<rfc-message-id>` URL through
+  **LaunchServices** (`open` CLI, deliberately NOT AppleScript — verified 0.06s
+  the same night AppleScript reads were timing out at 30–120s). The stored uid
+  is already the RFC Message-ID, exactly what the `message:` scheme matches.
+  RAVEN's new `mail_open_latest` tool + the voice prompt route "read / show /
+  open / pull up my latest email" to: speak **one line** (sender + subject, plus
+  a short gist only if a body was captured) **and** bring Mail.app to the
+  message — full bodies are never narrated. `manifest.yaml` declares the surface
+  and the `raven → macos_mail.open_message` edge (authorized scope amendment).
+  Body capture stays in the node, **non-blocking**: it bulk-reads recent headers
+  (one Apple Event per property — ~6 events, not the ~100 a per-message loop
+  issues and which blew the 30s timeout under Mail's variable latency), then
+  backfills each message's plain-text body (`content of msg`, whitespace-
+  normalized, ~1500-char cap, `bodyTruncated` flag) for the newest few over
+  later ticks with a `body_attempts` retry cap (SQLite schema → v3); bodies feed
+  the gist and future summaries when Mail recovers. Poll/body health (last
+  status, failure count, last error, timestamps) is written to a `mail_meta`
+  table so a stall is diagnosable via `SELECT * FROM mail_meta` (e.g.
+  `last_header_status = timeout`) instead of a silent `47|0|0`. The freed
+  `report_gap` worked example is replaced with a still-true gap ("dim the
+  lights" / no home-control surface) rather than deleted. Reaches across node +
+  `mail_tool.py` + `prompts.json` + `manifest.yaml`.
 - Architect v0 — Aether proposes its own next builds. A new `review_gaps` voice
   tool (`daemons/raven-core/.../tools/review_gaps_tool.py`) reads the recorded
   gap log back through the mesh (`intents.list`, newest ~50) and hands raven the
@@ -437,6 +463,13 @@ historical record.
   on 2026-05-26 for full direction-shift context.
 
 ### Fixed
+- `macos_mail.recent` rejected the `unread_only` param RAVEN's `mail_recent`
+  tool has always sent. The surface schema was `additionalProperties: false`
+  with only `limit`/`since`, so Core's payload validation returned
+  `denied_schema_invalid` (400) for every mail read and the tool surfaced it as
+  "mesh unavailable". Drive-by found during the mail-body lane (the lane was in
+  those files anyway): `unread_only` is now declared in the schema and honored
+  by the node (filters `read_status = 0`).
 - Text-injection ready gate fixed + `google-genai` pinned (retroactive — #134
   shipped in hotfix haste without a CHANGELOG line). Typed input racing session
   connect was buffered behind a ready flag the daemon set on `setup_complete`,

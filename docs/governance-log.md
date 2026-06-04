@@ -417,3 +417,37 @@ Recon predicted 5 shell touch points for the visualizer node; reality was 6 — 
 
 ### Voice front door (Sprint 6 headline finding)
 Archiving the voice toggle UI (6.1) without a replacement trigger left voice unreachable — raven was healthy, but nothing could start a session. The PLUMBING survived (preload `voice.start/stop`, main `voice:start` IPC, daemon `POST /listen/start`); only the UI died. The deferred 6.5 smoke CLOSED 2026-06-03 via a curl-activated session (`curl -X POST :7433/listen/start`): "show me the mesh" spoken aloud summoned the topology panel. Lesson: when archiving UI, inventory the entry points it was the sole caller of. Ambient voice (the replacement trigger) is the immediate next lane.
+
+---
+
+## 2026-06-03 (evening) — cockpit day lessons
+
+The cockpit day (CLI-as-one-brain, ambient voice, lanes enrichment, and the
+first instrument views — #129 through #136) banked six lessons. Several are
+spec-discipline rules for the Architect rather than runtime gotchas; they live
+here because they recurred across a single day's lanes.
+
+### Intent over mechanism — spec against read code, not log inferences
+In a single day, four Architect-stated mechanisms were corrected by Implementers who read the actual code:
+
+- the availability→status hook for re-engaging the mic (#129);
+- the text conduit framed as a WebSocket was actually the child's existing **stdin** pipe (#132);
+- transcripts were input-only, not bidirectional — output transcription had to be enabled and teed onto the channel for raven's spoken reply to surface as text (#132);
+- `setup_complete` never traverses raven's receive loop, so a ready gate hung on it never opens (#134).
+
+The pattern is now locked: a spec should state **intent** plus a **hypothesis** about mechanism; the Implementer verifies the mechanism against the code and flags corrections. That flagging is the desired behavior, not scope creep. Architect rule: spec against read code, not inferences drawn from logs.
+
+### Smoke the bits you ship
+Any post-smoke edit invalidates the smoke for the paths it touches. #132's greeting removal shipped on `verify-build` alone; the typed path was believed green but had not actually been exercised after the edit. A green build is not a green path — re-smoke whatever a late edit reaches.
+
+### New-path isolation smoking
+A new input path is validated in isolation from the old one — typed-first, zero speech — so a voice artifact can't be mistaken for a typed success. Two smokes read voice artifacts as typed successes. The daemon-side truth is the transcript endpoint (`curl :7433/transcripts`), not the optimistic CLI echo, which acknowledges acceptance (202) rather than completion.
+
+### Pin what you verify behavior against
+`requirements.txt` had `google-genai` unpinned, so per-worktree venvs drifted (2.2.0 on main vs 2.8.0 in a views worktree) and each worktree validated a different library. Pinned `==2.2.0` in #134. Rule: any dependency a lane verifies behavior against gets pinned **in that lane** — otherwise the smoke result isn't reproducible across worktrees.
+
+### Every consumer needs an edge — including the shell
+The renderer's `mesh.invoke` routes as the `shell` node; the `shell → lanes.status` edge was missing and the mesh correctly denied it (caught and amended mid-smoke in #136). Any new renderer data path is a manifest edge check, exactly like any new node. The shell is not exempt from the edge graph just because it isn't a daemon.
+
+### Hand-edit hotfix shape
+#134 shipped as an Architect-dictated, Director-applied edit with an isolation smoke — the fastest correct path for an exactly-diagnosed fix. It extends the CLAUDE.md §13.10 hand-edit family: where shapes 1–5 cover CC-drafted or CC-stalled work, this is the deliberately hand-edited hotfix taken when the diagnosis is precise enough that spinning up a CC session would only add latency.

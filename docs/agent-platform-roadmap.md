@@ -263,11 +263,21 @@ This serializes nicely: archive + vendor → CLI/dashboard → visualizer → vo
 
 ### Near-term lanes (post-Sprint-6, ahead of Sprint 7)
 
-Two lanes promoted out of their original sprint homes by Sprint 6 findings. They run before the sensor-breadth work because each closes a gap Sprint 6 exposed.
+Three lanes promoted out of their original sprint homes by Sprint 6 findings. They run before the sensor-breadth work because each closes a gap Sprint 6 exposed. Lanes 1 and 3 landed in flight (see the markers below); lane 2 is still queued.
 
-1. **Ambient voice (IMMEDIATE next lane).** Hot mic + readiness signal + listen-state machine, per the elevated Sprint 6.5 note above. This is the front-door fix: Sprint 6 left voice reachable only via curl, so ambient presence is the next thing that makes voice usable end-to-end. Pulls forward the wake-word + turn-taking scope from Sprint 14.
+1. **Ambient voice (IMMEDIATE next lane — LANDED).** Hot mic + readiness signal + listen-state machine, per the elevated Sprint 6.5 note above. This is the front-door fix: Sprint 6 left voice reachable only via curl, so ambient presence is the next thing that makes voice usable end-to-end. Pulls forward the wake-word + turn-taking scope from Sprint 14. Shipped (ambient listening v1) along with the CLI-as-one-brain text path (#132) that routes typed input through the same live raven session as speech.
 
 2. **Graphical mesh visualization + iframe sandbox relaxation.** Sequence: *after* ambient voice. v1 visualizer panels are script-free (`text`/`markdown` only) because the shell renders panels under `sandbox=""`; a graphical SVG mesh viz needs scripts. The relaxation is a **trusted-origins allowlist**: a panel gets `allow-scripts` because its *origin* is trusted (the local scene server), never because the individual panel asks for it. This lands the SVG radial mesh viz deferred from 6.4 and establishes the origin-trust policy that any future scripted panel inherits.
+
+3. **Instrument views (LANDED IN FLIGHT).** A navigable top bar above the always-present CLI (Scene · Chats · Mesh · Lanes), turning the cockpit from a single ambient surface into a small set of *instrument views*. **Lanes view** shipped in #136 — a worktree-lanes sidebar (semantic order: main → active → recent) plus a detail pane fed by `lanes.status` and the #133 PR-state/commit enrichment. The **mesh graph view** and **voice navigation** (spoken "show me lanes/mesh" routing to the matching view) landed too (#138/#140). **Scene** stays the default ambient home and is kept mounted across view switches so summoned panels survive. This pulls the ~Sprint 9 2D-spatial workspace work forward in *views* form, but the scene remains the ambient home: instrument views are diagnostic chrome *around* the scene, not a return to content apps — they are not windowed apps, and the 6.1 content-app archive stands.
+
+### Next named lanes
+
+The named follow-ons to the instrument-views arc, in no committed order. Each is small and unblocked.
+
+- **Chats persistence + Chats view.** The Chats top-bar slot ships as a "soon" placeholder; this names its real content. The prerequisite — output transcription, raven's spoken replies teed onto the transcript channel — landed in #132, so the full conversation log (typed/spoken in, spoken-as-text out) is now available to persist and render. Lane = persist the transcript and surface it in the Chats view.
+- **Re-summon-focus polish.** A re-summoned panel is refreshed in place rather than re-announced, which is correct but currently silent. The lane adds an attention affordance — a visible cue that the in-place panel just updated — so a re-summon reads as a response rather than nothing happening.
+- **Greeting re-enable (candidate micro-lane).** The verbal ready cue was disabled (#129/#132) pending a "redesign" because injecting a greeting *instruction* as a user turn interleaved with the user's first real turn. The #134 RCA reframes this from redesign to likely-trivial: with text-injection ready-at-connect (#134), a greeting injected at session start no longer buffers against the first turn. Worth a small lane to re-enable and smoke.
 
 ### Sprint 7 — Sensor breadth (was Sprint 6 pre-shift)
 

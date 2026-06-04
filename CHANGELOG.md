@@ -36,6 +36,18 @@ historical record.
   panel overlay (visualize), while "go to the mesh" switches the whole view
   (navigate) — the voice prompt disambiguates by verb. Voice tool count
   fifteen → sixteen.
+- Cockpit-day bank — banks the 2026-06-03 (evening) "cockpit day" lessons in
+  `docs/governance-log.md`: six entries covering intent-over-mechanism spec
+  discipline (four Architect-stated mechanisms corrected by Implementers reading
+  code in #129–#134), smoke-the-bits-you-ship, new-path isolation smoking,
+  pin-what-you-verify-behavior-against, every-consumer-needs-an-edge (the shell
+  included), and the hand-edit hotfix shape (extends §13.10). Amends
+  `docs/agent-platform-roadmap.md`: records the instrument-views arc (top bar +
+  Lanes view #136; mesh graph view + voice navigation in flight) as a near-term
+  lane that landed in flight, noting it pulls the ~Sprint 9 2D-spatial work
+  forward in views form while the scene stays the ambient home; and names the
+  next lanes (Chats persistence + Chats view, re-summon-focus polish, greeting
+  re-enable). Docs-only.
 - Instrument views — top bar + Lanes view v1. The cockpit gains a navigable
   top bar (Scene · Chats · Mesh · Lanes) above the always-present CLI. **Scene**
   is the unchanged ambient panel dashboard and stays the default home (kept
@@ -303,6 +315,17 @@ historical record.
   on 2026-05-26 for full direction-shift context.
 
 ### Fixed
+- Text-injection ready gate fixed + `google-genai` pinned (retroactive — #134
+  shipped in hotfix haste without a CHANGELOG line). Typed input racing session
+  connect was buffered behind a ready flag the daemon set on `setup_complete`,
+  but `setup_complete` never traverses raven's receive loop — so the gate never
+  opened and the first typed turn could hang. The ready gate is now set **at
+  connect** (when the session is live) rather than on a `setup_complete` that
+  never arrives through the loop. Separately, `requirements.txt` left
+  `google-genai` unpinned; per-worktree venvs had drifted (2.2.0 on main vs
+  2.8.0 in a views worktree), so different worktrees validated different library
+  versions — pinned `==2.2.0`. Shipped as an Architect-dictated, Director-applied
+  hand-edit with an isolation smoke (typed-first, zero speech). Closes #134.
 - `macos_messages` self-sent iMessages now appear on
   `macos_messages.recent`. The canonical chat.db query watermarked and
   ordered on `message.date_delivered`, which is 0 for messages sent

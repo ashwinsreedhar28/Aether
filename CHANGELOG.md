@@ -10,6 +10,16 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Re-summon attention affordance — when a summon refreshes a Scene panel that is
+  already on screen (e.g. saying "show me the mesh" a second time updates the
+  `viz-mesh` overlay in place), the card now acknowledges it: a restrained ~1.5s
+  accent box-shadow pulse (one ease-out swell, no bounce/flash per §15) plus a
+  `scrollIntoView({ block: 'nearest' })` that brings it back into view only if
+  it had scrolled off-screen. SceneView tracks a per-id pulse nonce in a reducer
+  and bumps it whenever a delta updates an already-rendered panel; brand-new
+  panels (appends) keep their plain entry behavior, and `dashboard.*` backdrop
+  panels — re-POSTed on the visualizer's poll loop, not summoned — are excluded
+  from the affordance. Respects `prefers-reduced-motion`. Renderer-only.
 - Chats persistence — durable transcripts + Chats view. Conversations now
   survive restarts. The raven-daemon persists every transcript entry as JSONL
   (one file per session under `<userData>/raven/transcripts/`), keying each

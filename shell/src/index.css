@@ -37,3 +37,35 @@ body,
 .holo-nav-btn[data-active='false']:hover {
   color: var(--holo-text);
 }
+
+/* Re-summon attention pulse. Applied to a Scene card when a summon refreshes
+ * a panel that's already on screen (SceneView bumps a per-id nonce; the card
+ * re-triggers this by remove/reflow/re-add). A single accent swell on the
+ * box-shadow — reads as the border lighting up, then fading. §15 restraint:
+ * one ease-out swell, no bounce, no flash. box-shadow (not border-color) so it
+ * never fights the card's inline borderColor. */
+@keyframes resummon-pulse {
+  0% {
+    box-shadow:
+      0 0 0 1px rgba(var(--holo-accent-rgb), 0),
+      0 0 0 0 rgba(var(--holo-accent-rgb), 0);
+  }
+  25% {
+    box-shadow:
+      0 0 0 1px rgba(var(--holo-accent-rgb), 0.9),
+      0 0 18px 0 var(--holo-glow);
+  }
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(var(--holo-accent-rgb), 0),
+      0 0 0 0 rgba(var(--holo-accent-rgb), 0);
+  }
+}
+.resummon-pulse {
+  animation: resummon-pulse 1.5s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .resummon-pulse {
+    animation: none;
+  }
+}

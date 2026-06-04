@@ -12,6 +12,7 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as readline from 'readline';
 import { randomUUID } from 'crypto';
+import { TranscriptStore } from './transcriptStore';
 import type {
   RavenState,
   RavenStatus,
@@ -30,11 +31,20 @@ export class RavenManager extends EventEmitter {
   private toolCallBuffer: ToolCallEntry[] = [];
   private ravenDir: string;
   private pythonPath: string;
+  private store: TranscriptStore;
+  // One session per child spawn (set in start()). Empty until the first spawn;
+  // transcripts only arrive while a child is alive, so it is always set by then.
+  private sessionId = '';
 
-  constructor(ravenDir: string, pythonPath: string) {
+  constructor(ravenDir: string, pythonPath: string, dataDir: string) {
     super();
     this.ravenDir = ravenDir;
     this.pythonPath = pythonPath;
+    this.store = new TranscriptStore(dataDir);
+    // Seed the ring from disk so /transcripts serves prior-session history the
+    // moment the daemon is up — before any new turn. The ring stays the hot
+    // path; this is just its durable tail loaded back in.
+    this.transcriptBuffer = this.store.loadRecent(MAX_TRANSCRIPT_BUFFER);
   }
 
   getState(): RavenState {
@@ -71,6 +81,11 @@ export class RavenManager extends EventEmitter {
     }
 
     this.updateState({ status: 'starting', error: undefined });
+
+    // New child = new conversation session. Tag every entry from this spawn
+    // with this id and route its persistence to a fresh JSONL file.
+    this.sessionId = randomUUID();
+    this.store.openSession(this.sessionId);
 
     const mainScript = path.join(this.ravenDir, 'main.py');
     const args = [mainScript, '--mode', 'none', '--json-output'];
@@ -154,6 +169,18 @@ export class RavenManager extends EventEmitter {
       return false;
     }
     this.process.stdin.write(JSON.stringify({ type: 'text', text }) + '\n');
+    // Typed turns produce no spoken audio, so raven-core emits no 'user'
+    // transcript for them (unlike a spoken turn). Synthesize one here so the
+    // typed line lands in the same transcript stream — persisted, ringed, and
+    // pushed over WS — exactly like every other turn. The shell CLI and the
+    // Chats view both render it from this one push (no optimistic local echo).
+    this.recordTranscript({
+      id: randomUUID(),
+      sessionId: this.sessionId,
+      timestamp: new Date().toISOString(),
+      speaker: 'user',
+      text,
+    });
     return true;
   }
 
@@ -247,12 +274,23 @@ export class RavenManager extends EventEmitter {
   }
 
   private handleTranscriptEvent(event: Extract<RavenLogEvent, { type: 'transcript' }>): void {
-    const entry: TranscriptEntry = {
+    this.recordTranscript({
       id: randomUUID(),
+      sessionId: this.sessionId,
       timestamp: event.timestamp,
       speaker: event.speaker as 'user' | 'raven' | 'system',
       text: event.text,
-    };
+    });
+  }
+
+  /**
+   * The single sink for a finished transcript entry: persist it (durable tail),
+   * push it onto the in-memory ring (hot path, capped), and emit it for the WS
+   * broadcast. Used by both the raven-core stream and the synthetic typed-user
+   * turn so they share one code path.
+   */
+  private recordTranscript(entry: TranscriptEntry): void {
+    this.store.append(entry);
     this.transcriptBuffer.push(entry);
     if (this.transcriptBuffer.length > MAX_TRANSCRIPT_BUFFER) {
       this.transcriptBuffer.shift();

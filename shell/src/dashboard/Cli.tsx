@@ -22,9 +22,10 @@ function makeTextPanel(text: string): Record<string, unknown> {
 // Permanent bottom input strip, Claude-Code-style: a scrolling transcript echo
 // above a single input line. The echo subscribes to voice.onTranscript — the
 // same push channel the voice path uses — so a typed conversation reads exactly
-// like a spoken one (one brain). Typed turns don't produce a 'user' transcript
-// (no audio to transcribe), so we echo the accepted line optimistically; raven's
-// reply arrives as 'raven' fragments via output_audio_transcription.
+// like a spoken one (one brain). The daemon emits a 'user' transcript for typed
+// turns too (synthesized at /text-accept, since there's no audio to transcribe),
+// so both the typed line and raven's 'raven' reply fragments arrive on this one
+// push — nothing is echoed optimistically.
 //
 // The inline ✓/✗ line below the input is reserved for send-time acks that the
 // echo can't carry: /post confirmation and ✗ errors (cold mic, bad command).
@@ -40,7 +41,12 @@ const SPEAKER_LABEL: Record<TranscriptEntry['speaker'], string> = {
   system: 'system',
 }
 
-export function Cli(): React.ReactElement {
+// `showEcho` hides the rolling transcript echo without unmounting the CLI: on
+// the Chats view the conversation IS the transcript, so the echo would be a
+// redundant second copy. The log keeps accumulating (the onTranscript
+// subscription stays live) — only its display is gated — so switching back to
+// another view shows the full echo, uninterrupted.
+export function Cli({ showEcho = true }: { showEcho?: boolean }): React.ReactElement {
   const [value, setValue] = useState('')
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   // In-memory only; no persistence needed this lane. `historyIdx === null`
@@ -131,10 +137,10 @@ export function Cli(): React.ReactElement {
       setFeedback({ kind: 'err', text: `Not sent: ${reason}` })
       return
     }
-    // Accepted: echo the typed line into the transcript (no 'user' push comes
-    // back for typed input) — that bubble IS the ack, so clear the ✓ line.
-    // Raven's reply streams in as 'raven' fragments.
-    appendLine('user', text)
+    // Accepted: the daemon now emits a 'user' transcript for typed turns (the
+    // same push the spoken path and the Chats view ride), so the echo arrives
+    // via onTranscript above — no optimistic local append, no double line.
+    // Clear the ✓ line; raven's reply streams in as 'raven' fragments.
     setFeedback(null)
     commit(text)
   }
@@ -184,7 +190,7 @@ export function Cli(): React.ReactElement {
       className="shrink-0 border-t"
       style={{ borderColor: 'var(--holo-border)', background: 'var(--holo-panel)' }}
     >
-      {log.length > 0 && (
+      {showEcho && log.length > 0 && (
         <div className="max-h-48 overflow-y-auto px-4 py-2 font-mono text-xs leading-relaxed">
           {log.map((line) => (
             <div key={line.id} className="whitespace-pre-wrap break-words">

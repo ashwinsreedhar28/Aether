@@ -10,6 +10,30 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Chats persistence — durable transcripts + Chats view. Conversations now
+  survive restarts. The raven-daemon persists every transcript entry as JSONL
+  (one file per session under `<userData>/raven/transcripts/`), keying each
+  entry to a `sessionId` minted per child spawn; the in-memory ring stays the
+  hot path and is seeded from disk on boot, so `GET /transcripts?limit=N` serves
+  cross-session history immediately. Typed turns — which raven-core never
+  transcribes (no audio) — now get a synthesized `user` transcript at
+  `/text`-accept, so they ride the same persisted/ringed/pushed stream as spoken
+  turns; the CLI consequently drops its optimistic echo and renders that one
+  push (no double line). The shell exposes `voice.getTranscripts({limit})`
+  (preload + a `voice:get-transcripts` IPC) that does not gate on mic
+  availability — history shows whenever the daemon is reachable, empty list
+  otherwise. The Chats tab's placeholder becomes a Claude-web-style view
+  (LanesView idiom): a left sidebar of past sessions (newest first, the current
+  one badged LIVE) and a detail pane showing the selected session's
+  conversation — you/aether aligned chat bubbles in the CLI's monospace
+  aesthetic, `system` lines as centered notes, newest at the bottom, near-bottom
+  autoscroll. It defaults to the live session and live-appends there over the
+  existing `onTranscript` push; the live session is learned from live pushes
+  (not loaded history) so a reboot never mislabels the previous session as live.
+  On the Chats view the global CLI's echo log is hidden (the conversation IS the
+  transcript there) while its input stays — a `showEcho` prop on `Cli`, gated by
+  the Shell's active view, not a fork. No mesh/manifest/prompts changes —
+  transcripts ride the existing daemon transport.
 - Gap sensor — Aether notices what it can't do. A new `report_gap` voice tool
   (raven-core's seventeenth) fires whenever raven hits a request no tool,
   surface, or data covers: it records a one-line description of the missing

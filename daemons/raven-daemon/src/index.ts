@@ -25,6 +25,11 @@
  *   POST /text           inject a typed user turn into the live session
  *                        (same brain as voice). 202 {ok:true} on accept,
  *                        409 {error:'no_session'} when nothing is listening
+ *   GET  /transcripts    recent transcript entries, newest last, spanning
+ *                        sessions (?limit=N, default 20). Backed by an
+ *                        in-memory ring seeded from disk on boot, so history
+ *                        survives restarts (see transcriptStore.ts).
+ *   GET  /tool-calls     recent tool-call entries (?limit=N, default 20)
  *
  * WebSocket (same port):
  *   subscribe to channels "status" | "transcripts" | "tool-calls" | "all".
@@ -52,7 +57,9 @@ const PYTHON_PATH = process.env.RAVEN_PYTHON || 'python3';
 const DATA_DIR =
   process.env.RAVEN_DAEMON_DATA_DIR || path.join(os.homedir(), '.raven');
 
-const ravenManager = new RavenManager(RAVEN_DIR, PYTHON_PATH);
+// DATA_DIR is the daemon's userData dir (daemon.pid lives here too); transcript
+// JSONL files persist under <DATA_DIR>/transcripts/. See transcriptStore.ts.
+const ravenManager = new RavenManager(RAVEN_DIR, PYTHON_PATH, DATA_DIR);
 
 interface WsClient {
   ws: WebSocket;

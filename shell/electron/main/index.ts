@@ -369,6 +369,18 @@ ipcMain.handle('voice:recent-transcripts', (_e, limit?: number) => {
   }
   return raven.transcripts(typeof limit === 'number' ? limit : 5)
 })
+// Durable transcript history for the Chats view. Unlike recent-transcripts this
+// does NOT gate on voice availability: the daemon persists across restarts and
+// may hold prior-session history even when the mic isn't currently hot. If the
+// daemon is unreachable the request throws — we map that to an empty list so the
+// view degrades to its empty state instead of crashing.
+ipcMain.handle('voice:get-transcripts', async (_e, limit?: number) => {
+  try {
+    return await raven.transcripts(typeof limit === 'number' ? limit : 200)
+  } catch {
+    return { transcripts: [] }
+  }
+})
 ipcMain.handle('voice:recent-tool-calls', (_e, limit?: number) => {
   if (raven.getAvailability().kind !== 'available') {
     return { toolCalls: [] }

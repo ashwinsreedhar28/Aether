@@ -18,6 +18,7 @@ import {
   getMeshState,
 } from './services/mesh'
 import { registerFileHandlers } from './handlers/files'
+import { registerSceneOrderHandlers } from './handlers/sceneOrder'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
@@ -523,6 +524,7 @@ app.whenReady().then(() => {
   // voice) are OFF this critical path; their respective status surfaces
   // (Mesh Dev Tools pill, Voice pill) flip when each becomes healthy.
   registerFileHandlers()
+  registerSceneOrderHandlers()
   splashWindow = createSplash()
   mainWindow = createMain()
   createTray()

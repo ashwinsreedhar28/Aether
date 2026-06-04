@@ -147,6 +147,15 @@ export function sceneServerStatePath(): string {
   return join(sceneServerDataDir(), 'scene_state.json')
 }
 
+// Durable Scene-arrangement order: the user's drag-reordered panel-id sequence.
+// Lives at the top of userData as shell UI state — deliberately separate from
+// node data (nodeDataDir) and scene-server state (sceneServerStatePath), since
+// it belongs to the renderer's view, not to any node. Missing file = no saved
+// order, and the Scene renders in server arrival order (today's behavior).
+export function sceneOrderPath(): string {
+  return join(app.getPath('userData'), 'scene-order.json')
+}
+
 export const CORE_PID_FILE = (): string => join(meshRuntimeDir(), 'core.pid')
 export const CORE_LOG_FILE = (): string => join(meshRuntimeDir(), 'core.log')
 export const CORE_AUDIT_FILE = (): string => join(meshRuntimeDir(), 'audit.log')

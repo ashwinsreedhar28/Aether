@@ -10,6 +10,34 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Repo front v2 — README rewritten to describe what Aether is *today* (a voice-first
+  personal-OS substrate: signed mesh, `raven` voice brain, scene cockpit, and the
+  human-gated self-building loop `gaps → proposals → drafts`), with an honest
+  quickstart verified against the workspace scripts (`pnpm install && pnpm -r build`,
+  then `pnpm dev` from `shell/`), an ASCII architecture sketch, and a documentation
+  index. Cuts the `[Unreleased]` backlog into the dated `[0.10.0]` section below (see
+  its provenance note). Adds `docs/README.md` (documentation index) and
+  `docs/releases/v0.10.0.md` (release narrative). Sets GitHub repo topics.
+
+### Changed
+
+### Fixed
+
+### Removed
+- Stray `scratch-test.txt` from the repo root (empty placeholder; Architect-authorized
+  cleanup as part of the repo-front-v2 lane).
+
+## [0.10.0] - 2026-06-04
+
+*Provenance note: per-version CHANGELOG sectioning lapsed after `[0.0.3]` — the tags
+`v0.1.0` through `v0.9.4` were cut without matching sections, so the entries below
+aggregate the entire `v0.1.0 → v0.10.0` arc rather than only the latest tag's work.
+The v0.10.0 cut dropped and reordered nothing: only this heading changed (it was
+`[Unreleased]`). Reconstructing per-tag sections from the tag history is deferred to
+a follow-up lane. For the v0.10.0 release narrative, see
+[docs/releases/v0.10.0.md](docs/releases/v0.10.0.md).*
+
+### Added
 - Scene panel protocol contract (`docs/scene-protocol.md`, "Contract v1") — the
   AVP-track wire interface written down so the collaborator builds the 3D
   renderer against a document, not against our source. Documents the scene

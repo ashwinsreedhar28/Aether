@@ -19,9 +19,13 @@ export interface RavenState {
   error?: string;
 }
 
-// Transcript line emitted by Raven (one per turn).
+// Transcript line emitted by Raven (one per turn). `sessionId` ties the entry
+// to a single child spawn (one continuous listening session) so the Chats view
+// can group history into conversations; `timestamp` is the ISO ts used for the
+// session's date header and for ordering across sessions.
 export interface TranscriptEntry {
   id: string;
+  sessionId: string;
   timestamp: string;
   speaker: 'user' | 'raven' | 'system';
   text: string;

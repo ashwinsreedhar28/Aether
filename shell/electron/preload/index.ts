@@ -57,6 +57,9 @@ export interface RavenState {
 
 export interface TranscriptEntry {
   id: string
+  // Ties the entry to one child spawn (one conversation). The Chats view groups
+  // history by this; live and historical entries both carry it.
+  sessionId: string
   timestamp: string
   speaker: 'user' | 'raven' | 'system'
   text: string
@@ -176,6 +179,11 @@ const voice = {
     ipcRenderer.invoke('voice:send-text', text),
   recentTranscripts: (limit = 5): Promise<{ transcripts: TranscriptEntry[] }> =>
     ipcRenderer.invoke('voice:recent-transcripts', limit),
+  // Durable transcript history for the Chats view: persisted across sessions,
+  // newest last. Returns whatever the daemon's ring holds (seeded from disk on
+  // boot), or an empty list if the daemon is unreachable — never throws.
+  getTranscripts: (opts: { limit?: number } = {}): Promise<{ transcripts: TranscriptEntry[] }> =>
+    ipcRenderer.invoke('voice:get-transcripts', opts.limit ?? 200),
   recentToolCalls: (limit = 5): Promise<{ toolCalls: ToolCallEntry[] }> =>
     ipcRenderer.invoke('voice:recent-tool-calls', limit),
   onAvailabilityChanged: (cb: (a: VoiceAvailability) => void): Unsubscribe =>

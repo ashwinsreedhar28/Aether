@@ -131,8 +131,10 @@ export function Shell(): React.ReactElement {
         {view === 'lanes' && <LanesView />}
       </div>
 
-      {/* Global CLI — the type-to-Aether channel, present in every view. */}
-      <Cli />
+      {/* Global CLI — the type-to-Aether channel, present in every view. On
+          Chats the echo log is hidden (the chat view IS the transcript); the
+          input stays so you can still type to Aether from there. */}
+      <Cli showEcho={view !== 'chats'} />
     </div>
   )
 }

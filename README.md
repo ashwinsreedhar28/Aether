@@ -118,13 +118,15 @@ nodes/                    Mesh nodes (one process each) — 17 dirs, 19 manifest
 daemons/                  Detached supervised processes
 ├─ raven-daemon/          Node HTTP+WS supervisor (port 7433, loopback-only)
 ├─ raven-core/            Python Gemini Live orchestrator + ~20 voice tools
-└─ raven-avp-server/      Vendored scene server (submodule; the cockpit surface)
+└─ raven-avp-server/      Vendored RAVEN_AVP scene server (submodule; FastAPI, port 5180)
 
 manifest.yaml             Mesh topology: 19 nodes, 69 authorized edges
 _ingest/                  Reference repos (submodules, read-only — never imported at runtime)
 ```
 
 The mesh is the load-bearing primitive: there is no privileged back channel. Voice, shell, and composer nodes all reach each other only through signed envelopes the edge graph authorizes — so the manifest is the single, auditable answer to "what can talk to what."
+
+Rendering is a separate layer. The `visualizer` node composes panels and POSTs them to the **RAVEN_AVP scene server**, which holds the authoritative scene and broadcasts it to subscribers — the 2D macOS shell today, a 3D visionOS shell later. That client-facing wire contract (endpoints, panel shape, the snapshot/delta stream) is documented in [docs/scene-protocol.md](docs/scene-protocol.md) — new renderers are built against that doc, not against our source.
 
 ## Governance
 
@@ -146,6 +148,7 @@ This isn't ceremony — it's the reason a single developer can move at this spee
 | [MASTER_SYNTHESIS.md](MASTER_SYNTHESIS.md) | The architecture briefing that drove the rebuild |
 | [DECISIONS.md](DECISIONS.md) | Append-only architecture decision records |
 | [CHANGELOG.md](CHANGELOG.md) | Per-PR change history (Keep a Changelog) |
+| [docs/scene-protocol.md](docs/scene-protocol.md) | Scene-server wire contract — the renderer-facing interface (AVP track) |
 | [docs/releases/](docs/releases/v0.10.0.md) | Per-release narrative notes |
 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contribution, security, conduct |
 

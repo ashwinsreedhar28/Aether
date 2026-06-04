@@ -25,6 +25,7 @@ How work gets built and shipped.
 | Doc | What's in it |
 |---|---|
 | [new-node-pattern.md](new-node-pattern.md) | The canonical recipe for adding a mesh node |
+| [scene-protocol.md](scene-protocol.md) | Scene-server wire contract — renderer-facing (the AVP / 3D-shell track) |
 | [implementer-prompt-template.md](implementer-prompt-template.md) | The template every Implementer lane prompt is drafted against |
 | [manual-completion.md](manual-completion.md) | The hand-completion fallback for hostile-API days |
 | [BRANCH_PROTECTION.md](BRANCH_PROTECTION.md) | Branch-protection configuration and rationale |

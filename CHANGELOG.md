@@ -15,10 +15,9 @@ historical record.
   human-gated self-building loop `gaps → proposals → drafts`), with an honest
   quickstart verified against the workspace scripts (`pnpm install && pnpm -r build`,
   then `pnpm dev` from `shell/`), an ASCII architecture sketch, and a documentation
-  index. Added `docs/README.md` (documentation index) and `docs/releases/v0.10.0.md`
-  (release narrative). Set GitHub repo topics. See the PR body for the v0.10.0 version
-  proposal (pending Director confirmation) and the CHANGELOG-sectioning debt this cut
-  surfaces.
+  index. Cuts the `[Unreleased]` backlog into the dated `[0.10.0]` section below (see
+  its provenance note). Adds `docs/README.md` (documentation index) and
+  `docs/releases/v0.10.0.md` (release narrative). Sets GitHub repo topics.
 
 ### Changed
 
@@ -39,6 +38,50 @@ a follow-up lane. For the v0.10.0 release narrative, see
 [docs/releases/v0.10.0.md](docs/releases/v0.10.0.md).*
 
 ### Added
+- Scene panel protocol contract (`docs/scene-protocol.md`, "Contract v1") — the
+  AVP-track wire interface written down so the collaborator builds the 3D
+  renderer against a document, not against our source. Documents the scene
+  server's endpoints as implemented (`GET /scene`, `POST /scene/panel[/{id}]`,
+  the whole-doc `PUT`/`PATCH`, deletes, the entity mirror, and `WS /scene/stream`),
+  panel anatomy (fields, the 8-value `kind` enum vs. the 3 the 2D shell renders,
+  create-vs-merge semantics, the string-only `style` constraint, ordering),
+  lifecycle (summon → POST → broadcast → render, snapshot/delta frame shapes,
+  reconnect, no-op-writes-emit-no-delta, what consumers may not assume), real
+  producer payloads (`dashboard.*` backdrops + `viz-*`/`cli-*` overlays), and a
+  versioning rule (breaking wire changes bump the contract and ping the AVP
+  owner). Includes an "observed discrepancies" appendix recording six
+  doc-vs-code / doc-vs-doc mismatches found while writing it (none fixed — docs
+  lane). Cross-linked from the README architecture section. No code changes.
+- Stale-dist boot guard for the TS mesh nodes. At shell boot, as each TS node is
+  about to spawn, `NodeManager.spawnNode` now calls a new
+  `shell/electron/main/services/staleDist.ts` helper that compares the newest
+  file mtime under the node's `src/` against its `dist/` build output; if `src/`
+  is newer it logs a LOUD warning naming the node
+  (`[guard] nodes/visualizer dist older than src — run pnpm -r build`). Catches
+  the install-≠-build trap where `pnpm install` (or a branch switch touching a
+  node's source) leaves the shell silently spawning stale compiled code off an
+  otherwise "fresh main" (the TS-node sibling of PR #168's stale-daemon finding;
+  Python nodes run from source and have no dist/ to drift). Warn-only v1 — a
+  cheap mtime walk with no hashing and zero new deps; it never auto-builds and
+  never blocks the spawn. Because the check sits in the shared `spawnNode` path,
+  every current and future TS node is covered automatically.
+- Day-2 bank — banks the 2026-06-04 "self-building day" lessons in
+  `docs/governance-log.md`: six entries covering the stale family completed
+  (stale runtime / stale detached daemon — raven's `_discover_tool_modules`
+  runs once at spawn so an orphan serves the old tool set, #168 / stale dist —
+  install ≠ build, TS runs compiled while python runs from source; "fresh"
+  proven at every layer the change rides), calibrate-the-oracle (a smoke's
+  external ground truth — e.g. Calendar.app's timezone — is part of the test
+  rig; verify the instrument before trusting the failure, #170's false
+  negative), recount-don't-inherit (parallel editors of one scalar — the tool
+  count — re-derive it from ground truth at merge, never adopt either branch's
+  value, #168), the recon-first guardrail (a fixed template line makes thin
+  machine-drafted specs self-limiting — recon and STOP at uncovered decisions,
+  rung 1), rung-1 expectations set (live-session drafts are fireable starts for
+  simple lanes, guarded skeletons for hard ones; depth is model-bounded; rung
+  1.5 offline-model composition banked), and routing-is-runtime-behavior (a
+  declared tool isn't a called tool — instruction strength earns the call in
+  the live session, not the harness). Docs-only.
 - Architect rung 1 — accepted proposals become paste-ready lane prompts on disk.
   A new `draft_lane` voice tool
   (`daemons/raven-core/raven_core/tools/draft_lane_tool.py`) takes ONE accepted
@@ -531,6 +574,30 @@ a follow-up lane. For the v0.10.0 release narrative, see
 - Aether macOS app icon. Replaces the default Electron icon in Dock, Activity Monitor, Finder, and Cmd-Tab. Source assets in `docs/branding/`.
 
 ### Changed
+- Mesh view — category is now a structural signal, not just a band label.
+  Each node's **shape encodes its category** (Sensor → circle, Actor → rounded
+  square, Mixer → hexagon, spine `core`/`raven`/`shell` → larger rounded rect),
+  so category reads at a glance regardless of status. A **muted category hue**
+  (Sensors teal, Actors coral, Mixers violet, spine accent-blue) tints the 1px
+  node border on running nodes and the resting edge web (each edge inherits its
+  *source* node's tint at low opacity). Fills stay neutral dark — no saturated
+  fills — and status stays honest: `unhealthy` keeps its amber border, `stopped`
+  keeps muted, and the running glow is unchanged. No new motion; labels, layout,
+  and all #161 hover/selection/edge-click hit-paths are untouched (the focus
+  accent still wins over the category tint). Renderer-only: `MeshView.tsx`.
+- RAVEN voice prompt no longer hardcodes a tool *count*. The
+  `voice_assistant.system_instruction` lead-in in
+  `daemons/raven-core/raven_core/prompts/prompts.json` changed from "You have
+  **twenty** tools available:" to "You have **the following** tools available:";
+  the numbered 1–20 list itself is unchanged. The literal count had drifted
+  repeatedly as tools were added (it was re-asserted by hand at every rebase, and
+  was already inaccurate — calendar and mail tools are live but absent from the
+  numbered list, so any single number undercounts the real registered set).
+  Dropping the number is the smaller honest fix: a one-line wording change with
+  zero loader plumbing, and "the following tools" cannot go stale. (Deriving and
+  injecting a count at spawn was the alternative; rejected as both larger and
+  still dishonest, since a derived total would not match the hand-maintained 1–20
+  list either.)
 - Chores — three governance/manifest debts in one lane. (1) **Honored the
   manifest schema's 280-char `metadata.description` bound**: trimmed the 14
   over-length node descriptions so the loader's JSON-Schema check passes clean
@@ -607,6 +674,17 @@ a follow-up lane. For the v0.10.0 release narrative, see
   on 2026-05-26 for full direction-shift context.
 
 ### Fixed
+- First-summoned Scene panels now scroll into view + pulse, not just re-summons.
+  A never-seen panel arrives as an `add` delta and `applyOrder` appends unknown
+  ids to the bottom, so a first summon could materialize below the fold while
+  RAVEN announced it — with no scroll/pulse cue (the affordance fired only on
+  `update` deltas to already-rendered panels). `reconcile` now reports EVERY
+  summon-driven appearance — fresh append OR in-place refresh — in `summoned`
+  (renamed from `resummoned`); the reducer bumps the panel's pulse nonce in the
+  same transition that adds it, so the new card mounts at nonce 1 and its first
+  render fires scroll-into-view + pulse. Dashboard.* backdrops stay excluded
+  (their ~10s poll re-POSTs don't pulse), re-summons (#149) and drag-order
+  persistence (#166) are unchanged. Renderer-only (`shell/src/dashboard/SceneView.tsx`).
 - `macos_mail.recent` rejected the `unread_only` param RAVEN's `mail_recent`
   tool has always sent. The surface schema was `additionalProperties: false`
   with only `limit`/`since`, so Core's payload validation returned

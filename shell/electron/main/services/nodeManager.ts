@@ -22,6 +22,7 @@ import {
   nodeDataDir,
 } from './paths'
 import type { MeshSecrets } from './secrets'
+import { warnIfDistStale } from './staleDist'
 
 const SHUTDOWN_GRACE_MS = 3_000
 
@@ -345,6 +346,9 @@ export class NodeManager {
         `${spec.id} dist not found at ${spec.entry}. Run ${spec.buildHint} and retry.`,
       )
     }
+    // Dist exists — but it may be stale relative to src/ (install ≠ build).
+    // Warn loudly so we don't silently spawn old code; never block the spawn.
+    warnIfDistStale(spec.entry)
     const log = createWriteStream(NODE_LOG_FILE(spec.id), { flags: 'a' })
     log.write(`\n--- ${spec.id} spawn @ ${new Date().toISOString()} ---\n`)
     const env: NodeJS.ProcessEnv = {

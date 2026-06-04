@@ -11,12 +11,12 @@ The implementation invokes ``visualizer.render`` through
 edge ``raven → visualizer.render`` in manifest.yaml authorises the hop;
 without it Core would reject the envelope.
 
-v1 is intent ``mesh`` only — "show me the mesh" summons the topology
-overlay. The visualizer's render surface is intent-routed and the tool
-mirrors that shape (an optional ``intent`` param defaulting to ``mesh``)
-so it scales as intents grow, but the prompt only wires the mesh intent
-into the voice path. Do NOT narrate the panel's contents; the panel
-speaks for itself visually.
+The visualizer's render surface is intent-routed and the tool mirrors
+that shape (an optional ``intent`` param defaulting to ``mesh``). Voice-
+summonable intents: ``mesh`` (topology), ``lanes`` (dev lanes), ``gaps``
+(capability gaps), ``agenda`` (today/tomorrow calendar). Each is wired in
+the system prompt with a "show me / bring up / pull up" trigger. Do NOT
+narrate the panel's contents; the panel speaks for itself visually.
 """
 from __future__ import annotations
 
@@ -28,10 +28,11 @@ from ..mesh_client import MeshUnavailable, mesh_invoke
 
 FUNCTIONS = ["visualize"]
 
-# v1 voice path summons only the mesh-topology overlay. The visualizer
-# accepts other intents (e.g. 'dashboard') but those are not voice-
-# summonable yet — dashboard is the auto-seeded backdrop, not a spoken
-# command. Default here keeps a bare visualize() call meaningful.
+# 'mesh' is the default for a bare visualize() call. The visualizer also
+# accepts 'dashboard', but that is the auto-seeded backdrop (not voice-
+# summonable). Voice-summonable intents (mesh/lanes/gaps/agenda) are each
+# passed explicitly by raven per the system prompt; this default only
+# covers an intent-less call.
 DEFAULT_INTENT = "mesh"
 
 
@@ -66,9 +67,16 @@ def get_tools() -> list[types.Tool]:
             "returns only a success/failure signal — it does NOT return "
             "content to read aloud. After calling it, speak a brief "
             "acknowledgment only; never enumerate the panel's contents "
-            "(nodes, edges, counts). Currently supports intent 'mesh', "
-            "which summons the live mesh topology overlay. Use when the "
-            "user asks to SEE or SHOW the mesh."
+            "(nodes, edges, counts). Supported intents: 'mesh' (live mesh "
+            "topology), 'lanes' (active development lanes), 'gaps' (recorded "
+            "capability gaps), 'agenda' (the user's calendar — today and "
+            "tomorrow, time-ordered). Use whenever the user asks to SEE or "
+            "SHOW one of these: 'show me the mesh', 'show me my lanes', 'show "
+            "me your gaps', and 'show me my agenda' / 'bring up my agenda' / "
+            "'pull up my calendar' (intent 'agenda'). Pass the matching "
+            "intent. The 'agenda' intent DISPLAYS the calendar panel and is "
+            "distinct from calendar_today, which READS events aloud — a SHOW "
+            "request summons the panel, it does not read the schedule."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
@@ -76,9 +84,10 @@ def get_tools() -> list[types.Tool]:
                 "intent": types.Schema(
                     type=types.Type.STRING,
                     description=(
-                        "What to visualize. Currently 'mesh' (the live "
-                        "mesh topology overlay). Defaults to 'mesh' if "
-                        "omitted."
+                        "What to visualize: 'mesh' (live mesh topology), "
+                        "'lanes' (development lanes), 'gaps' (capability "
+                        "gaps), or 'agenda' (today/tomorrow calendar). "
+                        "Defaults to 'mesh' if omitted."
                     ),
                 ),
             },

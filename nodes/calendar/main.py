@@ -48,7 +48,15 @@ def ns_date_from_python(dt: datetime) -> Any:
 
 
 def python_date_from_ns(ns_date: Any) -> datetime:
-    """Convert NSDate to Python datetime."""
+    """Convert NSDate to Python datetime in the SYSTEM-LOCAL zone.
+
+    Times are ALWAYS local — datetime.fromtimestamp() (no tz arg) renders in
+    the machine's zone, matching Calendar.app's default and when the event
+    actually lands in the user's day. Do NOT "fix" this to honour each event's
+    own EKEvent.timeZone(): that makes an Eastern meeting read 4:30 PM on a
+    Pacific machine instead of 1:30 PM, diverging from a local Calendar.app
+    (decided by smoke, this lane).
+    """
     timestamp = ns_date.timeIntervalSince1970()
     return datetime.fromtimestamp(timestamp)
 

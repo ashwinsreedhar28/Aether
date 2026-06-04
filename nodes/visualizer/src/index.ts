@@ -3,13 +3,22 @@ import { join } from 'node:path'
 import { MeshNode, MeshDeny, type Envelope, type Handler } from '@aether/mesh-node-sdk'
 import { SceneClient } from './scene_client'
 import {
+  renderAgendaPanels,
   renderDashboardPanels,
   renderGapsPanels,
   renderLanesBackdropPanels,
   renderLanesOverlayPanels,
   renderMeshPanels,
 } from './templates'
-import type { GapsResult, LanesStatus, RenderResult, ScenePanel, Topology } from './types'
+import type {
+  AgendaData,
+  CalendarResult,
+  GapsResult,
+  LanesStatus,
+  RenderResult,
+  ScenePanel,
+  Topology,
+} from './types'
 
 // The visualizer is a MIXER mesh node: it composes other surfaces
 // (mesh_introspection.topology) into a presentation (scene panels). It is the
@@ -20,7 +29,8 @@ import type { GapsResult, LanesStatus, RenderResult, ScenePanel, Topology } from
 // envelope to a template function. Adding an intent later = add a template +
 // a switch case (the routing is deliberately trivially extensible). Intents:
 // 'mesh' (summoned topology overlay), 'dashboard' (always-present backdrop),
-// 'lanes' (backdrop + overlay), 'gaps' (summoned gap-log overlay).
+// 'lanes' (backdrop + overlay), 'gaps' (summoned gap-log overlay), 'agenda'
+// (summoned today/tomorrow calendar overlay).
 
 const NODE_ID = 'visualizer'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
@@ -34,6 +44,11 @@ const GAPS_SURFACE = 'intents.list'
 // Newest ~20 gaps is plenty for an at-a-glance "what couldn't Aether do" panel;
 // the gap log is low-frequency, so a small cap keeps the overlay readable.
 const GAPS_LIMIT = 20
+const CALENDAR_TODAY_SURFACE = 'calendar.today'
+const CALENDAR_UPCOMING_SURFACE = 'calendar.upcoming'
+// Pull a generous upcoming window so the agenda's "tomorrow" section is complete
+// — the template filters it down to tomorrow's date. 20 is the node's max.
+const AGENDA_UPCOMING_LIMIT = 20
 // Re-POST the dashboard backdrop on this cadence so it stays live. Uses the
 // merge endpoint (via upsert) so re-POSTs update in place — no 409 storm.
 const DASHBOARD_INTERVAL_MS = 5_000
@@ -99,6 +114,30 @@ async function fetchGaps(node: MeshNode): Promise<GapsResult> {
     throw new Error(`${GAPS_SURFACE} denied: ${reason}`)
   }
   return env.payload as unknown as GapsResult
+}
+
+// Same mesh-read pattern as fetchGaps, against a calendar surface. The calendar
+// node returns { available, events } OR a normal { available:false, reason }
+// payload (no_events / permission_denied / framework_unavailable) — those are
+// ordinary responses, NOT error envelopes, so they pass through as a
+// CalendarResult for the template to render. Only a transport/denied-edge
+// failure throws; renderAgenda catches that and renders the section unavailable
+// so a summon never fails silently.
+async function fetchCalendar(
+  node: MeshNode,
+  surface: string,
+  params: Record<string, unknown>,
+): Promise<CalendarResult> {
+  const resp = await node.invoke(surface, params)
+  if (!('kind' in resp)) {
+    throw new Error(`${surface} returned no response envelope`)
+  }
+  const env = resp as Envelope
+  if (env.kind === 'error') {
+    const reason = typeof env.payload?.reason === 'string' ? env.payload.reason : 'unknown'
+    throw new Error(`${surface} denied: ${reason}`)
+  }
+  return env.payload as unknown as CalendarResult
 }
 
 async function main(): Promise<void> {
@@ -208,6 +247,45 @@ async function main(): Promise<void> {
     return { ok: true, intent, panels: posted }
   }
 
+  // Agenda variant. UNLIKE the single-surface variants above, it composes TWO
+  // calendar surfaces — calendar.today (today's full day) and calendar.upcoming
+  // (from which the template carves tomorrow). Each read is independently
+  // resilient: a throw on either leaves that section null and the template
+  // renders it "unavailable" rather than failing the whole summon (same 6.4
+  // resilience standard as renderLanes/renderGaps). Kept as its own function
+  // rather than folded into those: the two-surface shape doesn't fit their
+  // single-fetch signature, so the §15 "wait for the third instance" extraction
+  // wouldn't cleanly cover it anyway.
+  const renderAgenda = async (intent: string): Promise<RenderResult> => {
+    let today: CalendarResult | null = null
+    let upcoming: CalendarResult | null = null
+    try {
+      today = await fetchCalendar(node, CALENDAR_TODAY_SURFACE, {})
+    } catch (err) {
+      log(`calendar.today read failed (rendering unavailable): ${errMsg(err)}`)
+    }
+    try {
+      upcoming = await fetchCalendar(node, CALENDAR_UPCOMING_SURFACE, {
+        limit: AGENDA_UPCOMING_LIMIT,
+      })
+    } catch (err) {
+      log(`calendar.upcoming read failed (rendering unavailable): ${errMsg(err)}`)
+    }
+    const data: AgendaData = { today, upcoming }
+    const panels = renderAgendaPanels(data)
+    let posted = 0
+    const failures: string[] = []
+    for (const panel of panels) {
+      const res = await scene.upsertPanel(panel)
+      if (res.ok) posted += 1
+      else failures.push(`${panel.id}: ${res.error ?? res.status ?? 'unknown'}`)
+    }
+    if (posted === 0 && failures.length > 0) {
+      return { ok: false, intent, error: `scene_post_failed: ${failures.join('; ')}` }
+    }
+    return { ok: true, intent, panels: posted }
+  }
+
   // The single inbound surface. {intent, args} arrives in the envelope payload;
   // route via switch. Unknown intent is a request-level rejection → MeshDeny
   // (distinct from a downstream failure, which returns { ok: false }).
@@ -232,6 +310,11 @@ async function main(): Promise<void> {
       case 'gaps': {
         const result = await renderGaps('gaps', renderGapsPanels)
         log(`render('gaps') → ${result.ok ? `posted ${result.panels} panel(s)` : result.error}`)
+        return result
+      }
+      case 'agenda': {
+        const result = await renderAgenda('agenda')
+        log(`render('agenda') → ${result.ok ? `posted ${result.panels} panel(s)` : result.error}`)
         return result
       }
       default:

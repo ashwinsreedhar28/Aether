@@ -72,6 +72,18 @@ export class RavenManager extends EventEmitter {
   }
 
   /**
+   * The id of the session that is live right now. Set only while a child is
+   * actually spawned, so a freshly-booted daemon (no child yet) and a stopped
+   * session both report `undefined` — the in-memory `sessionId` lingers as the
+   * last spawn's id, but we gate on a live process so it's never reported stale.
+   * Surfaced via /status so the Chats view can badge the live session on mount
+   * without waiting for its first transcript push.
+   */
+  liveSessionId(): string | undefined {
+    return this.process && this.sessionId ? this.sessionId : undefined;
+  }
+
+  /**
    * Spawn the Python child. Always launches in `--mode none` — vision is
    * vendored but disabled for week-1 voice (see daemons/README.md).
    */

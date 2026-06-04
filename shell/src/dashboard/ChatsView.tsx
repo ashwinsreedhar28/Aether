@@ -200,9 +200,11 @@ export function ChatsView(): React.ReactElement {
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
-  // The session id of the currently-active spawn, learned from LIVE pushes only
-  // (NOT from loaded history) — so right after a reboot the previous session
-  // isn't mislabeled LIVE; the badge appears once the current session emits.
+  // The session id of the currently-live spawn. Learned two ways: an exact
+  // /status read on mount (voice.status().sessionId — present only while a child
+  // is actually listening, so a reboot's prior session is never mislabeled LIVE),
+  // and live transcript pushes as a fallback if /status is unreachable or the
+  // session begins after mount. Never set from loaded history.
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null)
   // Sticky once the user clicks a session, so a background live append never
   // yanks them off the conversation they chose to read.
@@ -217,6 +219,19 @@ export function ChatsView(): React.ReactElement {
       setLiveSessionId(entry.sessionId)
       setEntries((prev) => (prev.some((e) => e.id === entry.id) ? prev : [...prev, entry]))
     })
+    // Exact-on-mount LIVE badging: ask the daemon which session is live right
+    // now so the badge appears immediately — before this session's first turn,
+    // and even when the user opens Chats mid-session (the push fired before we
+    // subscribed). Only sets when a session is actually live (sessionId present),
+    // so it never clears a value the push fallback already learned.
+    void window.aether.voice
+      .status()
+      .then((s) => {
+        if (s.sessionId) setLiveSessionId(s.sessionId)
+      })
+      .catch(() => {
+        /* daemon unreachable — first-push detection remains the fallback */
+      })
     void window.aether.voice
       .getTranscripts({ limit: HISTORY_LIMIT })
       .then(({ transcripts }) => {

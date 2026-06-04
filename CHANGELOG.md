@@ -10,6 +10,21 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Gap sensor — Aether notices what it can't do. A new `report_gap` voice tool
+  (raven-core's seventeenth) fires whenever raven hits a request no tool,
+  surface, or data covers: it records a one-line description of the missing
+  capability and declines to the user naturally in the same breath, never
+  announcing that it logged anything. The gap is persisted as **mesh data** by a
+  new `intents` node — the mesh's first node whose stored state is
+  mesh-authored rather than a re-fetchable cache of an external source. The node
+  exposes `intents.record { text, context? } → { ok, id }` (append + `fsync` to
+  an append-only JSONL log at `$AETHER_DATA_DIR/intents/gaps.jsonl`, so a crash
+  right after the ack can't lose the gap) and `intents.list { limit? } → { gaps }`
+  newest-first. Manifest edges: `raven → intents.record` (the write path) and a
+  deliberate pre-grant `shell → intents.list` for the named-next gap-visibility
+  view (every renderer consumer needs its edge first — #136's lesson). raven's
+  prompt teaches the gap/empty-result boundary: an existing tool returning empty
+  or erroring is coverage, not a gap. First brick of the self-building arc.
 - Lanes agent detection — live CC sessions per worktree. The `lanes` sensor now
   reports a per-lane `agent: { active, count } | null` alongside the existing
   file-mtime `state`, distinguishing "an agent is working this lane right now"

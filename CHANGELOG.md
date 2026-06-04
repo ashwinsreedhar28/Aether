@@ -10,6 +10,17 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Scene arrangement v1 — the Scene column is now arrangeable. Each card carries a
+  subtle six-dot grip in its header (§15 restraint — no heavy drag chrome); drag
+  it to reorder panels, with a single accent insertion line marking where the
+  panel will land. The order is per panel id and **survives restarts**: a small
+  `scene:get-order` / `scene:set-order` IPC pair persists the id sequence to
+  `scene-order.json` under userData (atomic tmp+rename write; a missing or
+  corrupt file degrades to today's server arrival order). Panels new since the
+  last save take the default placement (appended in arrival order). #149's
+  re-summon pulse + scroll-into-view still fire in place on a reordered card —
+  the list stays keyed by panel id — and dashboard backdrop refreshes still
+  don't pulse.
 - Gap **lifecycle** — gaps are now `open` or `closed`, so the ledger reflects
   what's been answered, not just what was ever missing. The `intents` node gains
   a new actor surface **`intents.close { id | match }`**: `match` closes every

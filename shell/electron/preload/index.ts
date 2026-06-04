@@ -214,6 +214,13 @@ const scene = {
   // Returns an unsubscribe function.
   onSceneEvent: (cb: (ev: SceneEvent) => void): Unsubscribe =>
     subscribe('scene:event', cb),
+  // Read the user's saved Scene arrangement (drag-reordered panel-id sequence).
+  // An empty array means no saved order; the Scene falls back to server arrival
+  // order. Never throws — a missing/corrupt file resolves to { order: [] }.
+  getOrder: (): Promise<{ order: string[] }> => ipcRenderer.invoke('scene:get-order'),
+  // Persist a new arrangement: the full panel-id sequence in display order.
+  setOrder: (order: string[]): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('scene:set-order', order),
 }
 
 const api = {

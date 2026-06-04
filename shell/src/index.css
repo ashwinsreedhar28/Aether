@@ -69,3 +69,38 @@ body,
     animation: none;
   }
 }
+
+/* Scene arrange (feat/scene-arrange). The six-dot grip in each card header is
+ * the ONLY drag affordance — §15 restraint, no heavy drag chrome. It sits muted
+ * until hovered, then brightens; the cursor signals grab / grabbing. Only the
+ * grip is draggable, so the card body (links, iframes) stays interactive. */
+.scene-grip {
+  cursor: grab;
+  color: var(--holo-muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+.scene-grip:hover {
+  color: var(--holo-text);
+}
+.scene-grip:active {
+  cursor: grabbing;
+}
+
+/* Insertion line shown in the gap between cards during a drag — a single 2px
+ * accent rule with a soft glow that reads as "the panel lands here." Positioned
+ * absolutely inside the relative card; pointer-events:none so it never steals
+ * the dragover from the card beneath it. */
+.scene-drop-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--holo-accent);
+  box-shadow: 0 0 6px var(--holo-glow);
+  pointer-events: none;
+}

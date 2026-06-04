@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { MeshNode, MeshDeny } from '@aether/mesh-node-sdk'
+import { collectAgentCwds } from './agent'
 import { collectLanes } from './git'
 import { collectPRs, type PRSnapshot } from './gh'
 import type { Lane, LaneState, LanesSnapshot, ServedLane } from './types'
@@ -11,10 +12,11 @@ import type { Lane, LaneState, LanesSnapshot, ServedLane } from './types'
 // working" layer: the dashboard.lanes backdrop (composed by the visualizer)
 // watches the very sessions building it.
 //
-// Activity is a FILE-MTIME heuristic — max(last commit, mtime of each dirty
-// file) within a 5-minute window. It does NOT detect a live CC process; a lane
-// editing nothing reads idle even with a session attached (documented limit;
-// process detection is a future enhancement). See README.
+// Each lane carries TWO orthogonal signals. `state` is a FILE-MTIME heuristic —
+// max(last commit, mtime of each dirty file) within a 5-minute window; a lane
+// editing nothing reads idle even with a session attached. `agent` is live-
+// process detection — whether a `claude` process has its cwd in the worktree
+// (via lsof; see agent.ts), independent of whether any file changed. See README.
 
 const NODE_ID = 'lanes'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
@@ -142,7 +144,11 @@ async function main(): Promise<void> {
   }
 
   const poll = async (): Promise<void> => {
-    const result = collectLanes(REPO_ROOT, ACTIVE_WINDOW_MS)
+    // Live-agent detection rides the same synchronous git tick (one local lsof
+    // call, ~25ms). null → detection unavailable this tick; each lane's `agent`
+    // degrades to null without affecting the git snapshot.
+    const agentCwds = collectAgentCwds()
+    const result = collectLanes(REPO_ROOT, ACTIVE_WINDOW_MS, agentCwds)
     if (!result.ok) {
       if (state.lastError !== result.error) {
         log(`git read failing: ${result.error}`)

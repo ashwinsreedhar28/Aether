@@ -5,22 +5,28 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 // the lanes sensor node through ONE surface, lanes.status, polled while this
 // view is mounted and on demand via the refresh affordance.
 //
-// CONTRACT (forward-looking). The lanes node currently returns the base lane
-// fields below. An enrichment lane lands `last_commit_msg`, `pr`, and
-// `gh_available` INDEPENDENTLY — this view must render gracefully whether or not
-// that enrichment has merged. So those fields are typed optional/nullable and
-// every render path degrades to "—" / a subtle note when they are absent.
+// CONTRACT (forward-looking). The lanes node returns the base lane fields below.
+// Enrichment fields (`last_commit_msg`, `pr`, `agent`) may land in separate
+// node lanes — this view must render gracefully whether or not a given
+// enrichment has merged, so they are typed optional/nullable and every render
+// path degrades to "—" / a subtle note when absent.
 //   lanes.status payload: { lanes: Lane[], fetched_at_ms: number, stale: boolean,
 //                           gh_available?: boolean }
-// Base Lane fields mirror nodes/lanes/src/types.ts; the enrichment fields
-// (last_commit_msg, pr) are the assumed shape of the pending enrichment lane —
-// pr is a small { number, state, url } object so the detail pane can show the
-// number, its state, and an openExternal link.
+// Base Lane fields mirror nodes/lanes/src/types.ts. `pr` is a small
+// { number, state, url } object so the detail pane can show the number, its
+// state, and an openExternal link. `agent` is the live-CC-session signal
+// { active, count } — null/absent when the node can't detect processes (lsof
+// unavailable), distinct from { active: false } meaning "detected, none here".
 
 interface LanePr {
   number: number
   state?: string
   url?: string
+}
+
+interface LaneAgent {
+  active: boolean
+  count: number
 }
 
 interface Lane {
@@ -32,9 +38,11 @@ interface Lane {
   last_commit_ms: number | null
   last_activity_ms: number
   state: 'active' | 'idle'
-  // Enrichment fields — may be absent until the enrichment lane merges.
+  // Enrichment fields — may be absent until the relevant node lane merges.
   last_commit_msg?: string | null
   pr?: LanePr | null
+  // Live CC session signal. null/undefined → detection unavailable.
+  agent?: LaneAgent | null
 }
 
 interface LanesPayload {
@@ -91,6 +99,33 @@ function Dot({ active }: { active: boolean }): React.ReactElement {
   )
 }
 
+// Live-agent badge: a CC session is attached to this lane. Distinct from the
+// state Dot (file-mtime activity) — this is the live-process signal. Accent
+// pill with the cockpit's glow language so a working lane reads at a glance.
+function AgentTag({ count }: { count: number }): React.ReactElement {
+  return (
+    <span
+      className="text-[9px] tracking-[0.15em] px-1.5 py-0.5 rounded font-mono shrink-0"
+      style={{
+        color: 'var(--holo-accent)',
+        border: '1px solid var(--holo-accent)',
+        boxShadow: '0 0 6px var(--holo-glow)',
+      }}
+      title={`${count} live Claude Code session${count === 1 ? '' : 's'} in this worktree`}
+    >
+      AGENT{count > 1 ? ` ×${count}` : ''}
+    </span>
+  )
+}
+
+// Detail-pane AGENT value. null/undefined → detection unavailable ("—");
+// active → live with session count; else detected-but-none.
+function agentValue(agent: LaneAgent | null | undefined): string {
+  if (!agent) return '—'
+  if (!agent.active) return 'none'
+  return `live (${agent.count} session${agent.count === 1 ? '' : 's'})`
+}
+
 // Render an enrichment value that may be absent — null/undefined/'' → em dash.
 function orDash(v: string | null | undefined): string {
   return v && v.trim() ? v : '—'
@@ -121,6 +156,7 @@ function DetailPane({
       <dl className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-2 text-xs font-mono">
         <Field label="BRANCH" value={lane.branch} />
         <Field label="STATE" value={lane.state} accent={lane.state === 'active'} />
+        <Field label="AGENT" value={agentValue(lane.agent)} accent={!!lane.agent?.active} />
         <Field label="ACTIVITY" value={`active ${formatAgo(lane.last_activity_ms)}`} />
         <Field label="DIRTY" value={`${lane.dirty_count} file${lane.dirty_count === 1 ? '' : 's'}`} />
         <Field label="LAST COMMIT" value={orDash(lane.last_commit_msg)} />
@@ -297,14 +333,20 @@ export function LanesView(): React.ReactElement {
                 >
                   <div className="flex items-center gap-2">
                     <Dot active={lane.state === 'active'} />
-                    <span className="text-xs font-mono truncate" style={{ color: 'var(--holo-text)' }} title={lane.name}>
+                    <span className="text-xs font-mono truncate min-w-0" style={{ color: 'var(--holo-text)' }} title={lane.name}>
                       {lane.name}
                     </span>
-                    {lane.dirty_count > 0 && (
-                      <span className="ml-auto text-[10px] font-mono" style={{ color: 'var(--holo-muted)' }} title={`${lane.dirty_count} dirty file(s)`}>
-                        {lane.dirty_count}∆
-                      </span>
-                    )}
+                    {/* Right-aligned metadata: live-agent badge + dirty count.
+                        shrink-0 so the badge is never clipped — the name
+                        truncates (min-w-0) instead. */}
+                    <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                      {lane.agent?.active && <AgentTag count={lane.agent.count} />}
+                      {lane.dirty_count > 0 && (
+                        <span className="text-[10px] font-mono" style={{ color: 'var(--holo-muted)' }} title={`${lane.dirty_count} dirty file(s)`}>
+                          {lane.dirty_count}∆
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <span className="text-[10px] font-mono truncate pl-3" style={{ color: 'var(--holo-muted)' }} title={lane.branch}>
                     {lane.branch}

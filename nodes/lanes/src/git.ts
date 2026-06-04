@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { statSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { agentForPath } from './agent'
 import type { CollectResult, Lane } from './types'
 
 // All git work is synchronous (execFileSync). The commands are local, fast, and
@@ -72,7 +73,12 @@ function dirtyPath(statusLine: string): string {
   return arrow === -1 ? body : body.slice(arrow + 4)
 }
 
-function collectLane(wt: RawWorktree, now: number, activeWindowMs: number): Lane {
+function collectLane(
+  wt: RawWorktree,
+  now: number,
+  activeWindowMs: number,
+  agentCwds: string[] | null,
+): Lane {
   const branch = wt.detached || !wt.branch ? '(detached)' : wt.branch
 
   // Per-worktree git can fail if the worktree directory was removed but not yet
@@ -119,6 +125,9 @@ function collectLane(wt: RawWorktree, now: number, activeWindowMs: number): Lane
     last_commit_msg: lastCommitMsg,
     last_activity_ms: lastActivityMs,
     state: now - lastActivityMs <= activeWindowMs ? 'active' : 'idle',
+    // null cwds → detection unavailable this tick (lsof missing/errored); the
+    // path-match (with its sibling-prefix guard) lives in agent.ts.
+    agent: agentCwds === null ? null : agentForPath(wt.path, agentCwds),
   }
 }
 
@@ -126,7 +135,14 @@ function collectLane(wt: RawWorktree, now: number, activeWindowMs: number): Lane
 // ALL worktrees regardless of which one we run from, so this works identically in
 // any lane. A failure of the top-level list command means git itself is broken or
 // the path isn't a repo → repo_unreadable (mapped to MeshDeny by the caller).
-export function collectLanes(repoRoot: string, activeWindowMs: number): CollectResult {
+// `agentCwds` is the flat cwd list of live `claude` processes (collected once
+// per poll by the caller via agent.ts), or null when process detection is
+// unavailable — in which case every lane's `agent` field is null.
+export function collectLanes(
+  repoRoot: string,
+  activeWindowMs: number,
+  agentCwds: string[] | null,
+): CollectResult {
   let listOut: string
   try {
     listOut = git(['worktree', 'list', '--porcelain'], repoRoot)
@@ -136,6 +152,6 @@ export function collectLanes(repoRoot: string, activeWindowMs: number): CollectR
   const now = Date.now()
   const lanes = parseWorktrees(listOut)
     .filter((wt) => !wt.bare)
-    .map((wt) => collectLane(wt, now, activeWindowMs))
+    .map((wt) => collectLane(wt, now, activeWindowMs, agentCwds))
   return { ok: true, data: { lanes } }
 }

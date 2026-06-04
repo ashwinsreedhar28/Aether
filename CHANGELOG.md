@@ -25,6 +25,17 @@ historical record.
   flips status within a poll cycle. `mesh_introspection` unreachable degrades to
   an "unavailable" state, never a crash. Renderer-only; no changes to main,
   preload, daemons, nodes, or manifest.
+- Voice-driven view switching — a `navigate` voice tool flips the cockpit's
+  active instrument view by spoken or typed command ("open my lanes", "go to
+  the mesh", "switch to scene"). raven-core's thinnest side-effect tool: it
+  validates the view name against the Shell's `{scene, chats, mesh, lanes}` set
+  and returns `{ ok, view }` — **no mesh call, no new manifest edge**. The Shell
+  reads the result off the existing `voice:tool-call` push (the same channel
+  every tool already rides) and switches view; zero new transport. Kept
+  deliberately distinct from `visualize`: "show me the mesh" still summons a
+  panel overlay (visualize), while "go to the mesh" switches the whole view
+  (navigate) — the voice prompt disambiguates by verb. Voice tool count
+  fifteen → sixteen.
 - Instrument views — top bar + Lanes view v1. The cockpit gains a navigable
   top bar (Scene · Chats · Mesh · Lanes) above the always-present CLI. **Scene**
   is the unchanged ambient panel dashboard and stays the default home (kept

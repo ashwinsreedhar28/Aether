@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "intents.close",
+  "title": "intents.close",
+  "description": "Mark recorded gap(s) closed — a capability the gap noted now exists. Appends a closure event (the JSONL log stays append-only; nothing is rewritten) and returns { ok: true, count, closed: [{ id, text }] }. Provide ONE selector: { id: string } closes that gap by id, or { match: string } closes every OPEN gap whose text contains the (case-insensitive) substring. If both are given, id wins. A request matching no open gap is a no-op (count 0). At least one selector is required.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "match": { "type": "string", "minLength": 1, "maxLength": 2000 }
+  }
+}

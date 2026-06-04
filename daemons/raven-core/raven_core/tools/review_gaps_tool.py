@@ -33,7 +33,10 @@ REVIEW_LIMIT = 50
 
 async def _review_gaps() -> dict[str, Any]:
     try:
-        response = await mesh_invoke("intents.list", {"limit": REVIEW_LIMIT})
+        # OPEN gaps only: a proposal should pitch what's still missing, not
+        # re-pitch capabilities already built (intents.list defaults to open, but
+        # we pass it explicitly so the intent survives any future default change).
+        response = await mesh_invoke("intents.list", {"limit": REVIEW_LIMIT, "status": "open"})
     except MeshUnavailable as e:
         return {"error": "mesh unavailable", "detail": str(e)}
 
@@ -53,9 +56,10 @@ def get_tools() -> list[types.Tool]:
     func = types.FunctionDeclaration(
         name="review_gaps",
         description=(
-            "Read back the recorded capability-gap log — the things the user "
-            "asked for that Aether could not do — so you can propose what to "
-            "build next. UNLIKE report_gap and visualize, this RETURNS the "
+            "Read back the OPEN capability-gap log — the things the user asked "
+            "for that Aether still cannot do (already-closed gaps are excluded) "
+            "— so you can propose what to build next. UNLIKE report_gap and "
+            "visualize, this RETURNS the "
             "gaps for you to reason over (cluster related ones and pitch "
             "concrete lanes); it is NOT a side-effect tool and its result is "
             "content, not an ack. Call it when the user asks a forward-looking "

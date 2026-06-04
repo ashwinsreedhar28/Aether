@@ -342,27 +342,36 @@ function gapLine(gap: GapRecord): string {
   return `- **${gapWhen(gap.ts)}** — ${gap.text}`
 }
 
+// Header tally line. Uses the whole-log `counts` when the intents node provides
+// them ("2 open · 3 closed"), so the panel shows the lifecycle at a glance even
+// though the body lists only open gaps. Falls back to the shown-gap count for an
+// older intents node that doesn't return counts.
+function gapsHeader(result: GapsResult, openShown: number): string {
+  const counts = result.counts
+  if (counts) {
+    return `**${counts.open} open** · ${counts.closed} closed`
+  }
+  return `**${openShown} open**`
+}
+
 // `result` is nullable on purpose: when the gap sensor (intents node) is
 // unavailable the overlay still renders — with an explicit unavailable note —
 // rather than the summon failing silently (mirrors lanesMarkdown's resilience).
-// A non-null result with an empty list is the distinct "nothing recorded yet"
-// case and gets the friendlier "No recorded gaps".
+// A non-null result with no OPEN gaps is the distinct "nothing open" case and
+// gets the friendlier "No open gaps" (with the closed count still in the header
+// when known — the log isn't empty, everything's just been answered).
 function gapsMarkdown(result: GapsResult | null): string {
   if (!result) {
     return ['## Capability Gaps', '', '_gap sensor unavailable_'].join('\n')
   }
+  // The body lists OPEN gaps only (intents.list was queried status:'open',
+  // newest-first — render in array order).
   const gaps = result.gaps ?? []
+  const header = gapsHeader(result, gaps.length)
   if (gaps.length === 0) {
-    return ['## Capability Gaps', '', '_No recorded gaps_'].join('\n')
+    return ['## Capability Gaps', '', header, '', '_No open gaps_'].join('\n')
   }
-  // intents.list already returns newest-first — render in array order.
-  return [
-    '## Capability Gaps',
-    '',
-    `**${gaps.length} gap${gaps.length === 1 ? '' : 's'}** recorded`,
-    '',
-    gaps.map(gapLine).join('\n'),
-  ].join('\n')
+  return ['## Capability Gaps', '', header, '', gaps.map(gapLine).join('\n')].join('\n')
 }
 
 // Summoned gaps overlay (stable viz-gaps id; a repeat summon updates in place).

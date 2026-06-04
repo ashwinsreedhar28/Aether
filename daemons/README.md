@@ -44,7 +44,7 @@ Endpoints exposed:
 | Method | Path             | Purpose                                  |
 |--------|------------------|------------------------------------------|
 | GET    | `/health`        | liveness probe used by the shell's daemon-manager |
-| GET    | `/status`        | current `RavenState` + last transcript + last tool call |
+| GET    | `/status`        | current `RavenState` + live `sessionId` (while listening) + last transcript + last tool call |
 | POST   | `/listen/start`  | spawn the Python child (begin listening) |
 | POST   | `/listen/stop`   | terminate the Python child               |
 | GET    | `/transcripts?limit=N`  | recent transcript buffer (max 200) |

@@ -44,6 +44,19 @@ historical record.
   transcript there) while its input stays — a `showEcho` prop on `Cli`, gated by
   the Shell's active view, not a fork. No mesh/manifest/prompts changes —
   transcripts ride the existing daemon transport.
+- Chats hardening — transcript cap + exact LIVE badging. Closes the two
+  deferrals flagged in the Chats-persistence PR (#147). (1) The raven-daemon now
+  bounds the transcripts dir: on boot and on each new session it prunes the
+  oldest session files beyond a cap (default 50, override
+  `RAVEN_TRANSCRIPT_MAX_SESSIONS`), never deleting the live session. We cap by
+  file count, not bytes — one file per child spawn is the realistic growth
+  vector, so a count cap bounds it predictably (a byte cap is a later lane).
+  (2) `GET /status` now carries the live `sessionId` (set only while a child is
+  listening), surfaced through the shell's `voice.status()`; the Chats view reads
+  it on mount and badges the live session LIVE immediately — including when the
+  user opens Chats mid-session — instead of waiting for the first transcript
+  push. Push-based detection stays as the fallback when `/status` is unreachable.
+  Daemon + shell only; no mesh/manifest/prompts changes.
 - Gap sensor — Aether notices what it can't do. A new `report_gap` voice tool
   (raven-core's seventeenth) fires whenever raven hits a request no tool,
   surface, or data covers: it records a one-line description of the missing

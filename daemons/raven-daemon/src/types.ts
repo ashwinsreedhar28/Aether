@@ -78,6 +78,10 @@ export interface HealthResponse {
 // Response shape for GET /status — the shell's voice IPC maps this onto the
 // renderer's pill states.
 export interface StatusResponse extends RavenState {
+  // The live session's id while a child is running; absent when nothing is
+  // listening. Lets the Chats view badge the live session on mount instead of
+  // waiting for its first transcript push.
+  sessionId?: string;
   lastTranscript?: TranscriptEntry;
   lastToolCall?: ToolCallEntry;
 }

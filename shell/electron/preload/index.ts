@@ -81,6 +81,9 @@ export type VoiceAvailability =
   | { kind: 'unavailable'; reason: string }
 
 export interface VoiceStatus extends RavenState {
+  // The live session's id while a child is listening; absent when nothing is.
+  // The Chats view badges this session LIVE on mount (exact, not first-push).
+  sessionId?: string
   lastTranscript?: TranscriptEntry
   lastToolCall?: ToolCallEntry
 }

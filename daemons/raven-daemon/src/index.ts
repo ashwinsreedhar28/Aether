@@ -14,11 +14,17 @@
  *   RAVEN_USER_DIR          User data dir for raven-core (memory.json,
  *                           prompts.json overrides). Forwarded to the
  *                           Python child via inherited environment.
+ *   RAVEN_TRANSCRIPT_MAX_SESSIONS
+ *                           Max transcript session files kept on disk; the
+ *                           oldest beyond this are pruned on boot and on each
+ *                           new session (default 50). Never prunes the live
+ *                           session. See transcriptStore.ts.
  *
  * Endpoints (HTTP, loopback-only):
  *   GET  /health         liveness probe — used by the shell to detect
  *                        an already-running daemon
- *   GET  /status         current RavenState plus lastTranscript /
+ *   GET  /status         current RavenState plus the live sessionId (set only
+ *                        while a child is listening), lastTranscript /
  *                        lastToolCall
  *   POST /listen/start   spawn the Python child and begin listening
  *   POST /listen/stop    stop the Python child
@@ -139,6 +145,7 @@ async function handleRequest(
     if (pathname === '/status' && method === 'GET') {
       const response: StatusResponse = {
         ...ravenManager.getState(),
+        sessionId: ravenManager.liveSessionId(),
         lastTranscript: ravenManager.lastTranscript(),
         lastToolCall: ravenManager.lastToolCall(),
       };

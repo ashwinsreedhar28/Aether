@@ -20,6 +20,22 @@ historical record.
   panels (appends) keep their plain entry behavior, and `dashboard.*` backdrop
   panels — re-POSTed on the visualizer's poll loop, not summoned — are excluded
   from the affordance. Respects `prefers-reduced-motion`. Renderer-only.
+- Gap visibility — the gap log becomes a panel. The `visualizer` Mixer gains a
+  fourth intent, `gaps`: it reads the gap sensor (`intents.list`, newest ~20)
+  through the mesh and composes a `viz-gaps` summoned overlay listing what Aether
+  couldn't do — timestamp + gap text per line, count in the header, newest-first.
+  Resilient like the `lanes` overlay: an empty log renders "No recorded gaps" and
+  a down gap sensor renders "gap sensor unavailable" rather than failing the
+  summon (the read-failure path posts the unavailable panel and still returns
+  ok). manifest gains the `visualizer → intents.list` edge — the `shell →
+  intents.list` pre-grant from the gap-sensor PR does NOT cover the visualizer;
+  every consumer needs its own edge (#136's lesson). raven's prompt
+  (`prompts.json`) routes "what are your gaps" / "show me your gaps" / "what
+  can't you do yet" to `visualize({ intent: 'gaps' })`, kept explicitly distinct
+  from `report_gap` (which RECORDS a gap) and from `navigate` (the verb split is
+  preserved). Voice-summonable like mesh/lanes — brief ack, panel never read
+  aloud. (Visualizer README's intent list and the `lanes` intent it had been
+  missing are documented in the same pass.)
 - Chats persistence — durable transcripts + Chats view. Conversations now
   survive restarts. The raven-daemon persists every transcript entry as JSONL
   (one file per session under `<userData>/raven/transcripts/`), keying each

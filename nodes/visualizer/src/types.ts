@@ -59,6 +59,25 @@ export interface LanesStatus {
   fetched_at_ms?: number
 }
 
+// ── Inbound: gap records (intents.list payload) ───────────────────────────────
+
+// One recorded capability gap — a thing Aether could not do. Mirrors the gap
+// sensor's GapRecord shape (nodes/intents/src/storage.ts): `ts` is an ISO 8601
+// UTC timestamp, `context` a string or null. `unknown`-tolerant like the
+// topology/lanes types above.
+export interface GapRecord {
+  id: string
+  ts: string
+  text: string
+  context: string | null
+}
+
+// intents.list returns gaps newest-first (the store walks its append-only log
+// bottom-up), so the template renders them in array order — no client sort.
+export interface GapsResult {
+  gaps: GapRecord[]
+}
+
 // ── Outbound: scene-server panel ──────────────────────────────────────────────
 
 export interface Transform {

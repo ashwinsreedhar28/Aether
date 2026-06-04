@@ -646,6 +646,17 @@ historical record.
   on 2026-05-26 for full direction-shift context.
 
 ### Fixed
+- First-summoned Scene panels now scroll into view + pulse, not just re-summons.
+  A never-seen panel arrives as an `add` delta and `applyOrder` appends unknown
+  ids to the bottom, so a first summon could materialize below the fold while
+  RAVEN announced it — with no scroll/pulse cue (the affordance fired only on
+  `update` deltas to already-rendered panels). `reconcile` now reports EVERY
+  summon-driven appearance — fresh append OR in-place refresh — in `summoned`
+  (renamed from `resummoned`); the reducer bumps the panel's pulse nonce in the
+  same transition that adds it, so the new card mounts at nonce 1 and its first
+  render fires scroll-into-view + pulse. Dashboard.* backdrops stay excluded
+  (their ~10s poll re-POSTs don't pulse), re-summons (#149) and drag-order
+  persistence (#166) are unchanged. Renderer-only (`shell/src/dashboard/SceneView.tsx`).
 - `macos_mail.recent` rejected the `unread_only` param RAVEN's `mail_recent`
   tool has always sent. The surface schema was `additionalProperties: false`
   with only `limit`/`since`, so Core's payload validation returned

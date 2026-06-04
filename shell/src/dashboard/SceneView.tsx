@@ -17,7 +17,7 @@ interface DeltaChange {
   id?: string
 }
 
-// A panel id is "summon-driven" (worth a re-summon affordance) unless it's a
+// A panel id is "summon-driven" (worth the attention affordance) unless it's a
 // dashboard.* backdrop. Backdrops (dashboard.mesh-health / .raven-status /
 // .lanes) are re-POSTed in place on the visualizer's ~10s poll loop, so they
 // produce a steady stream of update deltas that are NOT user-summoned — pulsing
@@ -31,10 +31,13 @@ function isSummonDriven(id: string): boolean {
 }
 
 // Apply a delta's changes to the current panel list, returning the new list plus
-// the ids of panels that were *refreshed in place* by a summon (an update that
-// landed on an already-rendered, non-dashboard panel — i.e. a re-summon). The
-// caller uses `resummoned` to fire the attention affordance; a brand-new panel
-// (append) is NOT in it, so new panels keep their plain entry behavior.
+// the ids of panels that had a *summon-driven appearance* — any non-dashboard
+// panel an add or update delta touched, whether it was brand-new (appended) or
+// refreshed in place (a re-summon). The caller uses `summoned` to fire the
+// attention affordance (scroll-into-view + pulse); the two cases are deliberately
+// NOT distinguished, because a first summon can land below the fold (applyOrder
+// appends unknown ids) exactly like a re-summon can — both want the same
+// "here it is" cue. Dashboard.* backdrops are excluded (see isSummonDriven).
 //
 // Reconciliation is keyed by panel id and is entity-safe by construction:
 //   - add / update: upsert `change.panel` by id (append if absent, replace if
@@ -50,9 +53,9 @@ function isSummonDriven(id: string): boolean {
 function reconcile(
   prev: ScenePanel[],
   changes: unknown[],
-): { next: ScenePanel[]; resummoned: string[] } {
+): { next: ScenePanel[]; summoned: string[] } {
   let next = prev
-  const resummoned: string[] = []
+  const summoned: string[] = []
   for (const raw of changes) {
     const change = raw as DeltaChange
     switch (change.op) {
@@ -62,14 +65,15 @@ function reconcile(
         if (!panel || typeof panel.id !== 'string') break // entity / malformed — skip
         const idx = next.findIndex((p) => p.id === panel.id)
         if (idx === -1) {
-          next = [...next, panel] // brand-new panel — plain entry, no affordance
+          next = [...next, panel] // brand-new panel (applyOrder may place it below the fold)
         } else {
           next = next.slice()
           next[idx] = panel
-          // Already on screen + refreshed = a re-summon. Skip dashboard.*
-          // backdrops, whose poll-loop re-POSTs also land here.
-          if (isSummonDriven(panel.id)) resummoned.push(panel.id)
         }
+        // Any summon-driven appearance — a fresh append OR an in-place refresh —
+        // fires the affordance. Dashboard.* backdrops (whose ~10s poll-loop
+        // re-POSTs also land here) are excluded so polling stays silent.
+        if (isSummonDriven(panel.id)) summoned.push(panel.id)
         break
       }
       case 'remove': {
@@ -82,13 +86,15 @@ function reconcile(
         break
     }
   }
-  return { next, resummoned }
+  return { next, summoned }
 }
 
-// Scene state: the panel list plus a per-id "pulse nonce" that increments each
-// time a panel is re-summoned. PanelCard watches its nonce to fire the
-// affordance. Kept in one reducer so the panel update and the nonce bump are a
-// single pure transition (no setState-inside-setState, no stale closures).
+// Scene state: the panel list plus a per-id "pulse nonce" that increments on each
+// summon-driven appearance of that panel (first summon or re-summon). PanelCard
+// watches its nonce to fire the affordance. Kept in one reducer so the panel
+// update and the nonce bump are a single pure transition — a brand-new summoned
+// panel is added AND bumped to nonce 1 in the same render, so its card mounts
+// already knowing to fire (no setState-inside-setState, no stale closures).
 interface SceneState {
   panels: ScenePanel[]
   pulses: Record<string, number>
@@ -105,10 +111,10 @@ function sceneReducer(state: SceneState, action: SceneAction): SceneState {
       // spurious change, and ids new to the snapshot simply have no entry (0).
       return { panels: action.panels, pulses: state.pulses }
     case 'delta': {
-      const { next, resummoned } = reconcile(state.panels, action.changes)
-      if (resummoned.length === 0) return { ...state, panels: next }
+      const { next, summoned } = reconcile(state.panels, action.changes)
+      if (summoned.length === 0) return { ...state, panels: next }
       const pulses = { ...state.pulses }
-      for (const id of resummoned) pulses[id] = (pulses[id] ?? 0) + 1
+      for (const id of summoned) pulses[id] = (pulses[id] ?? 0) + 1
       return { panels: next, pulses }
     }
   }
@@ -155,10 +161,12 @@ function reorderIds(
 // card means "not a current drop target" (e.g. the card being dragged).
 type DropPos = 'before' | 'after' | null
 
-// One Scene card. Keeps a ref to its root so it can fire the re-summon
-// affordance imperatively. Brand-new cards mount with pulseNonce 0 and the
-// effect's guard makes that first run a no-op; each later re-summon bumps the
-// nonce, re-running the effect.
+// One Scene card. Keeps a ref to its root so it can fire the summon affordance
+// imperatively. A card with pulseNonce 0 — a snapshot restore, a fresh dashboard
+// backdrop, or any pre-summon panel — makes the effect's run a no-op. A
+// summon-driven panel mounts with nonce ≥ 1 (set in the same reducer transition
+// that added it), so its very first render fires the affordance; each re-summon
+// bumps the nonce again, re-running the effect.
 //
 // Drag-to-reorder (§15 restraint: the six-dot grip in the header is the ONLY
 // affordance — no heavy drag chrome). The grip is the draggable element so the
@@ -188,7 +196,7 @@ function PanelCard({
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (pulseNonce === 0) return // initial render — never an affordance
+    if (pulseNonce === 0) return // never summon-driven (snapshot/backdrop) — no affordance
     const el = ref.current
     if (!el) return
     // Scroll only if off-screen: block:'nearest' is a no-op when the card is

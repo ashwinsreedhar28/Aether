@@ -25,6 +25,8 @@ historical record.
 ### Fixed
 
 ### Removed
+- Stray `scratch-test.txt` from the repo root (empty placeholder; Architect-authorized
+  cleanup as part of the repo-front-v2 lane).
 
 ## [0.10.0] - 2026-06-04
 

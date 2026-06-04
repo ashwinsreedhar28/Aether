@@ -77,6 +77,34 @@ function statusColor(status: string): string {
   return 'var(--holo-muted)'
 }
 
+// ---- Category identity ------------------------------------------------------
+// Category is the structural signal: it drives node SHAPE (always, regardless of
+// status) and node HUE (the running-state border tint). Classification mirrors
+// BAND_DEFS — spine wins over its Mixer category so the backbone reads as one
+// family. `other` catches any category Core emits outside the known set.
+type CatKey = 'spine' | 'mixer' | 'sensor' | 'actor' | 'other'
+function categoryKey(n: TopoNode): CatKey {
+  if (SPINE_IDS.has(n.id)) return 'spine'
+  if (n.category === 'Mixer') return 'mixer'
+  if (n.category === 'Sensor') return 'sensor'
+  if (n.category === 'Actor') return 'actor'
+  return 'other'
+}
+
+// Muted category hues — a restrained family beside the accent blue. Only the
+// 1px border and the running-status tint carry these; fills stay neutral (see
+// node render) so the view never saturates. Spine and the `other` fallback
+// reuse the theme accent, so the backbone never drifts from --holo-accent.
+// Local constants, not theme vars: the mesh view is the only consumer today
+// (§15 — no premature abstraction; extract on the third instance).
+const CATEGORY_HUE: Record<CatKey, string> = {
+  spine: 'var(--holo-accent)',
+  sensor: '#3fbeac', // teal
+  actor: '#ef8270', // coral
+  mixer: '#9d86e4', // violet
+  other: 'var(--holo-accent)',
+}
+
 // ---- Deterministic layout ---------------------------------------------------
 // Banded by category, spine first. Positions are a pure function of the node
 // SET (sorted by id within each band), so they are stable across refreshes —
@@ -85,6 +113,13 @@ function statusColor(status: string): string {
 // size never moves a node either.
 const VB_W = 1000
 const NODE_R = 20
+// Per-shape sizes, tuned to roughly equal visual weight to the sensor circle so
+// the bands stay even. Spine is deliberately larger — the backbone should read
+// heavier. All stay well inside X_STEP/ROW_H, so layout and labels don't move.
+const HEX_R = 22 // mixer hexagon circumradius
+const ACTOR_S = 34 // actor rounded-square side
+const SPINE_W = 56 // spine rounded-rect width (wider than a node)
+const SPINE_H = 40 // spine rounded-rect height
 const MAX_PER_ROW = 5
 const ROW_H = 132
 const BAND_GAP = 40
@@ -535,6 +570,53 @@ function Legend(): React.ReactElement {
   )
 }
 
+// Pointy-top regular hexagon, first vertex straight up. Deterministic — same
+// centre always yields the same points string.
+function hexPoints(cx: number, cy: number, r: number): string {
+  const pts: string[] = []
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 180) * (60 * i - 90)
+    pts.push(`${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`)
+  }
+  return pts.join(' ')
+}
+
+// A node's body, shaped by category. Sensor → circle, Actor → rounded square,
+// Mixer → hexagon, spine → larger rounded rect. Every variant is centred on
+// (cx, cy) and sized near NODE_R, so the label offset, layout, and the <g>'s
+// hit region are unchanged. fill/stroke/strokeWidth/style pass straight through
+// (the running-glow filter applies to any shape identically).
+function NodeShape({
+  cat,
+  cx,
+  cy,
+  fill,
+  stroke,
+  strokeWidth,
+  style,
+}: {
+  cat: CatKey
+  cx: number
+  cy: number
+  fill: string
+  stroke: string
+  strokeWidth: number
+  style?: React.CSSProperties
+}): React.ReactElement {
+  const common = { fill, stroke, strokeWidth, style }
+  if (cat === 'spine') {
+    return <rect x={cx - SPINE_W / 2} y={cy - SPINE_H / 2} width={SPINE_W} height={SPINE_H} rx={10} {...common} />
+  }
+  if (cat === 'actor') {
+    return <rect x={cx - ACTOR_S / 2} y={cy - ACTOR_S / 2} width={ACTOR_S} height={ACTOR_S} rx={7} {...common} />
+  }
+  if (cat === 'mixer') {
+    return <polygon points={hexPoints(cx, cy, HEX_R)} {...common} />
+  }
+  // sensor and the `other` fallback both render as the canonical circle.
+  return <circle cx={cx} cy={cy} r={NODE_R} {...common} />
+}
+
 // ---- The view ---------------------------------------------------------------
 
 export function MeshView(): React.ReactElement {
@@ -768,12 +850,16 @@ export function MeshView(): React.ReactElement {
                   const hot = focusEdge
                     ? sameEdge(e, focusEdge)
                     : focusNodeId != null && (e.from === focusNodeId || e.to === focusNodeId)
-                  const opacity = focus == null ? 0.4 : hot ? 0.95 : 0.07
+                  // Resting edges carry their source node's category tint at low
+                  // opacity; the #161 focus accent still wins when hot.
+                  const opacity = focus == null ? 0.22 : hot ? 0.95 : 0.07
+                  const src = nodeById.get(e.from)
+                  const tint = src ? CATEGORY_HUE[categoryKey(src)] : 'var(--holo-border)'
                   return (
                     <g key={edgeKey(e)}>
                       <path
                         d={d}
-                        stroke={hot ? 'var(--holo-accent)' : 'var(--holo-border)'}
+                        stroke={hot ? 'var(--holo-accent)' : tint}
                         strokeWidth={hot ? 1.6 : 1}
                         pointerEvents="none"
                         style={{ opacity, transition: 'opacity 120ms ease' }}
@@ -802,10 +888,18 @@ export function MeshView(): React.ReactElement {
                   const p = layout.positions.get(n.id)
                   if (!p) return null
                   const isSel = selected?.kind === 'node' && selected.id === n.id
-                  const isSpine = SPINE_IDS.has(n.id)
+                  const cat = categoryKey(n)
                   const running = n.status === 'running'
                   const dim = litNodes != null && !litNodes.has(n.id)
-                  const ring = statusColor(n.status)
+                  // Border tracks status first so kill/unhealthy stay honest; a
+                  // running node wears its category hue, making category read
+                  // without ever saturating the fill.
+                  const ring =
+                    n.status === 'unhealthy'
+                      ? UNHEALTHY_COLOR
+                      : running
+                        ? CATEGORY_HUE[cat]
+                        : 'var(--holo-muted)'
                   return (
                     <g
                       key={n.id}
@@ -817,11 +911,11 @@ export function MeshView(): React.ReactElement {
                       onMouseEnter={() => setHoveredNode(n.id)}
                       onMouseLeave={() => setHoveredNode((cur) => (cur === n.id ? null : cur))}
                     >
-                      <circle
+                      <NodeShape
+                        cat={cat}
                         cx={p.x}
                         cy={p.y}
-                        r={NODE_R}
-                        fill={isSpine ? 'rgba(74,158,255,0.10)' : 'var(--holo-panel)'}
+                        fill="var(--holo-panel)"
                         stroke={ring}
                         strokeWidth={isSel ? 2.6 : 1.4}
                         style={{

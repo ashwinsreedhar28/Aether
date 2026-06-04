@@ -10,6 +10,19 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Stale-dist boot guard for the TS mesh nodes. At shell boot, as each TS node is
+  about to spawn, `NodeManager.spawnNode` now calls a new
+  `shell/electron/main/services/staleDist.ts` helper that compares the newest
+  file mtime under the node's `src/` against its `dist/` build output; if `src/`
+  is newer it logs a LOUD warning naming the node
+  (`[guard] nodes/visualizer dist older than src — run pnpm -r build`). Catches
+  the install-≠-build trap where `pnpm install` (or a branch switch touching a
+  node's source) leaves the shell silently spawning stale compiled code off an
+  otherwise "fresh main" (the TS-node sibling of PR #168's stale-daemon finding;
+  Python nodes run from source and have no dist/ to drift). Warn-only v1 — a
+  cheap mtime walk with no hashing and zero new deps; it never auto-builds and
+  never blocks the spawn. Because the check sits in the shared `spawnNode` path,
+  every current and future TS node is covered automatically.
 - Day-2 bank — banks the 2026-06-04 "self-building day" lessons in
   `docs/governance-log.md`: six entries covering the stale family completed
   (stale runtime / stale detached daemon — raven's `_discover_tool_modules`
@@ -519,6 +532,19 @@ historical record.
 - Aether macOS app icon. Replaces the default Electron icon in Dock, Activity Monitor, Finder, and Cmd-Tab. Source assets in `docs/branding/`.
 
 ### Changed
+- RAVEN voice prompt no longer hardcodes a tool *count*. The
+  `voice_assistant.system_instruction` lead-in in
+  `daemons/raven-core/raven_core/prompts/prompts.json` changed from "You have
+  **twenty** tools available:" to "You have **the following** tools available:";
+  the numbered 1–20 list itself is unchanged. The literal count had drifted
+  repeatedly as tools were added (it was re-asserted by hand at every rebase, and
+  was already inaccurate — calendar and mail tools are live but absent from the
+  numbered list, so any single number undercounts the real registered set).
+  Dropping the number is the smaller honest fix: a one-line wording change with
+  zero loader plumbing, and "the following tools" cannot go stale. (Deriving and
+  injecting a count at spawn was the alternative; rejected as both larger and
+  still dishonest, since a derived total would not match the hand-maintained 1–20
+  list either.)
 - Chores — three governance/manifest debts in one lane. (1) **Honored the
   manifest schema's 280-char `metadata.description` bound**: trimmed the 14
   over-length node descriptions so the loader's JSON-Schema check passes clean

@@ -532,6 +532,17 @@ historical record.
 - Aether macOS app icon. Replaces the default Electron icon in Dock, Activity Monitor, Finder, and Cmd-Tab. Source assets in `docs/branding/`.
 
 ### Changed
+- Mesh view — category is now a structural signal, not just a band label.
+  Each node's **shape encodes its category** (Sensor → circle, Actor → rounded
+  square, Mixer → hexagon, spine `core`/`raven`/`shell` → larger rounded rect),
+  so category reads at a glance regardless of status. A **muted category hue**
+  (Sensors teal, Actors coral, Mixers violet, spine accent-blue) tints the 1px
+  node border on running nodes and the resting edge web (each edge inherits its
+  *source* node's tint at low opacity). Fills stay neutral dark — no saturated
+  fills — and status stays honest: `unhealthy` keeps its amber border, `stopped`
+  keeps muted, and the running glow is unchanged. No new motion; labels, layout,
+  and all #161 hover/selection/edge-click hit-paths are untouched (the focus
+  accent still wins over the category tint). Renderer-only: `MeshView.tsx`.
 - RAVEN voice prompt no longer hardcodes a tool *count*. The
   `voice_assistant.system_instruction` lead-in in
   `daemons/raven-core/raven_core/prompts/prompts.json` changed from "You have

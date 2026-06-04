@@ -479,3 +479,39 @@ Mail.app's AppleScript latency is not friction to route around silently — it i
 
 ### §13.10 shape 6 graduation — parked
 The evening section's "hand-edit hotfix shape" is a candidate for formal promotion to a CLAUDE.md §13.10 *shape 6*. This is a docs-only lane scoped to `governance-log.md` + `CHANGELOG.md` (per §10, new governance batches append here, not into CLAUDE.md), so the graduation is **not** taken in this PR — it remains parked for a lane that legitimately touches CLAUDE.md. Recorded here so the next CLAUDE.md-touching lane picks it up without rediscovering the candidacy.
+
+---
+
+## 2026-06-04 — self-building day lessons
+
+The self-building day — RAVEN's first rung at drafting its own work (rung 1,
+proposals become paste-ready lane prompts, #168) plus a voice-driven calendar
+agenda and panel (#170) — banked six lessons. Two complete running threads
+from the prior days: the night's "stale-runtime confound" grows into a full
+family, and "measure, don't reason" extends to calibrating a smoke's external
+oracle. The rest are new — expectations and guardrails for machine-drafted
+specs, and the gap between a declared tool and a called one.
+
+### The stale family, complete
+The night section banked one staleness failure (a probe run against a process that predates its build). The self-building day completed the family: three distinct stale-state failures, each at a different layer the change rides.
+
+1. **Stale runtime** — the process predates the build (the night's confound). Relaunch from the new build before trusting any probe.
+2. **Stale detached daemon** — an orphan daemon from a prior session keeps serving the OLD config. Raven's `_discover_tool_modules` runs once, at spawn only, so a daemon that outlived its rebuild never re-discovers the new tool and silently serves the old tool set (#168). Killing-and-relaunching the runtime you *think* you control doesn't help if a detached orphan is the one actually answering.
+3. **Stale dist** — `install ≠ build`. TS nodes run from compiled `dist/`; python nodes run from source. So `pnpm install` alone leaves TS behavior frozen at the last build while python is already fresh — a split-brain where half the stack is new and half is old.
+
+Lesson: "fresh" is not a single fact — it must be proven at every layer the change actually rides (runtime process, detached daemons, compiled artifacts). A change that touches a python tool AND a TS node clears three different staleness gates; clearing one and assuming the rest is the trap.
+
+### Calibrate the oracle before trusting the failure
+A smoke compares observed behavior against an external ground truth — the oracle. #170's calendar-agenda smoke read Calendar.app and reported a wrong time: a false negative. The fault was the oracle, not the code — Calendar.app's own timezone configuration (the instrument) was off, so the test rig was lying. The code was right; a revert made on the false signal was itself reverted once the instrument was calibrated. Director-side catch. Lesson: the external ground truth a smoke leans on is PART of the test rig, not a neutral fact of the universe. Verify the instrument — the oracle's own config (timezone, locale, clock, account state) — before trusting a failure. A miscalibrated oracle produces false negatives indistinguishable from code bugs and costs a wasted revert. Pairs with the night's "measure, don't reason": there the instrument was a clock; here it is Calendar.app.
+
+### Recount, don't inherit — parallel editors of one fact
+When two branches both edit the same scalar — here raven's tool count, which #168 bumped (adding `draft_lane` as tool 19) alongside a parallel calendar lane — neither branch's value is correct at merge. Each counted from its own starting point, blind to the other's addition, so adopting either number inherits an undercount. The fix: RE-DERIVE the fact from ground truth at merge time (recount the actually-registered tools), never trust the number written in either branch. Lesson: a fact edited by parallel editors is not mergeable by taking a side — it must be recomputed from source at the merge point. Tool counts, port allocations, enum maxima, "N nodes" claims — any scalar two lanes can independently increment — gets recounted, not inherited. (§11 heuristic 6, reserve-space, is the prevention side; this is the merge-time cure.)
+
+### The recon-first guardrail makes thin specs self-limiting
+Rung 1 (#168) has RAVEN compose lane prompts from accepted proposals. A machine-drafted spec is necessarily thinner than an Architect's, and a thin spec freelanced by an eager Implementer is dangerous. The mitigation that made rung 1 safe: a FIXED template line — the recon-first guardrail — baked into every drafted prompt, instructing the Implementer to read the named precedents and STOP to report options whenever a design decision isn't covered by the spec. The constant line turns the spec's thinness into a feature: faced with an uncovered decision, the Implementer recons and halts instead of inventing an answer. The spec self-limits. Lesson: when a spec is generated by a weaker author (a model, a template, a junior), don't try to make it complete — make it honest about its own gaps. A constant "recon, and stop at anything I didn't cover" guardrail is cheaper and safer than attempting exhaustive coverage, and it scales the right way: the thinner the draft, the more often the guardrail fires.
+
+### Rung-1 expectations, set
+What live-session drafting (a model composing specs inside the working loop) can and can't do is now calibrated. A live-session draft is a FIREABLE START for a simple lane and a GUARDED SKELETON for a hard one — never a finished deep spec. Draft depth is model-bounded: a stronger model drafts deeper, but the ceiling moves with the model, not with prompt effort. Deep specs remain Architect work. The next rung — 1.5, offline-model composition (a separate model drafting specs out-of-band rather than in the live session) — is banked as the path to deeper machine-drafted specs without burning the live session's context. Lesson: machine self-building is real but graded — usable today for simple lanes, skeleton-only for hard ones, bounded by the drafting model's depth. Don't expect a live-session draft to replace a deep Architect spec; expect it to bootstrap one.
+
+### Routing is runtime behavior — a declared tool isn't a called tool
+A tool can be fully declared — registered with Gemini, edge-permitted, present in `get_tools()` — and still never get CALLED, because routing (which utterances reach which tool) is decided by the live session's instruction-following, not by the harness. #168's `draft_lane` surfaced this: asked to draft, RAVEN could deflect with "that will be added as well" — acknowledging the capability rather than invoking it — exactly the failure the HARD ROUTING RULE in `prompts.json` (accept-verbs must call `draft_lane` on the same turn, never defer, never route an accept to `report_gap` as a missing capability) was written to prevent. The declaration is necessary but not sufficient; the routing is earned in the live session. Lesson: declaring a tool wires the CAPABILITY; instruction strength wires the BEHAVIOR. A tool's presence in the manifest / `get_tools()` proves it *can* be called, not that it *will* be — verify routing by speaking the trigger and watching the tool fire, never by confirming the declaration exists. Pairs with the §10 "GitHub Actions silently accept unknown inputs" gotcha (declaration ≠ effect) and the evening's "smoke the bits you ship."

@@ -5,6 +5,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 // endpoint via the mesh_introspection node and polled while this view is
 // mounted (LanesView's pattern: poll-on-mount, stop-on-unmount, manual refresh).
 //
+// Edges are first-class here, not just drawn: hover one to read the surface it
+// authorizes, click one to inspect the from → to.surface relationship and both
+// endpoints' live status, and click an entry in a node's EDGES IN/OUT list to
+// jump straight to that edge.
+//
 // Topology payload (nodes/mesh_introspection makeTopologyHandler, mirroring
 // core/core.py handle_introspection):
 //   { nodes: TopoNode[], edges: TopoEdge[], stale: boolean, fetched_at_ms: number }
@@ -39,6 +44,20 @@ type Load =
   | { kind: 'loading' }
   | { kind: 'ready'; payload: TopologyPayload }
   | { kind: 'unavailable'; reason: string }
+
+// What the user is inspecting/pointing at. A node, or one directed edge — a
+// from→to pair, which may bundle several surface-edges. Hover uses EdgeRef too.
+interface EdgeRef {
+  from: string
+  to: string
+}
+type Selection = { kind: 'node'; id: string } | { kind: 'edge'; from: string; to: string }
+function sameEdge(a: EdgeRef, b: EdgeRef): boolean {
+  return a.from === b.from && a.to === b.to
+}
+function edgeKey(e: EdgeRef): string {
+  return `${e.from}->${e.to}`
+}
 
 const POLL_MS = 10_000
 
@@ -137,24 +156,50 @@ function computeLayout(nodes: TopoNode[]): Layout {
   return { positions, bands, height }
 }
 
-// Curved path between two node centres. The control point is offset along the
+// Control point for the curve between two node centres. Offset along the
 // perpendicular of the directed a→b vector, so reciprocal edges (a→b and b→a)
 // bow to opposite sides instead of overlapping. Deterministic — same endpoints
 // always yield the same curve.
-function edgePath(a: Pos, b: Pos): string {
+function controlPoint(a: Pos, b: Pos): Pos {
   const dx = b.x - a.x
   const dy = b.y - a.y
   const len = Math.hypot(dx, dy) || 1
   const nx = -dy / len
   const ny = dx / len
   const bow = Math.min(70, len * 0.2)
-  const cx = (a.x + b.x) / 2 + nx * bow
-  const cy = (a.y + b.y) / 2 + ny * bow
-  return `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`
+  return { x: (a.x + b.x) / 2 + nx * bow, y: (a.y + b.y) / 2 + ny * bow }
+}
+
+function edgePath(a: Pos, b: Pos): string {
+  const c = controlPoint(a, b)
+  return `M ${a.x} ${a.y} Q ${c.x} ${c.y} ${b.x} ${b.y}`
+}
+
+// Midpoint of the quadratic curve (t = 0.5) — where the hover label sits.
+function edgeMid(a: Pos, b: Pos): Pos {
+  const c = controlPoint(a, b)
+  return { x: 0.25 * a.x + 0.5 * c.x + 0.25 * b.x, y: 0.25 * a.y + 0.5 * c.y + 0.25 * b.y }
 }
 
 function surfaceLabel(e: TopoEdge): string {
   return e.surface ? `${e.to}.${e.surface}` : e.to
+}
+
+// A directed edge as drawn: one path per node pair, carrying every surface that
+// rides it. Built in MeshView; consumed by the graph and the hover label.
+interface DrawnEdge {
+  from: string
+  to: string
+  surfaces: string[]
+}
+
+// Compact label for a drawn edge's surface(s): `to.surface`, with `+N` when the
+// pair carries more than one. A bare authorization (no surface) reads as `to`.
+function edgeSurfaceLabel(e: DrawnEdge): string {
+  const uniq = Array.from(new Set(e.surfaces))
+  if (uniq.length === 0) return e.to
+  if (uniq.length === 1) return `${e.to}.${uniq[0]}`
+  return `${e.to}.${uniq[0]} +${uniq.length - 1}`
 }
 
 // ---- Small shared bits ------------------------------------------------------
@@ -175,21 +220,79 @@ function StatusDot({ status }: { status: string }): React.ReactElement {
   )
 }
 
+// A row in a detail panel that selects something on click. Local hover state so
+// the highlight survives the 10s poll re-render (an inline-mutated style would
+// reset to transparent on every refresh).
+function RowButton({
+  onClick,
+  title,
+  children,
+}: {
+  onClick: () => void
+  title: string
+  children: React.ReactNode
+}): React.ReactElement {
+  const [hover, setHover] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title={title}
+      className="w-full text-left rounded px-1 -mx-1 py-0.5 transition-colors"
+      style={{ background: hover ? 'var(--holo-bg)' : 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }}
+    >
+      {children}
+    </button>
+  )
+}
+
+// One clickable EDGES IN/OUT entry: a display label plus the from→to pair it
+// belongs to, so a click can select that edge.
+interface EdgeRow {
+  key: string
+  label: string
+  ref: EdgeRef
+}
+
+// Outbound rows for a node: one per `to.surface` display string (matching the
+// prior list verbatim), each carrying the from→to pair it selects.
+function outRows(node: TopoNode, edges: TopoEdge[]): EdgeRow[] {
+  const m = new Map<string, EdgeRow>()
+  for (const e of edges) {
+    if (e.from !== node.id) continue
+    const label = surfaceLabel(e)
+    if (!m.has(label)) m.set(label, { key: label, label, ref: { from: node.id, to: e.to } })
+  }
+  return Array.from(m.values()).sort((a, b) => a.label.localeCompare(b.label))
+}
+
+// Inbound rows: mirror of outRows, keyed on the `from → .surface` display form.
+function inRows(node: TopoNode, edges: TopoEdge[]): EdgeRow[] {
+  const m = new Map<string, EdgeRow>()
+  for (const e of edges) {
+    if (e.to !== node.id) continue
+    const label = e.surface ? `${e.from} → .${e.surface}` : e.from
+    if (!m.has(label)) m.set(label, { key: label, label, ref: { from: e.from, to: node.id } })
+  }
+  return Array.from(m.values()).sort((a, b) => a.label.localeCompare(b.label))
+}
+
 function DetailPanel({
   node,
   edges,
   onClose,
+  onSelectEdge,
 }: {
   node: TopoNode
   edges: TopoEdge[]
   onClose: () => void
+  onSelectEdge: (e: EdgeRef) => void
 }): React.ReactElement {
   const isSpine = SPINE_IDS.has(node.id)
-  // Directed edges touching this node, deduped to their display strings.
-  const out = Array.from(new Set(edges.filter((e) => e.from === node.id).map(surfaceLabel))).sort()
-  const inbound = Array.from(
-    new Set(edges.filter((e) => e.to === node.id).map((e) => (e.surface ? `${e.from} → .${e.surface}` : e.from))),
-  ).sort()
+  const out = outRows(node, edges)
+  const inbound = inRows(node, edges)
 
   return (
     <div
@@ -247,11 +350,13 @@ function DetailPanel({
         {out.length === 0 ? (
           <Empty />
         ) : (
-          out.map((s) => (
-            <div key={s} className="text-xs font-mono" style={{ color: 'var(--holo-text)' }}>
-              <span style={{ color: 'var(--holo-accent)' }}>→ </span>
-              {s}
-            </div>
+          out.map((row) => (
+            <RowButton key={row.key} onClick={() => onSelectEdge(row.ref)} title={`Inspect edge → ${row.label}`}>
+              <span className="text-xs font-mono" style={{ color: 'var(--holo-text)' }}>
+                <span style={{ color: 'var(--holo-accent)' }}>→ </span>
+                {row.label}
+              </span>
+            </RowButton>
           ))
         )}
       </Section>
@@ -260,14 +365,121 @@ function DetailPanel({
         {inbound.length === 0 ? (
           <Empty />
         ) : (
-          inbound.map((s) => (
-            <div key={s} className="text-xs font-mono" style={{ color: 'var(--holo-text)' }}>
-              {s}
-            </div>
+          inbound.map((row) => (
+            <RowButton key={row.key} onClick={() => onSelectEdge(row.ref)} title={`Inspect edge ${row.label}`}>
+              <span className="text-xs font-mono" style={{ color: 'var(--holo-text)' }}>
+                {row.label}
+              </span>
+            </RowButton>
           ))
         )}
       </Section>
     </div>
+  )
+}
+
+// Edge inspector — opens when an edge is selected (clicked in the graph or from
+// a node's EDGES IN/OUT list). Shows the authorized relationship for every
+// surface on the pair, plus both endpoints' live status; endpoints are
+// clickable to jump back to the node, closing the navigation loop.
+function EdgeDetailPanel({
+  from,
+  to,
+  edges,
+  onClose,
+  onSelectNode,
+}: {
+  from: TopoNode
+  to: TopoNode
+  edges: TopoEdge[]
+  onClose: () => void
+  onSelectNode: (id: string) => void
+}): React.ReactElement {
+  const surfaces = Array.from(
+    new Set(edges.filter((e) => e.from === from.id && e.to === to.id && e.surface).map((e) => e.surface as string)),
+  ).sort()
+
+  return (
+    <div
+      className="w-72 shrink-0 border-l h-full overflow-y-auto px-5 py-4 space-y-4"
+      style={{ borderColor: 'var(--holo-border)', background: 'var(--holo-panel)' }}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className="text-[9px] tracking-[0.2em] px-1.5 py-0.5 rounded shrink-0"
+          style={{ color: 'var(--holo-accent)', border: '1px solid var(--holo-border)' }}
+        >
+          EDGE
+        </span>
+        <span className="text-sm font-mono break-all" style={{ color: 'var(--holo-text)' }}>
+          {from.id} <span style={{ color: 'var(--holo-accent)' }}>→</span> {to.id}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto text-xs"
+          style={{ color: 'var(--holo-muted)', background: 'transparent', border: 'none', cursor: 'pointer' }}
+          title="Close (Esc)"
+        >
+          ✕
+        </button>
+      </div>
+
+      <Section label={surfaces.length > 0 ? `RELATIONSHIP (${surfaces.length})` : 'RELATIONSHIP'}>
+        {surfaces.length === 0 ? (
+          <div className="text-xs font-mono" style={{ color: 'var(--holo-text)' }}>
+            <span style={{ color: 'var(--holo-muted)' }}>{from.id} </span>
+            <span style={{ color: 'var(--holo-accent)' }}>→ </span>
+            {to.id}
+            <span style={{ color: 'var(--holo-muted)' }}> · no surface</span>
+          </div>
+        ) : (
+          surfaces.map((s) => (
+            <div key={s} className="text-xs font-mono break-all" style={{ color: 'var(--holo-text)' }}>
+              <span style={{ color: 'var(--holo-muted)' }}>{from.id} </span>
+              <span style={{ color: 'var(--holo-accent)' }}>→ </span>
+              {to.id}.{s}
+            </div>
+          ))
+        )}
+      </Section>
+
+      <Section label="ENDPOINTS">
+        <EndpointRow role="FROM" node={from} onSelect={onSelectNode} />
+        <EndpointRow role="TO" node={to} onSelect={onSelectNode} />
+      </Section>
+    </div>
+  )
+}
+
+function EndpointRow({
+  role,
+  node,
+  onSelect,
+}: {
+  role: string
+  node: TopoNode
+  onSelect: (id: string) => void
+}): React.ReactElement {
+  const running = node.status === 'running'
+  return (
+    <RowButton onClick={() => onSelect(node.id)} title={`Inspect ${node.id}`}>
+      <span className="flex items-center gap-2">
+        <span className="text-[9px] tracking-[0.15em] w-9 shrink-0" style={{ color: 'var(--holo-muted)' }}>
+          {role}
+        </span>
+        <StatusDot status={node.status} />
+        <span className="text-xs font-mono break-all" style={{ color: 'var(--holo-text)' }}>
+          {node.id}
+        </span>
+        <span
+          className="ml-auto text-[10px] font-mono"
+          style={{ color: running ? 'var(--holo-accent)' : 'var(--holo-muted)' }}
+        >
+          {node.status}
+        </span>
+      </span>
+    </RowButton>
   )
 }
 
@@ -327,8 +539,9 @@ function Legend(): React.ReactElement {
 
 export function MeshView(): React.ReactElement {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
-  const [selected, setSelected] = useState<string | null>(null)
-  const [hovered, setHovered] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Selection | null>(null)
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null)
+  const [hoveredEdge, setHoveredEdge] = useState<EdgeRef | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
   // Single fetch of mesh_introspection.topology. Any non-ok result (node down,
@@ -367,12 +580,12 @@ export function MeshView(): React.ReactElement {
 
   // Deduplicate directed edges to one path per node pair; collect every surface
   // riding that pair for the tooltip. Drop edges whose endpoints aren't laid out.
-  const drawnEdges = useMemo(() => {
-    const seen = new Map<string, { from: string; to: string; surfaces: string[] }>()
+  const drawnEdges = useMemo<DrawnEdge[]>(() => {
+    const seen = new Map<string, DrawnEdge>()
     for (const e of edges) {
       if (e.from === e.to) continue
       if (!layout.positions.has(e.from) || !layout.positions.has(e.to)) continue
-      const key = `${e.from}->${e.to}`
+      const key = edgeKey(e)
       const ex = seen.get(key)
       if (ex) {
         if (e.surface) ex.surfaces.push(e.surface)
@@ -383,26 +596,46 @@ export function MeshView(): React.ReactElement {
     return Array.from(seen.values())
   }, [edges, layout])
 
-  // Focus = whatever the pointer is over, else the selection. Drives the
-  // edge/node highlight. Neighbours of the focus stay lit; everything else dims.
-  const focusId = hovered ?? selected
-  const neighbours = useMemo(() => {
-    if (!focusId) return null
-    const set = new Set<string>([focusId])
+  const selectNode = useCallback((id: string): void => {
+    setSelected((cur) => (cur?.kind === 'node' && cur.id === id ? null : { kind: 'node', id }))
+  }, [])
+  const selectEdge = useCallback((e: EdgeRef): void => {
+    setSelected((cur) => (cur?.kind === 'edge' && sameEdge(cur, e) ? null : { kind: 'edge', from: e.from, to: e.to }))
+  }, [])
+
+  // Focus = whatever the pointer is over (an edge wins, then a node), else the
+  // selection. Drives the highlight: the focused node's neighbours stay lit, or
+  // a focused edge's two endpoints do; everything else dims.
+  const focus = useMemo<Selection | null>(() => {
+    if (hoveredEdge) return { kind: 'edge', from: hoveredEdge.from, to: hoveredEdge.to }
+    if (hoveredNode) return { kind: 'node', id: hoveredNode }
+    return selected
+  }, [hoveredEdge, hoveredNode, selected])
+
+  const litNodes = useMemo<Set<string> | null>(() => {
+    if (!focus) return null
+    if (focus.kind === 'edge') return new Set<string>([focus.from, focus.to])
+    const set = new Set<string>([focus.id])
     for (const e of drawnEdges) {
-      if (e.from === focusId) set.add(e.to)
-      if (e.to === focusId) set.add(e.from)
+      if (e.from === focus.id) set.add(e.to)
+      if (e.to === focus.id) set.add(e.from)
     }
     return set
-  }, [focusId, drawnEdges])
+  }, [focus, drawnEdges])
 
-  // Keep the selection valid: drop it if its node disappears from a refresh.
+  // Keep the selection valid across refreshes: drop a node selection if its node
+  // disappears, and an edge selection if either endpoint disappears. A node
+  // merely changing status (e.g. killed → stopped) keeps the selection so the
+  // panel reflects the new status live.
   useEffect(() => {
-    if (selected !== null && !nodeById.has(selected)) setSelected(null)
+    if (selected === null) return
+    if (selected.kind === 'node' && !nodeById.has(selected.id)) setSelected(null)
+    else if (selected.kind === 'edge' && (!nodeById.has(selected.from) || !nodeById.has(selected.to)))
+      setSelected(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load])
 
-  // Esc closes the detail panel.
+  // Esc closes the detail panel (node or edge).
   useEffect(() => {
     if (selected === null) return
     const onKey = (e: KeyboardEvent): void => {
@@ -412,8 +645,33 @@ export function MeshView(): React.ReactElement {
     return () => window.removeEventListener('keydown', onKey)
   }, [selected])
 
-  const selectedNode = selected ? (nodeById.get(selected) ?? null) : null
+  // Resolve the current selection to live node objects for whichever panel shows.
+  const detail = useMemo(() => {
+    if (!selected) return null
+    if (selected.kind === 'node') {
+      const node = nodeById.get(selected.id)
+      return node ? { kind: 'node' as const, node } : null
+    }
+    const from = nodeById.get(selected.from)
+    const to = nodeById.get(selected.to)
+    return from && to ? { kind: 'edge' as const, from, to } : null
+  }, [selected, nodeById])
+
+  // Inline surface label for the hovered edge, drawn at its curve midpoint.
+  const hoverLabel = useMemo(() => {
+    if (!hoveredEdge) return null
+    const a = layout.positions.get(hoveredEdge.from)
+    const b = layout.positions.get(hoveredEdge.to)
+    if (!a || !b) return null
+    const de = drawnEdges.find((e) => sameEdge(e, hoveredEdge))
+    if (!de) return null
+    const m = edgeMid(a, b)
+    return { x: m.x, y: m.y, text: edgeSurfaceLabel(de) }
+  }, [hoveredEdge, layout, drawnEdges])
+
   const stale = payload?.stale === true
+  const focusEdge = focus?.kind === 'edge' ? focus : null
+  const focusNodeId = focus?.kind === 'node' ? focus.id : null
 
   return (
     <div className="h-full flex flex-col">
@@ -498,22 +756,42 @@ export function MeshView(): React.ReactElement {
                 </text>
               ))}
 
-              {/* Edges (under nodes). */}
+              {/* Edges (under nodes). Each is a visible curve plus a wide,
+                  transparent hit path that catches hover/click — thin strokes
+                  are nearly impossible to point at. */}
               <g fill="none">
                 {drawnEdges.map((e) => {
                   const a = layout.positions.get(e.from)
                   const b = layout.positions.get(e.to)
                   if (!a || !b) return null
-                  const hot = focusId != null && (e.from === focusId || e.to === focusId)
-                  const opacity = focusId == null ? 0.4 : hot ? 0.95 : 0.07
+                  const d = edgePath(a, b)
+                  const hot = focusEdge
+                    ? sameEdge(e, focusEdge)
+                    : focusNodeId != null && (e.from === focusNodeId || e.to === focusNodeId)
+                  const opacity = focus == null ? 0.4 : hot ? 0.95 : 0.07
                   return (
-                    <path
-                      key={`${e.from}->${e.to}`}
-                      d={edgePath(a, b)}
-                      stroke={hot ? 'var(--holo-accent)' : 'var(--holo-border)'}
-                      strokeWidth={hot ? 1.6 : 1}
-                      style={{ opacity, transition: 'opacity 120ms ease' }}
-                    />
+                    <g key={edgeKey(e)}>
+                      <path
+                        d={d}
+                        stroke={hot ? 'var(--holo-accent)' : 'var(--holo-border)'}
+                        strokeWidth={hot ? 1.6 : 1}
+                        pointerEvents="none"
+                        style={{ opacity, transition: 'opacity 120ms ease' }}
+                      />
+                      <path
+                        d={d}
+                        stroke="transparent"
+                        strokeWidth={14}
+                        pointerEvents="stroke"
+                        style={{ cursor: 'pointer' }}
+                        onMouseEnter={() => setHoveredEdge({ from: e.from, to: e.to })}
+                        onMouseLeave={() => setHoveredEdge((cur) => (cur && sameEdge(cur, e) ? null : cur))}
+                        onClick={(ev) => {
+                          ev.stopPropagation()
+                          selectEdge({ from: e.from, to: e.to })
+                        }}
+                      />
+                    </g>
                   )
                 })}
               </g>
@@ -523,10 +801,10 @@ export function MeshView(): React.ReactElement {
                 {nodes.map((n) => {
                   const p = layout.positions.get(n.id)
                   if (!p) return null
-                  const isSel = n.id === selected
+                  const isSel = selected?.kind === 'node' && selected.id === n.id
                   const isSpine = SPINE_IDS.has(n.id)
                   const running = n.status === 'running'
-                  const dim = neighbours != null && !neighbours.has(n.id)
+                  const dim = litNodes != null && !litNodes.has(n.id)
                   const ring = statusColor(n.status)
                   return (
                     <g
@@ -534,10 +812,10 @@ export function MeshView(): React.ReactElement {
                       style={{ cursor: 'pointer', opacity: dim ? 0.35 : 1, transition: 'opacity 120ms ease' }}
                       onClick={(ev) => {
                         ev.stopPropagation()
-                        setSelected((cur) => (cur === n.id ? null : n.id))
+                        selectNode(n.id)
                       }}
-                      onMouseEnter={() => setHovered(n.id)}
-                      onMouseLeave={() => setHovered((cur) => (cur === n.id ? null : cur))}
+                      onMouseEnter={() => setHoveredNode(n.id)}
+                      onMouseLeave={() => setHoveredNode((cur) => (cur === n.id ? null : cur))}
                     >
                       <circle
                         cx={p.x}
@@ -570,13 +848,47 @@ export function MeshView(): React.ReactElement {
                   )
                 })}
               </g>
+
+              {/* Hovered-edge surface label, on top. The stroke halo (painted
+                  behind the fill) keeps it legible over lines and nodes. */}
+              {hoverLabel && (
+                <text
+                  x={hoverLabel.x}
+                  y={hoverLabel.y}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  pointerEvents="none"
+                  style={{
+                    fill: 'var(--holo-accent)',
+                    stroke: 'var(--holo-bg)',
+                    strokeWidth: 4,
+                    paintOrder: 'stroke',
+                    fontSize: 11,
+                    letterSpacing: 0.5,
+                    fontFamily: 'ui-monospace, monospace',
+                  }}
+                >
+                  {hoverLabel.text}
+                </text>
+              )}
             </svg>
 
             <Legend />
           </div>
 
-          {/* Detail panel — only while a node is selected. */}
-          {selectedNode && <DetailPanel node={selectedNode} edges={edges} onClose={() => setSelected(null)} />}
+          {/* Detail panel — node or edge, depending on the selection. */}
+          {detail?.kind === 'node' && (
+            <DetailPanel node={detail.node} edges={edges} onClose={() => setSelected(null)} onSelectEdge={selectEdge} />
+          )}
+          {detail?.kind === 'edge' && (
+            <EdgeDetailPanel
+              from={detail.from}
+              to={detail.to}
+              edges={edges}
+              onClose={() => setSelected(null)}
+              onSelectNode={selectNode}
+            />
+          )}
         </div>
       )}
     </div>

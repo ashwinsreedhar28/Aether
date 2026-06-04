@@ -40,7 +40,7 @@ git commit -m "<type>(<scope>): <imperative summary>" \
 
 Closes #<issue>
 
-Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
 EOF
 )"
 

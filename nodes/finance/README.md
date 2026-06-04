@@ -2,11 +2,13 @@
 
 Mesh node that polls US stock quotes — Yahoo Finance primary (via the
 `yahoo-finance2` npm), Stooq CSV fallback when Yahoo flakes — and
-exposes three surfaces: `quote` for per-symbol lookups,
+exposes seven surfaces: `quote` for per-symbol lookups,
 `market_summary` for the full tracked grid, and `history` for the
-accumulated time series of polled samples per symbol. No API key.
-Second *data* node on the Aether mesh (news_feeds was the first,
-host_notifications the first *action* node).
+accumulated time series of polled samples per symbol, plus the
+Sprint 2 surfaces `movers`, `sectors`, `earnings`, and
+`market_overview` (documented under [Sprint 2 surfaces](#sprint-2-surfaces)).
+No API key. Second *data* node on the Aether mesh (news_feeds was the
+first, host_notifications the first *action* node).
 
 ## Surfaces
 
@@ -83,6 +85,20 @@ by the renderer's empty state).
 Points are sorted oldest-first. Empty array on first-day installs (no
 history accumulated yet) — not an error; the caller (voice tool or
 sparkline) decides how to surface it.
+
+### Sprint 2 surfaces
+
+Four breadth surfaces added in Sprint 2, each `request_response` with a
+JSON Schema under [`schemas/`](schemas/):
+
+- `finance.movers` — top gainers/losers across the tracked list.
+- `finance.sectors` — SPDR sector-ETF performance grid.
+- `finance.earnings` — upcoming earnings calendar. **Not-implemented
+  stub** in this version: the surface name, schema, and voice
+  registration exist, but the handler returns `{ available: false,
+  reason: 'not_implemented_yet' }` until a data source
+  (`yfinance.Ticker(...).earnings_dates`) is wired up.
+- `finance.market_overview` — broad market snapshot (indices + breadth).
 
 ## Storage
 

@@ -523,9 +523,9 @@ cat-heredocs and which require Python patches.
 
 ## 13.10 Hand-Edit Lanes and the Manual-Completion Kit
 
-§13.9 documented "manual completion" as a single fallback pattern (Director-Architect paste-and-write when CC stalls). Sprint 5 expanded this into a five-shape kit. The shapes are interchangeable tools, not a hierarchy.
+§13.9 documented "manual completion" as a single fallback pattern (Director-Architect paste-and-write when CC stalls). Sprint 5 expanded this into a five-shape kit; Sprint 6 added a sixth (the hand-edit hotfix, #134). The shapes are interchangeable tools, not a hierarchy.
 
-The five shapes documented across PRs #65, #66, #110, #112, #113, #114, #115:
+The six shapes documented across PRs #65, #66, #110, #112, #113, #114, #115, #134:
 
 1. **Implementer-wrote-Director-shipped.** CC drafts the code; Director runs verify-build and ships via manual commit + push. PRs #65, #66.
 
@@ -537,7 +537,9 @@ The five shapes documented across PRs #65, #66, #110, #112, #113, #114, #115:
 
 5. **Architect-Director hand-completion after BOTH CC sessions stall.** Two consecutive CC sessions hit network errors mid-write; Director assembles final state across the two partial outputs, runs verify-build, ships. PR #113 across two sessions ~30 minutes apart.
 
-Across all five shapes:
+6. **Architect-dictated hand-edit hotfix.** No CC session by design. When a fix is diagnosed precisely enough that spinning up a CC session would only add latency, Architect dictates the edit, Director applies it on disk and validates with an isolation smoke — the new path exercised alone and read from the daemon-side truth (e.g. the transcript endpoint), never an optimistic CLI echo — then ships. Distinct from shapes 2 and 5, which are CC-stall *recoveries*: this is a deliberate hand-edit chosen up front for an exactly-diagnosed fix. PR #134 (raven ready-gate hung on a `setup_complete` signal that never traverses the receive loop).
+
+Across all six shapes:
 - Files persist on disk between sessions; this is the load-bearing invariant.
 - Resume prompts (when used) run 30–40% the size of original prompts because they reference already-on-disk contracts as locked.
 - §7 canonical PR body discipline holds regardless of session count or shape — the PR body should explain shape in the "Risks / TODOs / Skipped" section.
@@ -549,6 +551,7 @@ When to use which shape (default heuristics):
 - Documentation, content fresh in chat → shape 3.
 - Small surgical edits (≤5 files, no architectural decisions) → shape 4 directly.
 - Mixed lane spanning multiple days → shape 4 with daily verify-builds.
+- Exactly-diagnosed fix where a CC session would only add latency → shape 6 (Architect dictates, Director applies + isolation-smokes).
 
 The kit is now stable. Future Sprint retros bank new shapes here as they emerge.
 

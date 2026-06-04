@@ -10,6 +10,21 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Mesh graph view — interactive topology. The Mesh tab's stub becomes a
+  renderer-native graph (React + hand-rolled SVG; no new deps, no d3) fed by
+  `mesh_introspection.topology`, polled ~10s while mounted with a manual
+  refresh (LanesView's pattern). Layout is deterministic and banded by category
+  (SPINE = core+raven+shell, then Mixer / Sensor / Actor), sorted by id within
+  each band, drawn in a fixed viewBox that scales to the window — positions are
+  a pure function of the node set, so refreshes never jitter. Edges are curved
+  SVG paths under the nodes. Clicking a node opens a side detail panel (status,
+  category, description, surfaces, edges in/out by name); click-away or Esc
+  closes it. Hovering (or selecting) a node highlights its edges and dims the
+  rest. Node status uses the cockpit's dot language — running (accent+glow) /
+  stopped (muted), with one restrained amber for `unhealthy`; a killed node
+  flips status within a poll cycle. `mesh_introspection` unreachable degrades to
+  an "unavailable" state, never a crash. Renderer-only; no changes to main,
+  preload, daemons, nodes, or manifest.
 - Instrument views — top bar + Lanes view v1. The cockpit gains a navigable
   top bar (Scene · Chats · Mesh · Lanes) above the always-present CLI. **Scene**
   is the unchanged ambient panel dashboard and stays the default home (kept

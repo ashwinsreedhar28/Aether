@@ -10,6 +10,20 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Scene panel protocol contract (`docs/scene-protocol.md`, "Contract v1") — the
+  AVP-track wire interface written down so the collaborator builds the 3D
+  renderer against a document, not against our source. Documents the scene
+  server's endpoints as implemented (`GET /scene`, `POST /scene/panel[/{id}]`,
+  the whole-doc `PUT`/`PATCH`, deletes, the entity mirror, and `WS /scene/stream`),
+  panel anatomy (fields, the 8-value `kind` enum vs. the 3 the 2D shell renders,
+  create-vs-merge semantics, the string-only `style` constraint, ordering),
+  lifecycle (summon → POST → broadcast → render, snapshot/delta frame shapes,
+  reconnect, no-op-writes-emit-no-delta, what consumers may not assume), real
+  producer payloads (`dashboard.*` backdrops + `viz-*`/`cli-*` overlays), and a
+  versioning rule (breaking wire changes bump the contract and ping the AVP
+  owner). Includes an "observed discrepancies" appendix recording six
+  doc-vs-code / doc-vs-doc mismatches found while writing it (none fixed — docs
+  lane). Cross-linked from the README architecture section. No code changes.
 - Stale-dist boot guard for the TS mesh nodes. At shell boot, as each TS node is
   about to spawn, `NodeManager.spawnNode` now calls a new
   `shell/electron/main/services/staleDist.ts` helper that compares the newest

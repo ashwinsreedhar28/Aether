@@ -83,11 +83,13 @@ async function fetchLanes(node: MeshNode): Promise<LanesStatus> {
 }
 
 // Same mesh-read pattern as fetchLanes, against the gap sensor (intents.list,
-// newest ~20). Throws on a denied/error envelope or transport failure (e.g. the
-// intents node killed); renderGaps catches that and still renders an
-// "unavailable" panel so a summon never fails silently.
+// newest ~20 OPEN gaps — the panel shows what Aether still can't do; the closed
+// count comes from the response's whole-log `counts`). Throws on a denied/error
+// envelope or transport failure (e.g. the intents node killed); renderGaps
+// catches that and still renders an "unavailable" panel so a summon never fails
+// silently.
 async function fetchGaps(node: MeshNode): Promise<GapsResult> {
-  const resp = await node.invoke(GAPS_SURFACE, { limit: GAPS_LIMIT })
+  const resp = await node.invoke(GAPS_SURFACE, { limit: GAPS_LIMIT, status: 'open' })
   if (!('kind' in resp)) {
     throw new Error(`${GAPS_SURFACE} returned no response envelope`)
   }

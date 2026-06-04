@@ -10,6 +10,24 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Gap **lifecycle** — gaps are now `open` or `closed`, so the ledger reflects
+  what's been answered, not just what was ever missing. The `intents` node gains
+  a new actor surface **`intents.close { id | match }`**: `match` closes every
+  OPEN gap whose text contains a case-insensitive substring (so "the email one
+  is done" closes both mail gaps in one call), `id` closes one. Closing is
+  **event-sourced and append-only** — `close` appends a `{ id, ts, closed:true }`
+  event rather than rewriting the JSONL, so the same `fsync` durability that
+  protects a recorded gap protects a closure; current state is derived by folding
+  the log forward. **`intents.list`** gains a `status?` filter (`open` |
+  `closed` | `all`, **default `open`**) and now returns whole-log
+  `counts: { open, closed }` alongside the (filtered) gaps. Existing gap lines
+  without a `status` field migrate to `open` on read. RAVEN's new **`close_gap`**
+  voice tool routes "mark that closed" / "you can read mail now" to
+  `intents.close` (manifest edge **`raven → intents.close`**), confirming briefly
+  from the returned count; `review_gaps` now pulls **open** gaps only, so
+  "what should we build next" stops re-pitching capabilities already built. The
+  visualizer `gaps` overlay shows **open** gaps with a lifecycle header
+  ("2 open · 3 closed").
 - Mesh topology — **edges are now inspectable, not just drawn.** Hovering an
   edge highlights it (its two endpoints stay lit, all other edges dim) and shows
   the surface it authorizes as a small inline label at the curve's midpoint

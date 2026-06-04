@@ -25,11 +25,13 @@ to the scene server over HTTP. "Mesh in, HTTP out."
   appearing both as a `dashboard.lanes` backdrop (re-POSTed on the ~5s loop) and
   a `viz-lanes` summoned overlay. Resilient: a down lanes sensor renders a
   "lanes sensor unavailable" panel rather than disappearing.
-- `gaps` — **summoned overlay.** Reads `intents.list` (newest ~20) and composes
-  a `viz-gaps` panel of the recorded capability gaps — timestamp + gap text,
-  count in the header, newest-first. Resilient like `lanes`: an empty log renders
-  "No recorded gaps" and a down gap sensor renders "gap sensor unavailable"
-  rather than failing the summon.
+- `gaps` — **summoned overlay.** Reads `intents.list` (newest ~20 **open** gaps,
+  `status: 'open'`) and composes a `viz-gaps` panel — timestamp + gap text,
+  newest-first. The header shows the whole-log lifecycle tally from the response
+  `counts` ("2 open · 3 closed"), so closed gaps are counted without cluttering
+  the body. Resilient like `lanes`: no open gaps renders "No open gaps" (closed
+  count still shown when known) and a down gap sensor renders "gap sensor
+  unavailable" rather than failing the summon.
 - Any other intent → `MeshDeny('unknown_intent', { intent })`.
 
 New intents are added by writing a template function and adding a switch case —

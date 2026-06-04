@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { MeshNode, MeshDeny, type Envelope } from '@aether/mesh-node-sdk'
-import { GapStore } from './storage'
+import { GapStore, type GapStatus } from './storage'
 
 // intents is the mesh's gap sensor — and its first node that persists
 // *mesh-authored* data rather than a re-fetchable cache of an external source
@@ -9,9 +9,10 @@ import { GapStore } from './storage'
 // elsewhere; a gap record exists nowhere but here). When raven cannot fulfil a
 // request — no tool, no surface, no data — it invokes intents.record with a
 // one-line description; the gap is appended to an fsync'd JSONL log. The
-// intents.list surface reads them back newest-first for the (named next)
-// gap-visibility view. First brick of the self-building arc: Aether noticing
-// what it can't do.
+// intents.list surface reads them back newest-first (open by default) and
+// intents.close marks gaps closed once the capability they noted exists, so the
+// ledger reflects what's been answered. First brick of the self-building arc:
+// Aether noticing what it can't do — and, now, noticing when it can.
 
 const NODE_ID = 'intents'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
@@ -21,6 +22,9 @@ const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
 // well-formed even if a future caller skips Core validation.
 const TEXT_MAX = 2000
 const CONTEXT_MAX = 4000
+// A gap id is a UUID; a match substring is bounded by the gap text it searches.
+const ID_MAX = 200
+const MATCH_MAX = TEXT_MAX
 
 const DEFAULT_LIMIT = 100
 const MAX_LIMIT = 1000
@@ -32,6 +36,12 @@ interface RecordArgs {
 
 interface ListArgs {
   limit?: unknown
+  status?: unknown
+}
+
+interface CloseArgs {
+  id?: unknown
+  match?: unknown
 }
 
 function log(msg: string): void {
@@ -47,6 +57,23 @@ function clampLimit(value: unknown): number {
   if (n < 1) return 1
   if (n > MAX_LIMIT) return MAX_LIMIT
   return n
+}
+
+// list defaults to OPEN gaps (the live ledger) — 'closed' and 'all' are
+// opt-in. Anything unrecognised falls back to the default rather than denying;
+// the schema already constrains the enum at Core, this just keeps the node
+// well-behaved if called raw.
+function parseStatus(value: unknown): GapStatus | 'all' {
+  if (value === 'closed') return 'closed'
+  if (value === 'all') return 'all'
+  return 'open'
+}
+
+// Trim a string arg to a bounded, non-empty value or undefined.
+function strArg(value: unknown, max: number): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length === 0 ? undefined : trimmed.slice(0, max)
 }
 
 function makeRecordHandler(store: GapStore) {
@@ -78,7 +105,31 @@ function makeListHandler(store: GapStore) {
   return async (env: Envelope): Promise<Record<string, unknown>> => {
     const payload = (env.payload ?? {}) as ListArgs
     const limit = clampLimit(payload.limit ?? DEFAULT_LIMIT)
-    return { gaps: store.list(limit) }
+    const status = parseStatus(payload.status)
+    const { gaps, counts } = store.list({ limit, status })
+    // counts reflects the whole log (uncapped, unfiltered) so a consumer
+    // showing only open gaps can still print "N open · M closed".
+    return { gaps, counts }
+  }
+}
+
+function makeCloseHandler(store: GapStore) {
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
+    const payload = (env.payload ?? {}) as CloseArgs
+    const id = strArg(payload.id, ID_MAX)
+    const match = strArg(payload.match, MATCH_MAX)
+    if (!id && !match) {
+      // Schema permits both optional; the node enforces "at least one selector"
+      // so a bare close() can't silently no-op for the wrong reason.
+      throw new MeshDeny('intents_close_no_selector', {})
+    }
+    const { closed } = store.close({ id, match })
+    log(`close ${id ? `id=${id}` : `match=${JSON.stringify(match)}`} → closed ${closed.length}`)
+    return {
+      ok: true,
+      count: closed.length,
+      closed: closed.map((r) => ({ id: r.id, text: r.text })),
+    }
   }
 }
 
@@ -103,11 +154,13 @@ async function main(): Promise<void> {
   const markerPath = join(nodeDir, 'running')
 
   const store = new GapStore(logPath)
-  log(`gap log at ${logPath} (existing gaps=${store.list(MAX_LIMIT).length})`)
+  const existing = store.list({ limit: MAX_LIMIT, status: 'all' }).counts
+  log(`gap log at ${logPath} (existing gaps: ${existing.open} open, ${existing.closed} closed)`)
 
   const node = new MeshNode(NODE_ID, secret, CORE_URL)
   node.on('record', makeRecordHandler(store))
   node.on('list', makeListHandler(store))
+  node.on('close', makeCloseHandler(store))
   await node.start()
   log(`registered with core at ${CORE_URL}`)
 

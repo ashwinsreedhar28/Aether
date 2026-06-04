@@ -26,6 +26,7 @@ import * as http from 'node:http'
 import { EventEmitter } from 'node:events'
 import { WebSocket } from 'ws'
 import { getRavenMeshConfig, waitForMeshReady } from './mesh'
+import { nodeDataDir } from './paths'
 
 // Prepend `<repo>/core` to the raven-core child's PYTHONPATH at spawn
 // time so `from node_sdk import MeshNode` resolves to
@@ -462,6 +463,13 @@ export class RavenDaemonManager extends EventEmitter {
         RAVEN_DIR: this.coreDir,
         RAVEN_PYTHON: venvPython,
         RAVEN_USER_DIR: this.dataDir,
+        // Shared Aether data root ($userData/data), identical to what the
+        // node manager hands every mesh node. raven-core's draft_lane tool
+        // writes Architect lane prompts under $AETHER_DATA_DIR/architect/drafts/
+        // so they land in the shared data tree alongside per-node state rather
+        // than in raven's private dir. The tool keeps a RAVEN_USER_DIR → ~/.raven
+        // fallback for standalone runs where this isn't set.
+        AETHER_DATA_DIR: nodeDataDir(),
         // Mesh identity for raven-core. raven_core/mesh_client.py reads
         // these at orchestrator startup and registers with Core. Missing
         // either is a hard error in mesh_client (we always pass both

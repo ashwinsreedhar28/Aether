@@ -10,6 +10,34 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Architect rung 1 — accepted proposals become paste-ready lane prompts on disk.
+  A new `draft_lane` voice tool
+  (`daemons/raven-core/raven_core/tools/draft_lane_tool.py`) takes ONE accepted
+  build proposal (name, goal, scope_files, steps, smoke — supplied by RAVEN from
+  the proposal it just pitched via `review_gaps`) and deterministically composes a
+  **house-format lane prompt** (`=== LANE … ===` fences, role line, a fixed
+  RECON-FIRST guardrail line — read the named precedents and STOP to report options
+  if a design decision isn't covered, so thin drafts are self-limiting rather than
+  freelanced — branch/worktree placeholders, GOAL, SCOPE, numbered BUILD STEPS,
+  Director-run smoke, the verify-then-ship Ship line, a PR title), then writes it to
+  `<root>/architect/drafts/<slug>-<ts>.md`. The write is **direct to disk** — a
+  raven-local artifact, not mesh data — so there is **no mesh hop and no manifest
+  change** (see DECISIONS.md). To resolve the canonical `$AETHER_DATA_DIR` path,
+  `ravenDaemonManager.ts` now passes `AETHER_DATA_DIR: nodeDataDir()` into the raven
+  daemon env — the **same shared `$userData/data` root every mesh node gets** — so
+  drafts land at `$userData/data/architect/drafts/`, a sibling of the per-node data
+  dirs. The tool resolves its root by precedence `AETHER_DATA_DIR` → `RAVEN_USER_DIR`
+  → `~/.raven` (mirroring the memory store) so it still runs standalone. Like
+  `report_gap`/`notify` it is a SIDE-EFFECT tool — it returns only `{ ok, path }`;
+  the voice prompt routes "draft it / write the lane for X" to call `draft_lane` and
+  speak exactly ONE line ("Drafted, sir — in architect drafts."), never reading the
+  prompt, path, or steps aloud. `prompts.json` gains tool 19, a Proposing-section
+  extension with a **HARD ROUTING RULE** (accept-verbs — "draft it", "write the lane
+  for X" — must call `draft_lane` on the same turn; RAVEN never defers, never says a
+  draft "will be added", and never routes an accept to `report_gap` as if it were a
+  missing capability), one rich worked example, and a function description. Reaches
+  `draft_lane_tool.py` + `prompts.json` +
+  `shell/electron/main/services/ravenDaemonManager.ts` (one env line + import).
 - Scene arrangement v1 — the Scene column is now arrangeable. Each card carries a
   subtle six-dot grip in its header (§15 restraint — no heavy drag chrome); drag
   it to reorder panels, with a single accent insertion line marking where the

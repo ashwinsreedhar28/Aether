@@ -4,11 +4,12 @@ import { MeshNode, MeshDeny, type Envelope, type Handler } from '@aether/mesh-no
 import { SceneClient } from './scene_client'
 import {
   renderDashboardPanels,
+  renderGapsPanels,
   renderLanesBackdropPanels,
   renderLanesOverlayPanels,
   renderMeshPanels,
 } from './templates'
-import type { LanesStatus, RenderResult, ScenePanel, Topology } from './types'
+import type { GapsResult, LanesStatus, RenderResult, ScenePanel, Topology } from './types'
 
 // The visualizer is a MIXER mesh node: it composes other surfaces
 // (mesh_introspection.topology) into a presentation (scene panels). It is the
@@ -17,8 +18,9 @@ import type { LanesStatus, RenderResult, ScenePanel, Topology } from './types'
 //
 // It exposes a single inbound surface, `render`, which routes an {intent, args}
 // envelope to a template function. Adding an intent later = add a template +
-// a switch case (the routing is deliberately trivially extensible). v1 intents
-// are 'mesh' (summoned overlay) and 'dashboard' (always-present backdrop) only.
+// a switch case (the routing is deliberately trivially extensible). Intents:
+// 'mesh' (summoned topology overlay), 'dashboard' (always-present backdrop),
+// 'lanes' (backdrop + overlay), 'gaps' (summoned gap-log overlay).
 
 const NODE_ID = 'visualizer'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
@@ -28,6 +30,10 @@ const SCENE_SERVER_URL = process.env.AETHER_SCENE_SERVER_URL ?? 'http://127.0.0.
 
 const TOPOLOGY_SURFACE = 'mesh_introspection.topology'
 const LANES_SURFACE = 'lanes.status'
+const GAPS_SURFACE = 'intents.list'
+// Newest ~20 gaps is plenty for an at-a-glance "what couldn't Aether do" panel;
+// the gap log is low-frequency, so a small cap keeps the overlay readable.
+const GAPS_LIMIT = 20
 // Re-POST the dashboard backdrop on this cadence so it stays live. Uses the
 // merge endpoint (via upsert) so re-POSTs update in place — no 409 storm.
 const DASHBOARD_INTERVAL_MS = 5_000
@@ -74,6 +80,23 @@ async function fetchLanes(node: MeshNode): Promise<LanesStatus> {
     throw new Error(`${LANES_SURFACE} denied: ${reason}`)
   }
   return env.payload as unknown as LanesStatus
+}
+
+// Same mesh-read pattern as fetchLanes, against the gap sensor (intents.list,
+// newest ~20). Throws on a denied/error envelope or transport failure (e.g. the
+// intents node killed); renderGaps catches that and still renders an
+// "unavailable" panel so a summon never fails silently.
+async function fetchGaps(node: MeshNode): Promise<GapsResult> {
+  const resp = await node.invoke(GAPS_SURFACE, { limit: GAPS_LIMIT })
+  if (!('kind' in resp)) {
+    throw new Error(`${GAPS_SURFACE} returned no response envelope`)
+  }
+  const env = resp as Envelope
+  if (env.kind === 'error') {
+    const reason = typeof env.payload?.reason === 'string' ? env.payload.reason : 'unknown'
+    throw new Error(`${GAPS_SURFACE} denied: ${reason}`)
+  }
+  return env.payload as unknown as GapsResult
 }
 
 async function main(): Promise<void> {
@@ -152,6 +175,37 @@ async function main(): Promise<void> {
     return { ok: true, intent, panels: posted }
   }
 
+  // Gaps variant of the render path. Same resilience contract as renderLanes —
+  // a failed read does NOT abort: it composes the overlay with a null result (an
+  // "unavailable" body) and still POSTs, so a "show me your gaps" summon degrades
+  // gracefully when the intents node is down rather than failing silently. Kept
+  // parallel to renderLanes rather than extracted into one helper: two resilient
+  // variants don't yet justify a shared abstraction (CLAUDE.md §15 — wait for the
+  // third instance).
+  const renderGaps = async (
+    intent: string,
+    compose: (g: GapsResult | null) => ScenePanel[],
+  ): Promise<RenderResult> => {
+    let gaps: GapsResult | null = null
+    try {
+      gaps = await fetchGaps(node)
+    } catch (err) {
+      log(`gaps read failed (rendering unavailable): ${errMsg(err)}`)
+    }
+    const panels = compose(gaps)
+    let posted = 0
+    const failures: string[] = []
+    for (const panel of panels) {
+      const res = await scene.upsertPanel(panel)
+      if (res.ok) posted += 1
+      else failures.push(`${panel.id}: ${res.error ?? res.status ?? 'unknown'}`)
+    }
+    if (posted === 0 && failures.length > 0) {
+      return { ok: false, intent, error: `scene_post_failed: ${failures.join('; ')}` }
+    }
+    return { ok: true, intent, panels: posted }
+  }
+
   // The single inbound surface. {intent, args} arrives in the envelope payload;
   // route via switch. Unknown intent is a request-level rejection → MeshDeny
   // (distinct from a downstream failure, which returns { ok: false }).
@@ -171,6 +225,11 @@ async function main(): Promise<void> {
       case 'lanes': {
         const result = await renderLanes('lanes', renderLanesOverlayPanels)
         log(`render('lanes') → ${result.ok ? `posted ${result.panels} panel(s)` : result.error}`)
+        return result
+      }
+      case 'gaps': {
+        const result = await renderGaps('gaps', renderGapsPanels)
+        log(`render('gaps') → ${result.ok ? `posted ${result.panels} panel(s)` : result.error}`)
         return result
       }
       default:

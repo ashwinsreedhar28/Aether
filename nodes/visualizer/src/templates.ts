@@ -1,4 +1,13 @@
-import type { LaneInfo, LanesStatus, MeshNodeInfo, ScenePanel, Topology, Transform } from './types'
+import type {
+  GapRecord,
+  GapsResult,
+  LaneInfo,
+  LanesStatus,
+  MeshNodeInfo,
+  ScenePanel,
+  Topology,
+  Transform,
+} from './types'
 
 // Pure panel composition. Each function turns a mesh `Topology` snapshot into a
 // list of SceneDoc panels; it performs NO I/O (no mesh reads, no scene POSTs) —
@@ -22,6 +31,10 @@ export const PANEL_MESH_OVERLAY = 'viz-mesh'
 // Lanes: a third always-present backdrop (dashboard.*) + a summoned overlay.
 export const PANEL_LANES_BACKDROP = 'dashboard.lanes'
 export const PANEL_LANES_OVERLAY = 'viz-lanes'
+// Gaps: a summoned overlay only (no backdrop — the gap log is summoned on
+// demand, not an always-present dashboard fixture). Stable non-dashboard id so a
+// repeat "show me your gaps" updates it in place rather than stacking copies.
+export const PANEL_GAPS_OVERLAY = 'viz-gaps'
 
 // Canonical four-category vocabulary order (roadmap architectural anchor #1).
 // Semantic ordering, not alphabetical (CLAUDE.md §11.1).
@@ -307,6 +320,60 @@ export function renderLanesOverlayPanels(status: LanesStatus | null): ScenePanel
       transformAt(0, 1.2),
       { width: 0.7, height: 0.5 },
       'lanes-overlay',
+    ),
+  ]
+}
+
+// ── 'gaps' summoned overlay ───────────────────────────────────────────────────
+
+// Relative age of a recorded gap from its ISO 8601 timestamp. Reuses formatAge
+// (s/m/h ladder) for dashboard consistency; sidesteps its "just now" string
+// reading as "just now ago" by suffixing " ago" only for elapsed buckets. A
+// malformed/missing ts (the store stores '' for an unparseable line) reads as
+// 'unknown time' rather than a bogus age.
+function gapWhen(ts: string): string {
+  const parsed = Date.parse(ts)
+  if (Number.isNaN(parsed)) return 'unknown time'
+  const age = formatAge(Date.now() - parsed)
+  return age === 'just now' ? age : `${age} ago`
+}
+
+function gapLine(gap: GapRecord): string {
+  return `- **${gapWhen(gap.ts)}** — ${gap.text}`
+}
+
+// `result` is nullable on purpose: when the gap sensor (intents node) is
+// unavailable the overlay still renders — with an explicit unavailable note —
+// rather than the summon failing silently (mirrors lanesMarkdown's resilience).
+// A non-null result with an empty list is the distinct "nothing recorded yet"
+// case and gets the friendlier "No recorded gaps".
+function gapsMarkdown(result: GapsResult | null): string {
+  if (!result) {
+    return ['## Capability Gaps', '', '_gap sensor unavailable_'].join('\n')
+  }
+  const gaps = result.gaps ?? []
+  if (gaps.length === 0) {
+    return ['## Capability Gaps', '', '_No recorded gaps_'].join('\n')
+  }
+  // intents.list already returns newest-first — render in array order.
+  return [
+    '## Capability Gaps',
+    '',
+    `**${gaps.length} gap${gaps.length === 1 ? '' : 's'}** recorded`,
+    '',
+    gaps.map(gapLine).join('\n'),
+  ].join('\n')
+}
+
+// Summoned gaps overlay (stable viz-gaps id; a repeat summon updates in place).
+export function renderGapsPanels(result: GapsResult | null): ScenePanel[] {
+  return [
+    makeMarkdownPanel(
+      PANEL_GAPS_OVERLAY,
+      gapsMarkdown(result),
+      transformAt(0, 1.2),
+      { width: 0.7, height: 0.5 },
+      'gaps-overlay',
     ),
   ]
 }

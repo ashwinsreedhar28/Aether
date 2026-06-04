@@ -730,3 +730,10 @@ relationships:
   # shell edges use; not consumed by any renderer code in THIS PR.
   - from: shell
     to: intents.list
+  # The visualizer Mixer reads the gap log through the mesh to compose the
+  # summoned 'gaps' overlay (viz-gaps) — same consume-surface pattern as its
+  # mesh_introspection.topology / lanes.status edges above. The shell pre-grant
+  # above does NOT cover the visualizer: every consumer needs its own edge
+  # (#136's lesson, restated when #145 granted the shell edge).
+  - from: visualizer
+    to: intents.list

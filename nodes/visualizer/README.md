@@ -11,7 +11,7 @@ to the scene server over HTTP. "Mesh in, HTTP out."
   Returns `{ ok: true, intent, panels }` or `{ ok: false, intent, error }`.
   Internally routed by `intent` to a template function.
 
-### v1 intents
+### Intents
 
 - `mesh` — **summoned overlay.** Reads `mesh_introspection.topology`, composes a
   single markdown panel (nodes grouped by category + the edge list) and upserts
@@ -21,6 +21,15 @@ to the scene server over HTTP. "Mesh in, HTTP out."
   (`dashboard.mesh-health`, `dashboard.raven-status`) and upserts them. Run once
   on boot (seed) and re-POSTed every ~5s (merge endpoint) so the backdrop stays
   live.
+- `lanes` — reads `lanes.status` and composes the dev-lane activity panel,
+  appearing both as a `dashboard.lanes` backdrop (re-POSTed on the ~5s loop) and
+  a `viz-lanes` summoned overlay. Resilient: a down lanes sensor renders a
+  "lanes sensor unavailable" panel rather than disappearing.
+- `gaps` — **summoned overlay.** Reads `intents.list` (newest ~20) and composes
+  a `viz-gaps` panel of the recorded capability gaps — timestamp + gap text,
+  count in the header, newest-first. Resilient like `lanes`: an empty log renders
+  "No recorded gaps" and a down gap sensor renders "gap sensor unavailable"
+  rather than failing the summon.
 - Any other intent → `MeshDeny('unknown_intent', { intent })`.
 
 New intents are added by writing a template function and adding a switch case —

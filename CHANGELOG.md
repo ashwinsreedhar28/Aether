@@ -10,6 +10,17 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Mesh topology — **edges are now inspectable, not just drawn.** Hovering an
+  edge highlights it (its two endpoints stay lit, all other edges dim) and shows
+  the surface it authorizes as a small inline label at the curve's midpoint
+  (`to.surface`, `+N` when the pair bundles several). Clicking an edge opens the
+  detail panel on the **relationship**: every authorized `from → to.surface`
+  plus both endpoints' live status, with each endpoint clickable to jump back to
+  the node. A node's **EDGES IN / EDGES OUT** rows became clickable too — each
+  selects that edge — closing the node → edge → node navigation loop. Killing a
+  node updates the selected edge's endpoint status live (the selection only
+  drops if an endpoint leaves the topology). Renderer-only (`MeshView.tsx`); the
+  edges already exist in the manifest. Degrade/empty states unchanged.
 - Mail — "pull up my latest email." Closes the gap sensor's first recorded
   capture ("mail surface exposes sender and subject only, no body"), but by
   **opening the message** rather than narrating it (Architect §14.1 pivot — see

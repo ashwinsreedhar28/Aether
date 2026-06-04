@@ -10,6 +10,20 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Encore bank — banks the 2026-06-03 (night) "encore" mail-RCA lessons in
+  `docs/governance-log.md`: five entries covering measure-don't-reason (per-call
+  wall-clock is timed, never inferred from payload size — two Architect estimates
+  corrected by an 84s/~28s-per-call measurement), a-signal-nobody-can-see-isn't-a-
+  signal (failure counters must land in a DB/status surface, not terminal-less
+  stdout — the `mail_meta` precedent), the stale-runtime confound (a probe is only
+  valid against a process launched after the build it tests — runtime cousin of
+  smoke-the-bits-you-ship), the honest hold (ship with the gap stated and HOLD the
+  merge until observed green per #154 — never manufacture a pass, never write
+  synthetic data into real user stores), and environmental-degradation-is-a-finding
+  (Mail.app AppleScript latency documented + an Envelope-Index alternative banked in
+  an ADR with a 48h trigger). Notes the §13.10 "shape 6" graduation of the hand-edit
+  hotfix remains parked — out of scope for a docs-only lane that doesn't touch
+  CLAUDE.md. Docs-only.
 - Re-summon attention affordance — when a summon refreshes a Scene panel that is
   already on screen (e.g. saying "show me the mesh" a second time updates the
   `viz-mesh` overlay in place), the card now acknowledges it: a restrained ~1.5s

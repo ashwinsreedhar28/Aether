@@ -451,3 +451,31 @@ The renderer's `mesh.invoke` routes as the `shell` node; the `shell → lanes.st
 
 ### Hand-edit hotfix shape
 #134 shipped as an Architect-dictated, Director-applied edit with an isolation smoke — the fastest correct path for an exactly-diagnosed fix. It extends the CLAUDE.md §13.10 hand-edit family: where shapes 1–5 cover CC-drafted or CC-stalled work, this is the deliberately hand-edited hotfix taken when the diagnosis is precise enough that spinning up a CC session would only add latency.
+
+---
+
+## 2026-06-03 (night) — encore lessons
+
+The encore — a late-night mail root-cause session after the cockpit day —
+banked five lessons. Several continue the day's running count of
+Architect-stated mechanisms corrected by measurement or read code (the
+evening's "intent over mechanism" finding); the rest are verification-honesty
+rules that recurred hard enough to bank.
+
+### Measure, don't reason — per-call wall-clock is timed, never inferred
+The mail RCA timed an 84s batch and found ~28s/call of bridge overhead — almost all of the wall-clock was transport, not work. Two Architect latency estimates, both reasoned from payload size, were corrected by the measurement; these were mechanism errors #5–6 of the day, extending the evening's count of four. Payload size is not a proxy for latency: the bridge/transport overhead dominates and is invisible to size-based reasoning. Rule: wall-clock per external call is measured with a clock, never inferred from how much data crosses the wire.
+
+### A signal nobody can see isn't a signal
+Failure counters must land somewhere observable — a DB row, a status surface — not stdout that never reaches a terminal. The `mail_meta` precedent: a counter written to stdout under a GUI-launched process (no attached terminal) accumulated real failures that no one ever saw. If you instrument a failure path, the instrument's output has to land where a human or a query will actually read it; otherwise the instrumentation is decorative. Pairs with the §10 stdout-pollution gotcha — stdout is the wrong sink for signal as well as for protocol.
+
+### The stale-runtime confound
+A probe is only valid against a process launched *after* the build it is meant to test. Probing a still-running old process after a rebuild tests stale bits and reports a false result — false-green or false-red, both worthless. This is the runtime cousin of "smoke the bits you ship" (this day's evening sibling): a green build is not enough; relaunch the process from the new build before you trust the probe, and confirm the launch post-dates the build.
+
+### The honest hold
+When live verification is environmentally blocked, ship the PR with the gap stated plainly in the §7 body and HOLD the merge until the path is observed green — the #154 precedent. Two hard rules attach: never manufacture a pass, and never write synthetic data into a real user store to fake one. A held PR carrying an honest gap is correct and cheap; a merged PR carrying a fabricated green is a lie that surfaces later at higher cost. The hold is the discipline, not a failure of it.
+
+### Environmental degradation is a finding
+Mail.app's AppleScript latency is not friction to route around silently — it is a documented finding. The slowness is recorded, and the Envelope-Index alternative (reading Mail's index directly rather than via AppleScript) is banked in an ADR with an explicit 48h trigger: if the latency persists past that window, switch. Naming the degradation and pre-committing the escape hatch — with a tripwire, not a vibe — turns an annoyance into an actionable decision the next session can execute without re-litigating.
+
+### §13.10 shape 6 graduation — parked
+The evening section's "hand-edit hotfix shape" is a candidate for formal promotion to a CLAUDE.md §13.10 *shape 6*. This is a docs-only lane scoped to `governance-log.md` + `CHANGELOG.md` (per §10, new governance batches append here, not into CLAUDE.md), so the graduation is **not** taken in this PR — it remains parked for a lane that legitimately touches CLAUDE.md. Recorded here so the next CLAUDE.md-touching lane picks it up without rediscovering the candidacy.

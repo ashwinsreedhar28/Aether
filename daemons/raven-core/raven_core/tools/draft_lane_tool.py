@@ -115,6 +115,12 @@ def _compose_lane_prompt(
         "building.",
         "PRECEDENT: query the aether-rag MCP (search_corpus) for decisions and "
         "patterns relevant to each step before implementing it.",
+        # SLUG CONTRACT. This line is the source of truth the spawn actor parses
+        # verbatim: shell/electron/main/services/spawnLedger.ts:parseDraftTargets
+        # reads the first whitespace-delimited token after "Branch:" and after
+        # "Worktree:" (the worktree's ~ expands to $HOME). Keep this exact shape —
+        # the literal labels, a single token each — so spawnService uses these,
+        # not a re-derivation of the spoken name (the slug-contract ADR).
         f"Branch: feat/{slug}   Worktree: ~/aether-{slug}",
         "",
         f"GOAL: {(goal or '').strip() or '(Architect to state the one-sentence goal)'}",

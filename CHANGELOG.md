@@ -10,6 +10,31 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Spawn actor v1.1 — armed with the corpus, honest lifecycle. Five changes to
+  the self-build loop (`shell/electron/main/services/spawnService.ts`,
+  `spawnLedger.ts`, `SpawnApproval.tsx`, `LanesView.tsx`, the daemon managers):
+  (1) **RAG bootstrap** — the approve recipe now builds the new worktree's
+  `daemons/aether-rag` venv, installs requirements, and reindexes the corpus
+  after `pnpm install`, so the spawned session's `/mcp` is green from birth. The
+  venv is created from an explicitly **capability-probed** interpreter (macOS
+  system python3's sqlite3 can't load the `sqlite-vec` extension; a venv inherits
+  its creator's sqlite build), never a bare spawned-PATH `python3`. It is
+  best-effort: a failure records `rag_bootstrap:"failed"` (+ step) on the
+  ledger/card and never aborts the spawn. (2) **Slug contract** — spawnService
+  now parses the draft's own `Branch:`/`Worktree:` header lines verbatim
+  (sanitized; `~`→`$HOME`) instead of re-deriving from the spoken name, fixing
+  the `smart-home-control`→`smart-home` divergence; `draft_lane` binds the
+  contract with a comment. (3) **Ledger-driven cleanup** — Mark-complete
+  surfaces the exact copyable teardown block (submodule deinit → worktree remove
+  → branch -D → restore main's submodules, per §13.12) built from the recorded
+  worktree/branch, with a Copy button; no auto-run. (4) **Minimize/reopen** —
+  every spawn card can be minimized (no lifecycle change) and reopened from the
+  Spawns strip; Mark-complete is now strictly a lifecycle action. (5)
+  **Shutdown-race guard** — the raven and node daemon managers abort pending
+  spawns once the app is quitting (the orphaned-daemon race), and at boot the
+  raven manager reaps a pid-file daemon that is alive but not ours — gated on a
+  command-line **identity** match (`ps`), not just `kill -0` liveness, since pids
+  recycle. (Issue #196.)
 - Calendar weekly view — a fourth calendar surface and voice tool. New
   `calendar.get_week {date}` surface on `nodes/calendar` returns every event in
   the 7-day window `[date, date + 7 days)`, sorted by start time (the node stays

@@ -6,9 +6,11 @@ import {
   closeSync,
   readFileSync,
   existsSync,
+  realpathSync,
   mkdirSync,
 } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 
 // Append-only, event-sourced ledger for the spawn actor — the shell-side reader
 // of the same $AETHER_DATA_DIR/spawns/requests.jsonl the raven request_spawn tool
@@ -48,6 +50,13 @@ export interface SpawnRecord {
   // Present when the recipe failed at a step (status 'failed').
   step?: string
   error?: string
+  // Best-effort RAG bootstrap outcome, recorded on the 'spawned' event: 'ok'
+  // means the worktree's aether-rag venv was built + indexed (the spawned
+  // session's /mcp is green from birth); 'failed' means the bootstrap stumbled
+  // (the spawn still launched — RAG is best-effort). `ragStep` names the step
+  // that failed.
+  ragBootstrap?: 'ok' | 'failed'
+  ragStep?: string
 }
 
 // kebab-case slug — MUST match the Python tool's _slugify so the branch/worktree
@@ -59,6 +68,123 @@ export function slugForName(name: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
   return slug || 'lane'
+}
+
+// THE SLUG CONTRACT. The draft prompt is the source of truth for the branch and
+// worktree — not a re-derivation from the spoken lane name. draft_lane writes a
+// literal `Branch: feat/<slug>   Worktree: ~/aether-<slug>` header line, and a
+// hand-written lane can set the two independently (this very lane spawned into
+// `~/aether-spawn11` on `feat/spawn-v1.1` — the worktree is NOT derivable from
+// the branch slug). Parsing the draft verbatim is what stops the
+// 'smart-home-control' → 'smart-home' class of divergence, where the slug baked
+// into the draft differs from the slugified spoken name recorded in the ledger.
+//
+// Shape parsed (both tokens are the first whitespace-delimited run after the
+// colon, so the two may share one line or sit on separate lines):
+//   Branch: <git-ref>      e.g. feat/spawn-v1.1
+//   Worktree: <path>       e.g. ~/aether-spawn11   (~ expands to $HOME)
+export function parseDraftTargets(text: string): { branch?: string; worktree?: string } {
+  const branchM = text.match(/^[ \t]*Branch:[ \t]*(\S+)/m)
+  const worktreeM = text.match(/(?:^|\s)Worktree:[ \t]*(\S+)/)
+  return {
+    branch: branchM ? sanitizeBranch(branchM[1]) : undefined,
+    worktree: worktreeM ? sanitizeWorktree(worktreeM[1]) : undefined,
+  }
+}
+
+// Accept only a plausible git ref (the chars a branch name can hold); reject
+// anything that could smuggle shell metacharacters into the recipe command.
+function sanitizeBranch(raw: string | undefined): string | undefined {
+  const b = (raw ?? '').trim()
+  return b && /^[A-Za-z0-9._/-]+$/.test(b) ? b : undefined
+}
+
+// Expand a leading ~ to $HOME and constrain the result to live under $HOME with
+// no traversal — the recipe is going to `git worktree add` here, so a garbled or
+// hostile draft must not be able to point it at an arbitrary absolute path.
+function sanitizeWorktree(raw: string | undefined): string | undefined {
+  let p = (raw ?? '').trim()
+  if (!p) return undefined
+  if (p === '~') p = homedir()
+  else if (p.startsWith('~/')) p = join(homedir(), p.slice(2))
+  if (!p.startsWith('/') || p.includes('..')) return undefined
+  const home = homedir()
+  if (p !== home && !p.startsWith(home + '/')) return undefined
+  return p
+}
+
+// Resolve the branch + worktree for a draft: the draft's own header lines win
+// (the slug contract); absent a parseable draft, fall back to the ONE documented
+// derivation rule — feat/<slug> and ~/aether-<slug> from the recorded draft name.
+export function targetsForDraft(
+  draftName: string,
+  draftText: string | null,
+): { branch: string; worktree: string } {
+  const parsed = draftText ? parseDraftTargets(draftText) : {}
+  const slug = slugForName(draftName)
+  return {
+    branch: parsed.branch ?? `feat/${slug}`,
+    worktree: parsed.worktree ?? join(homedir(), `aether-${slug}`),
+  }
+}
+
+// The exact, copyable teardown for a spawned worktree, built from the RECORDED
+// branch + worktree (never a re-derivation). Encodes the CLAUDE.md §13.12
+// teardown gotcha: submodule `deinit` must run BEFORE `worktree remove`, and
+// because deinit is global across worktrees sharing one .git, main's submodules
+// are restored at the end. No auto-run in v1.1 — the Director copies and runs it.
+export function cleanupBlock(repoRoot: string, worktree: string, branch: string): string {
+  return [
+    '# Tear down the spawned worktree — run from the main checkout.',
+    '# deinit is global across worktrees sharing this .git, so the last line',
+    "# restores main's submodules (CLAUDE.md §13.12 teardown).",
+    `cd ${shq(repoRoot)}`,
+    `git -C ${shq(worktree)} submodule deinit -f --all`,
+    `git worktree remove --force ${shq(worktree)}`,
+    `git branch -D ${shq(branch)}`,
+    'git submodule update --init --recursive',
+  ].join('\n')
+}
+
+// POSIX single-quote for safe embedding in the copyable cleanup block.
+function shq(s: string): string {
+  return `'` + s.replace(/'/g, `'\\''`) + `'`
+}
+
+// THE INTERPRETER PIN. macOS system python3's sqlite3 is built WITHOUT
+// load-extension support, so `sqlite-vec` (which the aether-rag index needs)
+// cannot load and `reindex.sh` dies. A venv inherits its creator interpreter's
+// sqlite build, so the RAG bootstrap must pick an extension-capable interpreter
+// EXPLICITLY rather than trust a bare `python3` resolved through a spawned
+// process's sparse PATH (see governance-log 2026-06-07). Candidates, in order:
+//   (a) the interpreter behind the repo's OWN working aether-rag venv, fully
+//       symlink-resolved — ground truth that this machine has a capable sqlite3;
+//   (b) Homebrew's python3 (the usual capable build on macOS);
+//   (c) bare `python3` (login-shell PATH — last resort).
+export function pythonCandidates(repoRoot: string): string[] {
+  const out: string[] = []
+  const venvPy = join(repoRoot, 'daemons', 'aether-rag', '.venv', 'bin', 'python')
+  try {
+    if (existsSync(venvPy)) out.push(realpathSync(venvPy))
+  } catch {
+    // unreadable / broken symlink — skip; the other candidates still apply
+  }
+  out.push('/opt/homebrew/bin/python3')
+  out.push('python3')
+  return [...new Set(out)] // de-dupe, order preserved
+}
+
+// Pure: return the first candidate the capability predicate accepts (probed in
+// order, short-circuiting on the first pass), else null. Split out from the
+// I/O-bearing probe so the ORDERING is unit-tested with stubbed candidates.
+export async function pickFirstCapable(
+  candidates: string[],
+  isCapable: (py: string) => Promise<boolean>,
+): Promise<string | null> {
+  for (const py of candidates) {
+    if (await isCapable(py)) return py
+  }
+  return null
 }
 
 export class SpawnLedger {
@@ -96,8 +222,24 @@ export class SpawnLedger {
     return rec
   }
 
-  markSpawned(id: string, worktree: string, branch: string): void {
-    this.append({ id, ts: new Date().toISOString(), status: 'spawned', worktree, branch })
+  markSpawned(
+    id: string,
+    worktree: string,
+    branch: string,
+    rag?: { ok: boolean; step?: string },
+  ): void {
+    const event: Record<string, unknown> = {
+      id,
+      ts: new Date().toISOString(),
+      status: 'spawned',
+      worktree,
+      branch,
+    }
+    if (rag) {
+      event.rag_bootstrap = rag.ok ? 'ok' : 'failed'
+      if (!rag.ok && rag.step) event.rag_step = rag.step
+    }
+    this.append(event)
   }
 
   markFailed(id: string, step: string, error: string): void {
@@ -202,6 +344,10 @@ export class SpawnLedger {
       if (typeof obj.branch === 'string') existing.branch = obj.branch
       if (typeof obj.step === 'string') existing.step = obj.step
       if (typeof obj.error === 'string') existing.error = obj.error
+      if (obj.rag_bootstrap === 'ok' || obj.rag_bootstrap === 'failed') {
+        existing.ragBootstrap = obj.rag_bootstrap
+      }
+      if (typeof obj.rag_step === 'string') existing.ragStep = obj.rag_step
       byId.set(id, existing)
     }
 

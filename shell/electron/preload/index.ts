@@ -127,11 +127,17 @@ export interface SpawnView {
   branch?: string
   step?: string
   error?: string
+  // Best-effort RAG bootstrap outcome, recorded on the 'spawned' event.
+  ragBootstrap?: 'ok' | 'failed'
+  ragStep?: string
   // Derived target for the card (before the worktree exists).
   targetBranch: string
   targetWorktree: string
   // Full draft prompt, attached only to an actionable 'requested' record.
   preview?: string
+  // Copyable teardown block for a worktree we actually created (recorded
+  // branch + worktree); present on 'spawned'/'closed' records.
+  cleanup?: string
 }
 
 export interface SpawnSnapshot {

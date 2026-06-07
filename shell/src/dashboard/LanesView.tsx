@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SpawnSnapshot, SpawnView } from '../../electron/preload'
+import { useSpawnUi } from '../stores/spawnUi'
 
 // Lanes — an instrument view onto the parallel CC sessions working this repo.
 // A "lane" is one git worktree (see CLAUDE.md §13 lanes model). Data comes from
@@ -237,9 +238,12 @@ function spawnChipColor(status: SpawnView['status']): { color: string; glow: boo
 // A thin strip at the top of the Lanes view reading the spawn ledger — the
 // self-build loop's history (requested → spawned → closed / dismissed / failed).
 // Hidden entirely when no spawn has ever been recorded. No new tab: the spawn
-// actor surfaces here and on the global approval card, nowhere else.
+// actor surfaces here and on the global approval card, nowhere else. Each chip
+// is the REOPEN affordance — clicking it re-raises that spawn's card (the live
+// request/active card, or a closed spawn's copyable teardown block).
 function SpawnsStrip(): React.ReactElement | null {
   const [snap, setSnap] = useState<SpawnSnapshot | null>(null)
+  const open = useSpawnUi((s) => s.open)
 
   useEffect(() => {
     let alive = true
@@ -268,19 +272,23 @@ function SpawnsStrip(): React.ReactElement | null {
         {spawns.map((s) => {
           const { color, glow } = spawnChipColor(s.status)
           return (
-            <span
+            <button
               key={s.id}
+              type="button"
+              onClick={() => open(s.id)}
               className="text-[9px] tracking-[0.12em] px-2 py-0.5 rounded font-mono shrink-0 flex items-center gap-1.5"
               style={{
                 color,
+                background: 'transparent',
                 border: `1px solid ${color}`,
                 boxShadow: glow ? '0 0 6px var(--holo-glow)' : 'none',
+                cursor: 'pointer',
               }}
-              title={`${s.draftName} · ${s.status}${s.branch ? ` · ${s.branch}` : ''}`}
+              title={`${s.draftName} · ${s.status}${s.branch ? ` · ${s.branch}` : ''} — click to reopen the card`}
             >
               <span style={{ color: 'var(--holo-text)' }}>{s.draftName}</span>
               {s.status}
-            </span>
+            </button>
           )
         })}
       </div>

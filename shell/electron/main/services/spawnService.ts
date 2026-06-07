@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { homedir } from 'node:os'
 import {
   watch,
   type FSWatcher,
@@ -11,7 +10,14 @@ import {
   readFileSync,
 } from 'node:fs'
 import { dirname, basename, join } from 'node:path'
-import { SpawnLedger, slugForName, type SpawnRecord } from './spawnLedger'
+import {
+  SpawnLedger,
+  targetsForDraft,
+  cleanupBlock,
+  pythonCandidates,
+  pickFirstCapable,
+  type SpawnRecord,
+} from './spawnLedger'
 
 const execFileAsync = promisify(execFile)
 
@@ -30,6 +36,10 @@ export interface SpawnView extends SpawnRecord {
   targetBranch: string
   targetWorktree: string
   preview?: string
+  // The copyable teardown block for a worktree we actually created (recorded
+  // branch + worktree). Present on 'spawned'/'closed' records; the card's
+  // Mark-complete / cleanup view surfaces it.
+  cleanup?: string
 }
 
 export interface SpawnSnapshot {
@@ -188,9 +198,11 @@ export class SpawnService extends EventEmitter {
       return
     }
 
-    const slug = slugForName(rec.draftName)
-    const branch = `feat/${slug}`
-    const worktree = join(homedir(), `aether-${slug}`)
+    // The draft is the contract: its own Branch:/Worktree: lines win over a
+    // re-derivation from the (possibly divergent) spoken name. Read once here —
+    // the same text becomes LANE.md below, so we never read the draft twice.
+    const draftText = this.readDraft(rec.draftPath)
+    const { branch, worktree } = targetsForDraft(rec.draftName, draftText)
     const setStep = (s: string): void => {
       this.runningStep = s
       this.broadcast()
@@ -218,21 +230,82 @@ export class SpawnService extends EventEmitter {
       setStep('pnpm install')
       await this.runShell('pnpm install', worktree)
 
+      // RAG bootstrap — best-effort. Build the worktree's aether-rag venv and
+      // index the corpus so the spawned session's /mcp is GREEN from birth
+      // (the #194 evidence: rag never connected because a fresh worktree has no
+      // .venv / index). A failure is recorded on the card but NEVER aborts the
+      // spawn — RAG arms the session, it doesn't gate it.
+      const rag = await this.bootstrapRag(worktree, setStep)
+
       setStep('write LANE.md')
       // The draft prompt IS the lane brief; the spawned session reads it.
-      writeFileSync(join(worktree, 'LANE.md'), this.readDraft(rec.draftPath), 'utf8')
+      writeFileSync(join(worktree, 'LANE.md'), draftText, 'utf8')
 
       setStep('launch Terminal')
       await this.launchTerminal(worktree)
 
-      this.ledger.markSpawned(rec.id, worktree, branch)
-      console.log(`[spawnService] spawned ${slug} → ${worktree} (${branch})`)
+      this.ledger.markSpawned(rec.id, worktree, branch, rag)
+      console.log(
+        `[spawnService] spawned ${branch} → ${worktree} (rag: ${rag.ok ? 'ok' : `failed@${rag.step}`})`,
+      )
     } catch (err) {
       const step = this.runningStep ?? 'recipe'
       const msg = err instanceof Error ? err.message : String(err)
       this.ledger.markFailed(rec.id, step, msg.slice(0, 2000))
-      console.error(`[spawnService] spawn ${slug} failed at ${step}:`, msg)
+      console.error(`[spawnService] spawn ${branch} failed at ${step}:`, msg)
     }
+  }
+
+  // Best-effort RAG bootstrap inside the new worktree's daemons/aether-rag:
+  // pick an extension-capable interpreter, create the venv from it, install
+  // requirements, and reindex the corpus. Each step is surfaced on the card via
+  // setStep. NEVER throws — a stumble (no aether-rag dir on an old branch, no
+  // capable python, pip failure, offline model download) returns { ok:false,
+  // step } so the recipe records it and carries on; the spawn still launches.
+  // Success means the spawned session inherits a warm /mcp.
+  private async bootstrapRag(
+    worktree: string,
+    setStep: (s: string) => void,
+  ): Promise<{ ok: true } | { ok: false; step: string }> {
+    const ragDir = join(worktree, 'daemons', 'aether-rag')
+    if (!existsSync(ragDir)) return { ok: false, step: 'rag: no aether-rag dir' }
+
+    // Pin the interpreter: macOS system python3's sqlite3 can't load the
+    // sqlite-vec extension the index needs, and a bare `python3` here resolves
+    // unpredictably in a spawned environment. Probe candidates (main's working
+    // venv interpreter first) for extension-capable sqlite3 and create the venv
+    // from the winner — the venv inherits its creator's sqlite build.
+    setStep('rag: probe python')
+    const capabilityProbe =
+      'import sqlite3; c=sqlite3.connect(":memory:"); c.enable_load_extension(True)'
+    const isCapable = async (py: string): Promise<boolean> => {
+      try {
+        await this.runShell(`${sq(py)} -c ${sq(capabilityProbe)}`, ragDir)
+        return true
+      } catch {
+        return false
+      }
+    }
+    const py = await pickFirstCapable(pythonCandidates(this.repoRoot), isCapable)
+    if (!py) return { ok: false, step: 'rag: no extension-capable python' }
+    console.log(`[spawnService] rag bootstrap using interpreter ${py}`)
+
+    const steps: Array<{ label: string; cmd: string }> = [
+      { label: 'rag: create venv', cmd: `${sq(py)} -m venv .venv` },
+      { label: 'rag: pip install', cmd: '.venv/bin/pip install -q -r requirements.txt' },
+      { label: 'rag: reindex corpus', cmd: 'bash reindex.sh' },
+    ]
+    for (const { label, cmd } of steps) {
+      setStep(label)
+      try {
+        await this.runShell(cmd, ragDir)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn(`[spawnService] ${label} failed (best-effort):`, msg)
+        return { ok: false, step: label }
+      }
+    }
+    return { ok: true }
   }
 
   // Run a command through the user's login+interactive shell so the recipe sees
@@ -274,14 +347,17 @@ export class SpawnService extends EventEmitter {
   // ---- views / broadcast ----------------------------------------------------
 
   private toView(r: SpawnRecord): SpawnView {
-    const slug = slugForName(r.draftName)
-    const view: SpawnView = {
-      ...r,
-      targetBranch: `feat/${slug}`,
-      targetWorktree: join(homedir(), `aether-${slug}`),
-    }
-    // Only the actionable request needs the full prompt preview on the card.
-    if (r.status === 'requested') view.preview = this.readDraft(r.draftPath)
+    // Read the draft only for the actionable request (where the card shows the
+    // preview AND the to-be targets). For settled records the recipe already
+    // recorded the real branch/worktree, so re-reading a possibly-moved draft
+    // buys nothing — the cheap slug derivation backstops the display fields.
+    const draftText = r.status === 'requested' ? this.readDraft(r.draftPath) : null
+    const { branch, worktree } = targetsForDraft(r.draftName, draftText)
+    const view: SpawnView = { ...r, targetBranch: branch, targetWorktree: worktree }
+    if (draftText !== null) view.preview = draftText
+    // Cleanup block for a worktree we actually created (recorded branch +
+    // worktree) — surfaced on the active card and the post-complete view.
+    if (r.worktree && r.branch) view.cleanup = cleanupBlock(this.repoRoot, r.worktree, r.branch)
     return view
   }
 

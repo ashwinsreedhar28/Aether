@@ -128,6 +128,8 @@ The mesh is the load-bearing primitive: there is no privileged back channel. Voi
 
 Rendering is a separate layer. The `visualizer` node composes panels and POSTs them to the **RAVEN_AVP scene server**, which holds the authoritative scene and broadcasts it to subscribers — the 2D macOS shell today, a 3D visionOS shell later. That client-facing wire contract (endpoints, panel shape, the snapshot/delta stream) is documented in [docs/scene-protocol.md](docs/scene-protocol.md) — new renderers are built against that doc, not against our source.
 
+For the full picture — process topology, the mesh node-by-node, the voice pipeline, the data layer, and a ports/processes reference, all verified against source — open **the Atlas**: [docs/atlas/architecture.html](docs/atlas/architecture.html) (a self-contained living map, re-snapshotted into `history/` at each release cut).
+
 ## Governance
 
 Aether is built collaboratively with Claude Code under an explicit **four-role model**, and the merge gate is constitutional — no code reaches `main` without a human pressing the button.
@@ -144,6 +146,7 @@ This isn't ceremony — it's the reason a single developer can move at this spee
 | Doc | What's in it |
 |---|---|
 | [docs/](docs/README.md) | Documentation index — roadmaps, retrospectives, patterns, governance log |
+| [docs/atlas/](docs/atlas/README.md) | The Atlas — the living visual architecture map (`architecture.html`) + frozen historical snapshots |
 | [CLAUDE.md](CLAUDE.md) | The operating manual (roles, branching, tagging, prompt discipline) |
 | [MASTER_SYNTHESIS.md](MASTER_SYNTHESIS.md) | The architecture briefing that drove the rebuild |
 | [DECISIONS.md](DECISIONS.md) | Append-only architecture decision records |

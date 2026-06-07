@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AETHER · substrate review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#08090c; --panel:#0d0f14; --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.14);
+    --txt:#e8eaf0; --mut:#8b90a0; --dim:#565b6b;
+    --accent:#6ea8ff; --teal:#35c79a; --amber:#e8a33d; --coral:#f07b5a; --gray:#5f6475;
+    --mono:'IBM Plex Mono',monospace; --sans:'Archivo',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.55;
+    background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);background-size:28px 28px}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 48px}
+  section{padding:96px 0;border-bottom:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.32em;text-transform:uppercase;color:var(--accent);margin-bottom:18px}
+  .kicker::before{content:"";display:inline-block;width:34px;height:1px;background:var(--accent);vertical-align:middle;margin-right:14px;opacity:.6}
+  h1{font-size:clamp(40px,6vw,72px);font-weight:600;letter-spacing:-.02em;line-height:1.04}
+  h2{font-size:clamp(26px,3.4vw,38px);font-weight:600;letter-spacing:-.015em;margin-bottom:10px}
+  .sub{color:var(--mut);font-size:16px;max-width:640px}
+  .mono{font-family:var(--mono)}
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .r{animation:rise .7s cubic-bezier(.2,.7,.2,1) both}
+  .d1{animation-delay:.08s}.d2{animation-delay:.16s}.d3{animation-delay:.24s}.d4{animation-delay:.32s}.d5{animation-delay:.4s}
+
+  /* hero */
+  .hero{min-height:88vh;display:flex;flex-direction:column;justify-content:center}
+  .hero .date{font-family:var(--mono);font-size:12px;color:var(--dim);letter-spacing:.18em;margin-top:22px}
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);margin-top:56px}
+  .stat{background:var(--panel);padding:22px 20px}
+  .stat b{display:block;font-family:var(--mono);font-size:30px;font-weight:500;color:var(--txt)}
+  .stat span{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+
+  /* timeline */
+  .tl{margin-top:44px;border-left:1px solid var(--line2);padding-left:0;list-style:none}
+  .tl li{position:relative;padding:20px 0 20px 42px}
+  .tl li::before{content:"";position:absolute;left:-6px;top:30px;width:11px;height:11px;border-radius:50%;background:var(--dot,var(--gray));box-shadow:0 0 0 4px var(--bg)}
+  .tl li.glow::before{box-shadow:0 0 0 4px var(--bg),0 0 14px var(--dot)}
+  .tl .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--dot,var(--gray))}
+  .tl h3{font-size:20px;font-weight:600;margin:3px 0 2px}
+  .tl p{color:var(--mut);font-size:14.5px;max-width:560px}
+  .teal{--dot:var(--teal)}.amber{--dot:var(--amber)}.grayd{--dot:var(--gray)}.coral{--dot:var(--coral)}
+
+  /* loop */
+  .loop{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:48px}
+  .card{background:var(--panel);border:1px solid var(--line2);border-radius:10px;padding:20px 18px;position:relative}
+  .card .n{font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .card h3{font-size:17px;font-weight:600;margin:8px 0 6px}
+  .card p{font-size:13px;color:var(--mut);line-height:1.5}
+  .chip{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+    padding:4px 9px;border-radius:99px;margin-top:14px;border:1px solid}
+  .chip.live{color:var(--teal);border-color:var(--teal);background:rgba(53,199,154,.08)}
+  .chip.flight{color:var(--amber);border-color:var(--amber);background:rgba(232,163,61,.08)}
+  .chip.next{color:var(--mut);border-color:var(--line2);background:transparent}
+  .loop .card:not(:last-child)::after{content:"→";position:absolute;right:-15px;top:46%;color:var(--dim);font-size:15px;z-index:2}
+  .loopnote{margin-top:30px;font-family:var(--mono);font-size:12.5px;color:var(--mut)}
+  .loopnote b{color:var(--accent);font-weight:500}
+
+  /* branched roadmap */
+  .trunk{background:var(--panel);border:1px solid var(--line2);border-radius:10px;padding:24px 26px;margin-top:48px;
+    border-top:2px solid var(--accent)}
+  .trunk h3{font-size:18px;font-weight:600}
+  .trunk p{color:var(--mut);font-size:14px;margin-top:4px}
+  .split{display:flex;justify-content:center;gap:220px;height:44px;align-items:flex-end}
+  .split i{width:1px;height:30px;background:var(--line2);display:block;position:relative}
+  .split i::after{content:"";position:absolute;bottom:-1px;left:-3px;border:4px solid transparent;border-top-color:var(--line2)}
+  .tracks{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+  .track{border:1px solid var(--line2);border-radius:12px;padding:26px;background:rgba(255,255,255,.012)}
+  .track.core{border-top:2px solid var(--teal)}
+  .track.avp{border-top:2px solid var(--coral)}
+  .track .owner{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase}
+  .track.core .owner{color:var(--teal)}.track.avp .owner{color:var(--coral)}
+  .track h3{font-size:21px;font-weight:600;margin:6px 0 18px}
+  .ms{padding:14px 0;border-top:1px solid var(--line)}
+  .ms b{display:block;font-size:15px;font-weight:600}
+  .ms span{font-size:13px;color:var(--mut)}
+  .ms .when{float:right;font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.12em;margin-top:3px}
+  .merge{display:flex;justify-content:center;height:44px;align-items:flex-start}
+  .merge i{width:1px;height:30px;background:var(--line2);display:block;position:relative}
+  .merge i::after{content:"";position:absolute;bottom:-7px;left:-3px;border:4px solid transparent;border-top-color:var(--line2)}
+  .converge{background:var(--panel);border:1px solid var(--line2);border-radius:10px;padding:24px 26px;text-align:center;
+    border-bottom:2px solid var(--accent)}
+  .converge h3{font-size:18px;font-weight:600}
+  .converge p{color:var(--mut);font-size:14px;margin-top:4px}
+  .contract{margin-top:34px;border:1px dashed var(--line2);border-radius:10px;padding:20px 24px}
+  .contract .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent)}
+  .contract p{font-size:14px;color:var(--mut);margin-top:8px}
+  .contract b{color:var(--txt);font-weight:500}
+
+  footer{padding:70px 0;text-align:center}
+  footer p{font-family:var(--mono);font-size:13px;color:var(--dim);letter-spacing:.06em}
+  footer b{color:var(--accent);font-weight:500}
+
+  @media(max-width:860px){
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .loop{grid-template-columns:1fr}
+    .loop .card:not(:last-child)::after{content:"↓";right:auto;left:24px;top:auto;bottom:-22px}
+    .loop{gap:26px}
+    .tracks{grid-template-columns:1fr}
+    .split{display:none}
+    .wrap{padding:0 24px}
+  }
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="kicker r">Aether · substrate review</div>
+    <h1 class="r d1">The cockpit shipped.<br>Then it started noticing<br>what it can't do.</h1>
+    <div class="date r d2">2026 · 06 · 03 — COCKPIT DAY + SELF-BUILDING ARC, SESSION ZERO</div>
+    <div class="stats r d3">
+      <div class="stat"><b>17</b><span>PRs merged today</span></div>
+      <div class="stat"><b>19</b><span>mesh nodes</span></div>
+      <div class="stat"><b>64</b><span>signed edges</span></div>
+      <div class="stat"><b>37</b><span>voice functions</span></div>
+      <div class="stat"><b>3 → 1</b><span>gaps logged → closing</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">01 · The story so far</div>
+    <h2>From substrate to cockpit in six sprints — and one very long day</h2>
+    <ul class="tl">
+      <li class="teal"><span class="tag">Shipped · Sprints 1–4</span>
+        <h3>Foundation</h3>
+        <p>The mesh: signed edges, Core broker, the first sensor and actor nodes. Capability is declared, never assumed.</p></li>
+      <li class="teal"><span class="tag">Shipped · Sprint 5</span>
+        <h3>Voice era</h3>
+        <p>Gemini Live becomes the brain; the visualizer model proves software-ephemeral, context-valuable panels.</p></li>
+      <li class="teal"><span class="tag">Shipped · Sprint 6</span>
+        <h3>Direction shift</h3>
+        <p>Content apps archived. Scene server, ambient dashboard, and the visualize voice tool — the scene becomes the home.</p></li>
+      <li class="teal glow"><span class="tag">Shipped · Today</span>
+        <h3>Cockpit day — 17 merges</h3>
+        <p>Hot mic on boot. One brain for typed and spoken input. Instrument views: live lanes with PR state, an interactive mesh graph, durable session chats, voice navigation. The ~Sprint 9 spatial work, pulled forward in 2D.</p></li>
+      <li class="amber glow"><span class="tag">Live · Tonight</span>
+        <h3>The gap loop opens</h3>
+        <p>Aether records every request it can't fulfill, shows them on demand — and the first recorded gap (mail bodies) is being closed by a lane tonight.</p></li>
+      <li class="grayd"><span class="tag">Ahead</span>
+        <h3>Architect era</h3>
+        <p>Aether proposes the lanes that close its own gaps; then it writes the specs. Every step human-gated.</p></li>
+      <li class="grayd"><span class="tag">Ahead · Sprint 17+</span>
+        <h3>Spatial</h3>
+        <p>The cockpit leaves the screen. Two tracks converge in the headset.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">02 · The loop</div>
+    <h2>Self-building, with a human gate welded shut</h2>
+    <p class="sub">Tonight the system gained the first half of a development loop that runs on its own failures.</p>
+    <div class="loop">
+      <div class="card"><span class="n mono">01</span><h3>Notice</h3>
+        <p>raven calls <span class="mono">report_gap</span> whenever it can't fulfill a request.</p>
+        <span class="chip live">● live</span></div>
+      <div class="card"><span class="n mono">02</span><h3>Record</h3>
+        <p>The intents node persists every gap — the mesh's first self-authored memory.</p>
+        <span class="chip live">● live</span></div>
+      <div class="card"><span class="n mono">03</span><h3>See</h3>
+        <p>"What are your gaps?" — the log becomes a panel, by voice.</p>
+        <span class="chip live">● live</span></div>
+      <div class="card"><span class="n mono">04</span><h3>Close</h3>
+        <p>Gap #1 — mail bodies — being closed by a lane right now.</p>
+        <span class="chip flight">● in flight</span></div>
+      <div class="card"><span class="n mono">05</span><h3>Propose</h3>
+        <p>Architect v0 reads the gap log and proposes the next lanes itself.</p>
+        <span class="chip next">next</span></div>
+    </div>
+    <p class="loopnote">↻ every closed gap feeds the next build &nbsp;·&nbsp; <b>merge authority never delegates</b> — proposals and specs from the machine, the gate stays human.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">03 · The branched roadmap</div>
+    <h2>One substrate, two tracks</h2>
+    <p class="sub">The scene protocol is the interface between them — both tracks render the same panel feed, so neither blocks the other.</p>
+
+    <div class="trunk">
+      <h3>Shared trunk — the substrate</h3>
+      <p class="mono" style="font-size:13px">mesh (signed edges) · raven voice brain · scene server :5180 · panel protocol over WS</p>
+    </div>
+    <div class="split"><i></i><i></i></div>
+    <div class="tracks">
+      <div class="track core">
+        <span class="owner">Core track · Ashwin</span>
+        <h3>The mind</h3>
+        <div class="ms"><span class="when">NEXT</span><b>Architect v0</b><span>Clusters the gap log, proposes lanes by voice + panel</span></div>
+        <div class="ms"><span class="when">NEXT +1</span><b>Rung 1 — spec author</b><span>Proposals arrive as ready-to-fire lane prompts</span></div>
+        <div class="ms"><span class="when">~S13</span><b>Living brain</b><span>Personalization synthesis across everything it hears and sees</span></div>
+        <div class="ms"><span class="when">GATED</span><b>Spawn actor</b><span>Aether launches its own coding agents — behind approval, never past the merge gate</span></div>
+      </div>
+      <div class="track avp">
+        <span class="owner">AVP track · RAVEN's creator</span>
+        <h3>The body</h3>
+        <div class="ms"><span class="when">YOURS NOW</span><b>Scene protocol v1</b><span>The :5180 panel feed — already your server, already the contract</span></div>
+        <div class="ms"><span class="when">NEXT</span><b>AVP client v0</b><span>Render the live panel feed as floating volumes in the room</span></div>
+        <div class="ms"><span class="when">+1</span><b>Spatial layout</b><span>Anchors, gaze + hands, panels that persist where you leave them</span></div>
+        <div class="ms"><span class="when">+2</span><b>Raven presence</b><span>The voice embodied — summons land in space, not on glass</span></div>
+      </div>
+    </div>
+    <div class="merge"><i></i></div>
+    <div class="converge">
+      <h3>Spatial cockpit · Sprint 17+</h3>
+      <p>Mesh panels in the room. Two tracks, one system.</p>
+    </div>
+
+    <div class="contract">
+      <span class="k">The handoff contract</span>
+      <p><b>Interface:</b> the scene panel protocol + mesh surfaces — versioned, already live, smoked daily by the 2D cockpit.
+      <b>AVP track owns:</b> raven-avp-server + the AVP client. <b>Core track owns:</b> mesh, cockpit, the Architect.
+      Either side ships without waiting on the other; the contract is the only coupling.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>AETHER · 2026-06-03 · <b>"Listening, sir."</b> — it now also remembers what it had to say no to.</p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AETHER · RAG-MCP integration sketch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#08090c; --panel:#0d0f14; --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.16);
+    --txt:#e8eaf0; --mut:#8b90a0; --dim:#565b6b;
+    --accent:#6ea8ff; --teal:#35c79a; --amber:#e8a33d; --coral:#f07b5a; --violet:#a78bfa;
+    --mono:'IBM Plex Mono',monospace; --sans:'Archivo',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:var(--sans);
+    background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);background-size:28px 28px;padding:48px 24px}
+  .wrap{max-width:980px;margin:0 auto}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+  .kicker::before{content:"";display:inline-block;width:30px;height:1px;background:var(--accent);vertical-align:middle;margin-right:12px;opacity:.6}
+  h1{font-size:34px;font-weight:600;letter-spacing:-.02em;margin-bottom:8px}
+  .sub{color:var(--mut);font-size:15px;max-width:680px;margin-bottom:36px}
+  svg{width:100%;height:auto;border:1px solid var(--line);border-radius:12px;background:#0a0c10}
+  .legend{display:flex;gap:24px;flex-wrap:wrap;margin-top:20px;font-family:var(--mono);font-size:11px;color:var(--mut)}
+  .legend i{display:inline-block;width:18px;height:0;border-top-width:2px;border-top-style:solid;vertical-align:middle;margin-right:8px}
+  text{font-family:var(--sans);fill:var(--txt)}
+  .t-mono{font-family:var(--mono)}
+  .lbl{fill:var(--mut);font-size:11px}
+  .sm{fill:var(--dim);font-size:10px;font-family:var(--mono)}
+  .ttl{font-size:13.5px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Aether · architecture sketch</div>
+  <h1>No MCP today — and where a RAG MCP slots in</h1>
+  <p class="sub">Today Aether runs on its own signed mesh (MCP-shaped, not MCP). A RAG server is the first reason to adopt MCP for real — because it can serve both the voice brain and the spawned implementers, which the mesh cannot.</p>
+
+  <svg viewBox="0 0 960 620" role="img">
+    <title>Aether mesh today and a proposed RAG MCP server</title>
+    <defs>
+      <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </marker>
+    </defs>
+
+    <!-- divider -->
+    <line x1="480" y1="40" x2="480" y2="580" stroke="rgba(255,255,255,.09)" stroke-dasharray="3 5"/>
+    <text x="240" y="30" text-anchor="middle" class="t-mono sm" style="fill:var(--teal)">TODAY · THE MESH</text>
+    <text x="720" y="30" text-anchor="middle" class="t-mono sm" style="fill:var(--violet)">PROPOSED · RAG MCP</text>
+
+    <!-- ===== LEFT: today ===== -->
+    <!-- raven -->
+    <rect x="150" y="60" width="180" height="56" rx="9" fill="var(--panel)" stroke="var(--accent)" stroke-width="1"/>
+    <text x="240" y="82" text-anchor="middle" class="ttl">raven</text>
+    <text x="240" y="100" text-anchor="middle" class="lbl">Gemini Live · the brain</text>
+
+    <line x1="240" y1="116" x2="240" y2="146" stroke="var(--mut)" stroke-width="1.4" marker-end="url(#a)"/>
+    <text x="300" y="136" class="sm">function calls</text>
+
+    <!-- tools -->
+    <rect x="150" y="150" width="180" height="46" rx="9" fill="var(--panel)" stroke="var(--line2)"/>
+    <text x="240" y="178" text-anchor="middle" class="lbl" style="fill:var(--txt)">voice tools (20)</text>
+
+    <line x1="240" y1="196" x2="240" y2="226" stroke="var(--mut)" stroke-width="1.4" marker-end="url(#a)"/>
+    <text x="312" y="216" class="sm">mesh invoke</text>
+
+    <!-- broker -->
+    <rect x="150" y="230" width="180" height="46" rx="9" fill="var(--panel)" stroke="var(--accent)" stroke-width="1"/>
+    <text x="240" y="250" text-anchor="middle" class="lbl" style="fill:var(--txt)">Core broker</text>
+    <text x="240" y="266" text-anchor="middle" class="sm">:8000 · signed edges</text>
+
+    <!-- nodes row -->
+    <line x1="240" y1="276" x2="240" y2="300" stroke="var(--mut)" stroke-width="1.4"/>
+    <line x1="120" y1="300" x2="360" y2="300" stroke="var(--mut)" stroke-width="1.4"/>
+    <line x1="120" y1="300" x2="120" y2="322" stroke="var(--mut)" stroke-width="1.4" marker-end="url(#a)"/>
+    <line x1="240" y1="300" x2="240" y2="322" stroke="var(--mut)" stroke-width="1.4" marker-end="url(#a)"/>
+    <line x1="360" y1="300" x2="360" y2="322" stroke="var(--mut)" stroke-width="1.4" marker-end="url(#a)"/>
+
+    <circle cx="120" cy="346" r="22" fill="var(--panel)" stroke="var(--teal)"/>
+    <text x="120" y="350" text-anchor="middle" class="sm" style="fill:var(--teal)">sensors</text>
+    <rect x="218" y="326" width="44" height="40" rx="10" fill="var(--panel)" stroke="var(--coral)"/>
+    <text x="240" y="350" text-anchor="middle" class="sm" style="fill:var(--coral)">actors</text>
+    <path d="M360 324 L378 335 L378 357 L360 368 L342 357 L342 335 Z" fill="var(--panel)" stroke="var(--violet)"/>
+    <text x="360" y="350" text-anchor="middle" class="sm" style="fill:var(--violet)">mixers</text>
+
+    <text x="240" y="410" text-anchor="middle" class="lbl">19 nodes · 69 edges — a custom fabric,</text>
+    <text x="240" y="428" text-anchor="middle" class="lbl">reachable only by raven</text>
+
+    <!-- implementers, bottom-left detached -->
+    <rect x="150" y="476" width="180" height="64" rx="9" fill="var(--panel)" stroke="var(--amber)" stroke-dasharray="4 4"/>
+    <text x="240" y="500" text-anchor="middle" class="lbl" style="fill:var(--txt)">Claude Code implementers</text>
+    <text x="240" y="518" text-anchor="middle" class="sm">spawned (rung 2) · speak MCP</text>
+    <text x="240" y="532" text-anchor="middle" class="sm" style="fill:var(--amber)">fed precedents by hand today</text>
+
+    <!-- ===== RIGHT: RAG MCP ===== -->
+    <!-- corpus -->
+    <rect x="560" y="70" width="320" height="118" rx="10" fill="rgba(167,139,250,.05)" stroke="var(--line2)"/>
+    <text x="576" y="92" class="sm" style="fill:var(--violet)">CORPUS — what Aether already knows</text>
+    <text x="576" y="116" class="lbl">governance-log · DECISIONS · CHANGELOG</text>
+    <text x="576" y="136" class="lbl">session transcripts · gap ledger</text>
+    <text x="576" y="156" class="lbl">architect drafts · manifest</text>
+    <text x="576" y="178" class="sm">indexed → embeddings</text>
+
+    <line x1="720" y1="188" x2="720" y2="222" stroke="var(--violet)" stroke-width="1.4" marker-end="url(#a)"/>
+
+    <!-- RAG MCP server -->
+    <rect x="590" y="226" width="260" height="64" rx="10" fill="var(--panel)" stroke="var(--violet)" stroke-width="1.4"/>
+    <text x="720" y="250" text-anchor="middle" class="ttl" style="fill:var(--violet)">RAG MCP server</text>
+    <text x="720" y="270" text-anchor="middle" class="lbl">retrieval tools / resources · JSON-RPC</text>
+
+    <!-- two consumers -->
+    <!-- to raven (crosses divider) -->
+    <path d="M590 258 C 470 258, 430 150, 332 110" fill="none" stroke="var(--violet)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a)"/>
+    <text x="470" y="150" class="sm" style="fill:var(--violet)">① recall → raven</text>
+
+    <!-- to implementers (crosses divider, down) -->
+    <path d="M590 280 C 470 360, 430 500, 332 508" fill="none" stroke="var(--violet)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a)"/>
+    <text x="452" y="430" class="sm" style="fill:var(--violet)">② precedent → implementers</text>
+
+    <!-- payoffs -->
+    <rect x="590" y="330" width="260" height="210" rx="10" fill="rgba(255,255,255,.012)" stroke="var(--line)"/>
+    <text x="610" y="356" class="sm" style="fill:var(--accent)">WHY MCP, NOT A MESH NODE</text>
+    <text x="610" y="384" class="lbl">A mesh node serves raven only.</text>
+    <text x="610" y="404" class="lbl">An MCP server serves raven AND</text>
+    <text x="610" y="424" class="lbl">the spawned implementers — one</text>
+    <text x="610" y="444" class="lbl">retrieval brain, two clients.</text>
+    <text x="610" y="476" class="sm" style="fill:var(--teal)">① the living brain (banked ~S13)</text>
+    <text x="610" y="500" class="sm" style="fill:var(--amber)">② sharper drafts &amp; builds —</text>
+    <text x="610" y="516" class="sm" style="fill:var(--amber)">   the retrieval half of rung 1.5</text>
+  </svg>
+
+  <div class="legend">
+    <span><i style="border-color:var(--mut)"></i>mesh invocation (custom)</span>
+    <span><i style="border-color:var(--violet);border-top-style:dashed"></i>MCP (proposed)</span>
+    <span><i style="border-color:var(--amber);border-top-style:dashed"></i>spawned, speaks MCP</span>
+  </div>
+</div>
+</body>
+</html>

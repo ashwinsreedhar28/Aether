@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AETHER · the atlas · living architecture map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#08090c; --panel:#0d0f14; --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.14);
+    --txt:#e8eaf0; --mut:#8b90a0; --dim:#565b6b;
+    --accent:#6ea8ff; --teal:#35c79a; --amber:#e8a33d; --coral:#f07b5a; --violet:#a78bfa; --gray:#5f6475;
+    --mono:'IBM Plex Mono',monospace; --sans:'Archivo',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.55;
+    background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);background-size:28px 28px}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 48px}
+  section{padding:84px 0;border-bottom:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.32em;text-transform:uppercase;color:var(--accent);margin-bottom:16px}
+  .kicker::before{content:"";display:inline-block;width:34px;height:1px;background:var(--accent);vertical-align:middle;margin-right:14px;opacity:.6}
+  h1{font-size:clamp(38px,6vw,72px);font-weight:600;letter-spacing:-.02em;line-height:1.04}
+  h2{font-size:clamp(25px,3.2vw,36px);font-weight:600;letter-spacing:-.015em;margin-bottom:10px}
+  h3{font-size:19px;font-weight:600}
+  .sub{color:var(--mut);font-size:16px;max-width:680px}
+  .mono{font-family:var(--mono)}
+  p{color:var(--mut);font-size:14.5px}
+  a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(110,168,255,.3)}
+  a:hover{border-bottom-color:var(--accent)}
+
+  /* source-citation chip — the discipline of this doc: every count says where it was read */
+  .cite{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.04em;color:var(--dim);
+    border:1px solid var(--line);border-radius:5px;padding:1px 7px;margin-top:8px}
+  .cite::before{content:"src ";color:var(--teal);opacity:.7}
+
+  /* hero */
+  .hero{min-height:84vh;display:flex;flex-direction:column;justify-content:center}
+  .hero .date{font-family:var(--mono);font-size:12px;color:var(--dim);letter-spacing:.18em;margin-top:20px}
+  .living{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--teal);border:1px solid var(--teal);background:rgba(53,199,154,.07);border-radius:99px;padding:3px 11px;margin-bottom:22px}
+  .living::before{content:"●";margin-right:7px;font-size:8px;vertical-align:middle}
+  .stats{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);margin-top:52px}
+  .stat{background:var(--panel);padding:20px 16px}
+  .stat b{display:block;font-family:var(--mono);font-size:26px;font-weight:500;color:var(--txt)}
+  .stat span{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+
+  /* nav rail */
+  .toc{display:flex;flex-wrap:wrap;gap:10px;margin-top:40px}
+  .toc a{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--mut);border:1px solid var(--line2);
+    border-radius:7px;padding:7px 12px;background:rgba(255,255,255,.012)}
+  .toc a:hover{color:var(--txt);border-color:var(--accent)}
+
+  /* svg diagrams */
+  svg{width:100%;height:auto;border:1px solid var(--line);border-radius:12px;background:#0a0c10;margin-top:32px}
+  text{font-family:var(--sans);fill:var(--txt)}
+  .t-mono{font-family:var(--mono)}
+  .lbl{fill:var(--mut);font-size:11px}
+  .sm{fill:var(--dim);font-size:10px;font-family:var(--mono)}
+  .ttl{font-size:13.5px;font-weight:600}
+  .legend{display:flex;gap:22px;flex-wrap:wrap;margin-top:18px;font-family:var(--mono);font-size:11px;color:var(--mut)}
+  .legend i{display:inline-block;width:18px;height:0;border-top-width:2px;border-top-style:solid;vertical-align:middle;margin-right:8px}
+  .legend b.box{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:middle;margin-right:7px;border:1px solid}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;margin-top:30px;font-size:13px}
+  th{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line2)}
+  td{padding:10px 12px;border-bottom:1px solid var(--line);color:var(--mut);vertical-align:top}
+  td:first-child{font-family:var(--mono);font-size:12px;color:var(--txt);white-space:nowrap}
+  tr:hover td{background:rgba(255,255,255,.012)}
+  .tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;padding:2px 7px;border-radius:99px;border:1px solid var(--line2);white-space:nowrap}
+  .tag.sen{color:var(--teal);border-color:rgba(53,199,154,.45)}
+  .tag.act{color:var(--coral);border-color:rgba(240,123,90,.45)}
+  .tag.mix{color:var(--violet);border-color:rgba(167,139,250,.45)}
+  .tag.ts{color:var(--accent);border-color:rgba(110,168,255,.4)}
+  .tag.py{color:var(--amber);border-color:rgba(232,163,61,.4)}
+  .tag.flight{color:var(--amber);border-color:rgba(232,163,61,.5);background:rgba(232,163,61,.07)}
+
+  /* category cards */
+  .cats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:32px}
+  .cat{background:var(--panel);border:1px solid var(--line2);border-radius:11px;padding:20px 18px;border-top:2px solid var(--c,var(--gray))}
+  .cat.sen{--c:var(--teal)}.cat.act{--c:var(--coral)}.cat.mix{--c:var(--violet)}
+  .cat .n{font-family:var(--mono);font-size:30px;font-weight:500;color:var(--c)}
+  .cat h3{font-size:15px;margin:4px 0 8px}
+  .cat p{font-size:12.5px;line-height:1.5}
+  .cat .members{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:10px;line-height:1.7}
+
+  /* pipeline steps */
+  .flow{margin-top:34px;border-left:1px solid var(--line2);list-style:none}
+  .flow li{position:relative;padding:14px 0 14px 40px}
+  .flow li::before{content:attr(data-n);position:absolute;left:-13px;top:14px;width:26px;height:26px;border-radius:50%;
+    background:var(--panel);border:1px solid var(--dot,var(--accent));color:var(--dot,var(--accent));
+    font-family:var(--mono);font-size:11px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 4px var(--bg)}
+  .flow h3{font-size:16px;font-weight:600;margin-bottom:2px}
+  .flow p{font-size:13.5px;max-width:640px}
+  .flow code{font-family:var(--mono);font-size:12px;color:var(--teal);background:rgba(53,199,154,.07);padding:1px 5px;border-radius:4px}
+
+  /* tool catalog */
+  .tools{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:30px}
+  .tgrp{background:var(--panel);border:1px solid var(--line2);border-radius:10px;padding:16px 16px}
+  .tgrp .h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .tgrp .h b{font-size:14px;font-weight:600}
+  .tgrp .h span{font-family:var(--mono);font-size:11px;color:var(--accent)}
+  .tgrp .fns{font-family:var(--mono);font-size:11.5px;color:var(--mut);line-height:1.85}
+  .tgrp.local{border-style:dashed}
+  .tgrp.local .h span{color:var(--violet)}
+
+  /* loop overlay */
+  .loop{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:36px}
+  .lc{background:var(--panel);border:1px solid var(--line2);border-radius:10px;padding:16px 13px;position:relative}
+  .lc .n{font-family:var(--mono);font-size:10px;color:var(--dim)}
+  .lc h3{font-size:14.5px;font-weight:600;margin:6px 0 4px}
+  .lc p{font-size:11.5px;line-height:1.45}
+  .lc .chip{display:inline-block;font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;
+    padding:3px 7px;border-radius:99px;margin-top:9px;border:1px solid}
+  .chip.live{color:var(--teal);border-color:var(--teal);background:rgba(53,199,154,.08)}
+  .loopnote{margin-top:26px;font-family:var(--mono);font-size:12.5px;color:var(--mut)}
+  .loopnote b{color:var(--accent);font-weight:500}
+  .rung{margin-top:18px;border:1px dashed rgba(232,163,61,.5);border-radius:10px;padding:18px 20px;background:rgba(232,163,61,.03)}
+  .rung .k{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--amber)}
+  .rung h3{font-size:16px;margin:6px 0 4px}
+
+  /* inflight banner */
+  .inflight{margin-top:28px;border:1px solid var(--line2);border-left:2px solid var(--violet);border-radius:10px;
+    padding:20px 22px;background:rgba(167,139,250,.04)}
+  .inflight .k{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--violet)}
+  .inflight h3{font-size:17px;margin:7px 0 6px}
+
+  /* data tree */
+  .tree{background:var(--panel);border:1px solid var(--line2);border-radius:11px;padding:24px 26px;margin-top:30px;
+    font-family:var(--mono);font-size:13px;line-height:1.95;color:var(--mut);overflow-x:auto}
+  .tree .d{color:var(--accent)}
+  .tree .f{color:var(--txt)}
+  .tree .c{color:var(--dim)}
+  .tree .hot{color:var(--teal)}
+
+  /* appendix */
+  .disc{border:1px solid var(--line2);border-radius:11px;padding:0;margin-top:18px;overflow:hidden}
+  .disc + .disc{margin-top:14px}
+  .disc .top{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:rgba(255,255,255,.015);border-bottom:1px solid var(--line)}
+  .disc .top b{font-size:14.5px;font-weight:600;color:var(--txt)}
+  .disc .verdict{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:99px;border:1px solid}
+  .verdict.frozen{color:var(--gray);border-color:var(--line2)}
+  .verdict.drift{color:var(--amber);border-color:rgba(232,163,61,.5)}
+  .disc .body{padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .disc .body .col span{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:5px}
+  .disc .body .col p{font-size:13px;color:var(--mut)}
+  .disc .body .col.claim{border-right:1px solid var(--line);padding-right:16px}
+
+  footer{padding:64px 0;text-align:center}
+  footer p{font-family:var(--mono);font-size:12.5px;color:var(--dim);max-width:620px;margin:0 auto;line-height:1.7}
+  footer b{color:var(--accent);font-weight:500}
+
+  @media(max-width:920px){
+    .stats{grid-template-columns:repeat(3,1fr)}
+    .cats{grid-template-columns:1fr}
+    .tools{grid-template-columns:1fr}
+    .loop{grid-template-columns:repeat(2,1fr)}
+    .disc .body{grid-template-columns:1fr}
+    .disc .body .col.claim{border-right:0;border-bottom:1px solid var(--line);padding-right:0;padding-bottom:14px}
+    .wrap{padding:0 24px}
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════ HERO ════════════════════════════════ -->
+<section class="hero" id="top">
+  <div class="wrap">
+    <span class="living">living map · re-snapshot at each release cut</span>
+    <div class="kicker">Aether · the atlas</div>
+    <h1>What exists, wired<br>the way the source<br>actually wires it.</h1>
+    <p class="sub" style="margin-top:24px">One self-contained map of the running system — every box and arrow verified against code, every count carrying the file it was read from. The dated snapshots in <span class="mono">history/</span> are frozen; this page is kept current.</p>
+    <div class="date">2026 · 06 · 07 — drawn against v0.10.0 · branch <span style="color:var(--mut)">docs/atlas</span></div>
+    <div class="stats">
+      <div class="stat"><b>19</b><span>mesh nodes</span></div>
+      <div class="stat"><b>69</b><span>signed edges</span></div>
+      <div class="stat"><b>40</b><span>node surfaces</span></div>
+      <div class="stat"><b>41</b><span>live voice fns</span></div>
+      <div class="stat"><b>4</b><span>cockpit views</span></div>
+      <div class="stat"><b>3</b><span>loopback ports</span></div>
+    </div>
+    <div class="cite">manifest.yaml · nodes[] + relationships[] parse · daemons/raven-core/raven_core/tools/ · shell/src/dashboard/Shell.tsx</div>
+    <nav class="toc">
+      <a href="#topology">01 · process topology</a>
+      <a href="#mesh">02 · the mesh</a>
+      <a href="#voice">03 · voice pipeline</a>
+      <a href="#data">04 · data layer</a>
+      <a href="#cockpit">05 · the cockpit</a>
+      <a href="#loop">06 · self-building loop</a>
+      <a href="#ports">07 · ports & processes</a>
+      <a href="#appendix">A · discrepancies</a>
+    </nav>
+  </div>
+</section>
+
+<!-- ════════════════════════════ 01 · TOPOLOGY ════════════════════════════ -->
+<section id="topology">
+  <div class="wrap">
+    <div class="kicker">01 · process topology</div>
+    <h2>Five processes the shell spawns and supervises</h2>
+    <p class="sub">The Electron main process is the conductor. On boot its daemon-managers spawn the Core broker, the voice stack, the mesh nodes, and the scene server — each a separate process on its own loopback port. Nothing binds beyond <span class="mono">127.0.0.1</span> except the scene server, which adds Tailscale for the headset.</p>
+
+    <svg viewBox="0 0 1020 640" role="img">
+      <title>Aether process topology — main process, Core broker, voice stack, mesh nodes, scene server</title>
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </marker>
+      </defs>
+
+      <!-- user I/O strip -->
+      <text x="60" y="34" class="t-mono sm" style="fill:var(--teal)">USER</text>
+      <rect x="56" y="44" width="120" height="40" rx="8" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="116" y="62" text-anchor="middle" class="lbl">mic · speaker</text>
+      <text x="116" y="76" text-anchor="middle" class="sm">PyAudio</text>
+      <rect x="190" y="44" width="120" height="40" rx="8" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="250" y="62" text-anchor="middle" class="lbl">keyboard</text>
+      <text x="250" y="76" text-anchor="middle" class="sm">CLI · typed</text>
+      <rect x="324" y="44" width="120" height="40" rx="8" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="384" y="62" text-anchor="middle" class="lbl">glass</text>
+      <text x="384" y="76" text-anchor="middle" class="sm">cockpit 4 views</text>
+
+      <!-- electron shell -->
+      <rect x="56" y="116" width="388" height="96" rx="11" fill="rgba(110,168,255,.05)" stroke="var(--accent)" stroke-width="1.2"/>
+      <text x="72" y="140" class="ttl" style="fill:var(--accent)">Electron shell</text>
+      <text x="72" y="158" class="sm">main process · renderer · window.aether IPC bridge</text>
+      <rect x="72" y="170" width="170" height="30" rx="7" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="157" y="189" text-anchor="middle" class="sm" style="fill:var(--mut)">daemon-managers</text>
+      <rect x="256" y="170" width="172" height="30" rx="7" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="342" y="189" text-anchor="middle" class="sm" style="fill:var(--mut)">sceneSubscriber (WS)</text>
+
+      <line x1="116" y1="84" x2="116" y2="116" stroke="var(--mut)" stroke-width="1.3" marker-end="url(#ah)"/>
+      <line x1="250" y1="84" x2="250" y2="116" stroke="var(--mut)" stroke-width="1.3" marker-end="url(#ah)"/>
+      <line x1="384" y1="116" x2="384" y2="84" stroke="var(--mut)" stroke-width="1.3" marker-end="url(#ah)"/>
+
+      <!-- spawns label -->
+      <text x="250" y="236" text-anchor="middle" class="sm" style="fill:var(--dim)">spawn + supervise (loopback HTTP/WS)</text>
+
+      <!-- voice stack column -->
+      <rect x="56" y="252" width="220" height="56" rx="9" fill="var(--panel)" stroke="var(--accent)"/>
+      <text x="166" y="274" text-anchor="middle" class="ttl">raven-daemon</text>
+      <text x="166" y="292" text-anchor="middle" class="sm" style="fill:var(--teal)">:7433 · Node HTTP+WS supervisor</text>
+      <line x1="166" y1="308" x2="166" y2="338" stroke="var(--mut)" stroke-width="1.3" marker-end="url(#ah)"/>
+      <text x="226" y="328" class="sm">spawns child</text>
+      <rect x="56" y="342" width="220" height="60" rx="9" fill="var(--panel)" stroke="var(--violet)"/>
+      <text x="166" y="364" text-anchor="middle" class="ttl" style="fill:var(--violet)">raven-core</text>
+      <text x="166" y="381" text-anchor="middle" class="sm">Gemini 2.5 Live · the brain</text>
+      <text x="166" y="394" text-anchor="middle" class="sm" style="fill:var(--violet)">mesh node “raven” · outbound only</text>
+
+      <!-- core broker column -->
+      <rect x="400" y="252" width="220" height="56" rx="9" fill="var(--panel)" stroke="var(--accent)" stroke-width="1.2"/>
+      <text x="510" y="274" text-anchor="middle" class="ttl">RAVEN_MESH Core</text>
+      <text x="510" y="292" text-anchor="middle" class="sm" style="fill:var(--teal)">:8000 · signed envelopes · SSE</text>
+      <line x1="510" y1="308" x2="510" y2="338" stroke="var(--mut)" stroke-width="1.3" marker-end="url(#ah)"/>
+      <text x="568" y="328" class="sm">dispatch</text>
+
+      <!-- mesh nodes block -->
+      <rect x="356" y="342" width="308" height="118" rx="10" fill="rgba(255,255,255,.012)" stroke="var(--line2)"/>
+      <text x="372" y="364" class="sm" style="fill:var(--accent)">19 MESH NODES · one process each</text>
+      <rect x="372" y="376" width="276" height="30" rx="7" fill="var(--panel)" stroke="rgba(110,168,255,.4)"/>
+      <text x="510" y="395" text-anchor="middle" class="sm" style="fill:var(--accent)">14 TypeScript · nodes/&lt;id&gt;/dist/index.js</text>
+      <rect x="372" y="412" width="276" height="30" rx="7" fill="var(--panel)" stroke="rgba(232,163,61,.4)"/>
+      <text x="510" y="431" text-anchor="middle" class="sm" style="fill:var(--amber)">3 Python · calendar · reminders · vision (venv)</text>
+
+      <!-- raven-core -> core (mesh.invoke) -->
+      <path d="M276 372 C 330 372, 340 290, 400 282" fill="none" stroke="var(--violet)" stroke-width="1.4" marker-end="url(#ah)"/>
+      <text x="300" y="318" class="sm" style="fill:var(--violet)">mesh.invoke</text>
+      <!-- shell -> core (mesh.invoke) -->
+      <path d="M444 178 C 600 178, 620 230, 600 250" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-dasharray="1 0" marker-end="url(#ah)"/>
+      <text x="556" y="206" class="sm" style="fill:var(--accent)">shell edges</text>
+
+      <!-- scene server column -->
+      <rect x="744" y="252" width="220" height="56" rx="9" fill="var(--panel)" stroke="var(--coral)"/>
+      <text x="854" y="274" text-anchor="middle" class="ttl" style="fill:var(--coral)">RAVEN_AVP scene</text>
+      <text x="854" y="292" text-anchor="middle" class="sm">:5180 · FastAPI · authoritative SceneDoc</text>
+      <text x="854" y="232" text-anchor="middle" class="sm" style="fill:var(--dim)">submodule · AVP track</text>
+
+      <!-- visualizer -> scene (HTTP POST) -->
+      <path d="M648 420 C 760 420, 840 340, 854 308" fill="none" stroke="var(--coral)" stroke-width="1.4" marker-end="url(#ah)"/>
+      <text x="700" y="392" class="sm" style="fill:var(--coral)">visualizer ─ POST panel</text>
+      <!-- scene -> shell (WS stream) -->
+      <path d="M790 252 C 600 150, 470 196, 430 196" fill="none" stroke="var(--coral)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+      <text x="556" y="150" class="sm" style="fill:var(--coral)">WS /scene/stream → renderer</text>
+
+      <!-- voice path mic -> raven-core -->
+      <path d="M96 84 C 40 160, 40 250, 90 342" fill="none" stroke="var(--violet)" stroke-width="1.4" marker-end="url(#ah)"/>
+      <text x="20" y="220" class="sm" style="fill:var(--violet)" transform="rotate(-90 20 220)">audio in/out</text>
+
+      <!-- bottom note -->
+      <text x="744" y="372" class="sm" style="fill:var(--dim)">Not a mesh node —</text>
+      <text x="744" y="388" class="sm" style="fill:var(--dim)">external HTTP infra,</text>
+      <text x="744" y="404" class="sm" style="fill:var(--dim)">consumed like a DB.</text>
+      <text x="744" y="428" class="sm" style="fill:var(--dim)">Vite dev :5173 (dev</text>
+      <text x="744" y="444" class="sm" style="fill:var(--dim)">renderer HMR only).</text>
+    </svg>
+
+    <div class="legend">
+      <span><i style="border-color:var(--accent)"></i>shell mesh edge (signed)</span>
+      <span><i style="border-color:var(--violet)"></i>voice / raven-core</span>
+      <span><i style="border-color:var(--coral);border-top-style:dashed"></i>scene server (HTTP + WS)</span>
+      <span><b class="box" style="border-color:var(--amber)"></b>Python process</span>
+      <span><b class="box" style="border-color:var(--accent)"></b>TypeScript/Node process</span>
+    </div>
+    <div class="cite">shell/electron/main/index.ts (boot) · services/{coreManager,ravenDaemonManager,sceneServerDaemonManager,nodeManager}.ts · daemons/README.md · core/README.md</div>
+
+    <p style="margin-top:30px">The Python brain never touches the mesh directly through a privileged channel — it registers as the <span class="mono">raven</span> node and reaches every capability through <span class="mono">mesh.invoke()</span>, the same signed path the shell uses. Voice and shell are peers on the fabric, not a layered hierarchy.</p>
+  </div>
+</section>
+
+<!-- ════════════════════════════ 02 · THE MESH ════════════════════════════ -->
+<section id="mesh">
+  <div class="wrap">
+    <div class="kicker">02 · the mesh — the spine</div>
+    <h2>Authorization is graph membership, nothing else</h2>
+    <p class="sub"><span class="mono">manifest.yaml</span> declares 19 nodes and 69 directed edges. An edge present means the call is permitted; absent means denied. There is no policy field, no role table, no back channel — to grant a capability you add a line. Identity is a per-node HMAC secret referenced as <span class="mono">env:MESH_*_SECRET</span> and injected by the shell at boot.</p>
+
+    <div class="cats">
+      <div class="cat sen">
+        <div class="n">14</div>
+        <h3>Sensors</h3>
+        <p>Read-the-world nodes. Poll a source, dedupe, expose recent state through request/response surfaces.</p>
+        <div class="members">news_feeds · finance · weather<br>calendar · reminders · time<br>system_info · clipboard_history<br>macos_messages · macos_mail · vision<br>mesh_introspection · lanes · intents</div>
+      </div>
+      <div class="cat act">
+        <div class="n">1</div>
+        <h3>Actor</h3>
+        <p>Acts on the world. One surface today: a native macOS notification fired per invocation.</p>
+        <div class="members">host_notifications</div>
+      </div>
+      <div class="cat mix">
+        <div class="n">4</div>
+        <h3>Mixers</h3>
+        <p>Compose across the mesh. The shell &amp; raven are mesh clients; digest fans in; visualizer turns mesh data into scene panels.</p>
+        <div class="members">shell · raven<br>digest · visualizer</div>
+      </div>
+    </div>
+    <div class="cite">manifest.yaml · category field per node · 19 = 14 Sensor + 1 Actor + 4 Mixer</div>
+
+    <h3 style="margin-top:54px">Node register</h3>
+    <p style="margin-top:6px">17 nodes have a directory under <span class="mono">nodes/</span>; <span class="mono">shell</span> (Electron main) and <span class="mono">raven</span> (the voice daemon) are the two mesh participants that live elsewhere — that is the 17-dir / 19-node gap.</p>
+    <table>
+      <thead><tr><th>Node</th><th>Cat</th><th>Lang</th><th>Surfaces</th></tr></thead>
+      <tbody>
+        <tr><td>shell</td><td><span class="tag mix">mixer</span></td><td><span class="tag ts">TS</span></td><td>— · client only (no inbound surface)</td></tr>
+        <tr><td>raven</td><td><span class="tag mix">mixer</span></td><td><span class="tag py">py</span></td><td>— · outbound only (Gemini Live)</td></tr>
+        <tr><td>news_feeds</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>recent · search · breaking · search_by_entity</td></tr>
+        <tr><td>finance</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>quote · market_summary · history · movers · sectors · earnings · market_overview</td></tr>
+        <tr><td>weather</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>current · forecast</td></tr>
+        <tr><td>calendar</td><td><span class="tag sen">sensor</span></td><td><span class="tag py">py</span></td><td>today · upcoming · next_event</td></tr>
+        <tr><td>reminders</td><td><span class="tag sen">sensor</span></td><td><span class="tag py">py</span></td><td>due_today · overdue · upcoming</td></tr>
+        <tr><td>system_info</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>battery · disk · network · active_app · processes</td></tr>
+        <tr><td>time</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>now</td></tr>
+        <tr><td>clipboard_history</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>recent</td></tr>
+        <tr><td>macos_messages</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>recent</td></tr>
+        <tr><td>macos_mail</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>recent · open_message</td></tr>
+        <tr><td>vision</td><td><span class="tag sen">sensor</span></td><td><span class="tag py">py</span></td><td>frame</td></tr>
+        <tr><td>mesh_introspection</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>topology · activity</td></tr>
+        <tr><td>lanes</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>status</td></tr>
+        <tr><td>intents</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>record · list · close · <span style="color:var(--dim)">(the gap ledger)</span></td></tr>
+        <tr><td>host_notifications</td><td><span class="tag act">actor</span></td><td><span class="tag ts">TS</span></td><td>notify</td></tr>
+        <tr><td>digest</td><td><span class="tag mix">mixer</span></td><td><span class="tag ts">TS</span></td><td>morning · evening</td></tr>
+        <tr><td>visualizer</td><td><span class="tag mix">mixer</span></td><td><span class="tag ts">TS</span></td><td>render · <span style="color:var(--dim)">(mesh in → scene-server HTTP out)</span></td></tr>
+      </tbody>
+    </table>
+    <div class="cite">manifest.yaml · nodes[].surfaces (40 total) · language by file extension scan of nodes/&lt;id&gt;/src</div>
+
+    <h3 style="margin-top:54px">Edge fan-out · who can invoke</h3>
+    <p style="margin-top:6px">Only 5 of the 19 nodes originate edges. The voice brain is the overwhelming consumer; the shell renderer is second; <span class="mono">digest</span> and <span class="mono">visualizer</span> fan into other nodes to compose.</p>
+    <table>
+      <thead><tr><th>Source</th><th>Out-edges</th><th>Reaches</th></tr></thead>
+      <tbody>
+        <tr><td>raven</td><td>37</td><td>nearly every sensor + the loop surfaces (intents) + notify + visualize</td></tr>
+        <tr><td>shell</td><td>19</td><td>renderer-fired reads: news, finance, weather, system_info, notify, …</td></tr>
+        <tr><td>digest</td><td>7</td><td>fans into news / weather / calendar / finance / … to compose briefings</td></tr>
+        <tr><td>visualizer</td><td>5</td><td>pulls mesh data (e.g. mesh_introspection, finance) to build panels</td></tr>
+        <tr><td>lanes</td><td>1</td><td>a single composing edge</td></tr>
+      </tbody>
+    </table>
+    <div class="cite">manifest.yaml · relationships[] parse · 37+19+7+5+1 = 69</div>
+  </div>
+</section>
+
+<!-- ════════════════════════════ 03 · VOICE ════════════════════════════ -->
+<section id="voice">
+  <div class="wrap">
+    <div class="kicker">03 · the voice pipeline</div>
+    <h2>Mic → Gemini Live → a tool → the mesh → spoken + a panel</h2>
+    <p class="sub">The brain is Gemini 2.5 native-audio Live. It hears continuously, decides when to call a function, and the orchestrator routes that call. Most tools cross the mesh; a few are raven-local. Answers come back as speech; visual ones also POST a panel that surfaces in the cockpit.</p>
+
+    <ul class="flow">
+      <li data-n="1" style="--dot:var(--violet)"><h3>Hear</h3><p>Audio streams in over PyAudio to <code>raven-core</code>'s Gemini Live session. Typed CLI input rides the same brain — one model for spoken and typed.</p></li>
+      <li data-n="2" style="--dot:var(--violet)"><h3>Decide</h3><p>Gemini emits a <code>function_call</code>. The orchestrator's <code>handle_function_call_async</code> dispatches by name across the discovered tool modules.</p></li>
+      <li data-n="3" style="--dot:var(--accent)"><h3>Invoke</h3><p>For mesh tools, the handler calls <code>mesh.invoke('node.surface')</code> → a signed envelope to Core <code>:8000</code> → the edge graph permits → the node runs and returns. Raven-local tools (memory, navigate, draft_lane) skip the mesh.</p></li>
+      <li data-n="4" style="--dot:var(--teal)"><h3>Speak</h3><p>The result is fed back into Gemini, which narrates one line. Side-effect tools (<code>notify</code>, <code>report_gap</code>, <code>draft_lane</code>) return a tiny ack, never content to read aloud.</p></li>
+      <li data-n="5" style="--dot:var(--coral)"><h3>Show</h3><p><code>visualize</code> routes through the <code>visualizer</code> node, which POSTs a panel to the scene server. The shell's WS subscriber pushes it to the renderer and it lands in the Scene view.</p></li>
+    </ul>
+    <div class="cite">daemons/raven-core/raven_core/orchestrator.py · tools/__init__.py (auto-discovery) · mesh_client.py · docs/scene-protocol.md</div>
+
+    <h3 style="margin-top:54px">The tool catalog · 41 live functions</h3>
+    <p style="margin-top:6px">Tool modules are auto-discovered at import: every <span class="mono">*.py</span> in <span class="mono">tools/</span> exporting <span class="mono">get_tools()</span> + a handler is registered, except three held in <span class="mono">_DISABLED_MODULES</span>. That leaves <b style="color:var(--txt)">19 live modules → 41 function declarations</b> Gemini can call.</p>
+
+    <div class="tools">
+      <div class="tgrp"><div class="h"><b>finance</b><span>7</span></div><div class="fns">finance_quote · finance_market_summary · finance_history · finance_movers · finance_sectors · finance_earnings · finance_market_overview</div></div>
+      <div class="tgrp"><div class="h"><b>system_info</b><span>5</span></div><div class="fns">system_battery · system_disk · system_network · system_active_app · system_processes</div></div>
+      <div class="tgrp"><div class="h"><b>news</b><span>4</span></div><div class="fns">news_recent · news_search · news_breaking · news_search_by_entity</div></div>
+      <div class="tgrp"><div class="h"><b>calendar</b><span>3</span></div><div class="fns">calendar_today · calendar_next · calendar_upcoming</div></div>
+      <div class="tgrp"><div class="h"><b>reminders</b><span>3</span></div><div class="fns">reminders_due_today · reminders_overdue · reminders_upcoming</div></div>
+      <div class="tgrp"><div class="h"><b>weather</b><span>2</span></div><div class="fns">weather_current · weather_forecast</div></div>
+      <div class="tgrp"><div class="h"><b>mail</b><span>2</span></div><div class="fns">mail_recent · mail_open_latest</div></div>
+      <div class="tgrp"><div class="h"><b>clipboard · messages · time</b><span>3</span></div><div class="fns">clipboard_recent · messages_recent · get_current_time</div></div>
+      <div class="tgrp"><div class="h"><b>actors &amp; mixers</b><span>3</span></div><div class="fns">notify · visualize · digest_briefing</div></div>
+      <div class="tgrp"><div class="h"><b>self-building loop</b><span>4</span></div><div class="fns">report_gap · review_gaps · close_gap · draft_lane</div></div>
+      <div class="tgrp local"><div class="h"><b>memory · raven-local</b><span>4</span></div><div class="fns">remember_note · search_notes · list_notes · delete_note</div></div>
+      <div class="tgrp local"><div class="h"><b>navigate · raven-local</b><span>1</span></div><div class="fns">navigate · <span style="color:var(--dim)">(flips the cockpit view over IPC — no mesh edge)</span></div></div>
+    </div>
+    <p style="margin-top:18px;font-family:var(--mono);font-size:12px;color:var(--dim)">disabled (declared, not loaded): <span style="color:var(--amber)">cerebras_tool</span> (call_cerebra) · <span style="color:var(--amber)">silence_tool</span> (no_response) · <span style="color:var(--amber)">system_tool</span> (open_url · open_app · set_visual_mode) — 5 functions held back.</p>
+    <div class="cite">daemons/raven-core/raven_core/tools/*.py · FUNCTIONS lists · _DISABLED_MODULES = {cerebras, silence, system} · 46 declared − 5 disabled = 41 live</div>
+
+    <p style="margin-top:30px;font-family:var(--mono);font-size:12px;color:var(--mut)">Brain: <span style="color:var(--violet)">models/gemini-2.5-flash-native-audio-preview-09-2025</span> <span class="cite" style="margin-top:0">daemons/raven-core/raven_core/config.py:72</span></p>
+  </div>
+</section>
+
+<!-- ════════════════════════════ 04 · DATA ════════════════════════════ -->
+<section id="data">
+  <div class="wrap">
+    <div class="kicker">04 · the data layer</div>
+    <h2>Everything durable lives under one userData root</h2>
+    <p class="sub">No central database. Each node namespaces its own store under <span class="mono">$userData/data/&lt;node&gt;/</span>; the mesh runtime (pids, logs, the signed-envelope audit) sits under <span class="mono">$userData/mesh/</span>; the voice daemon and a little renderer UI state sit at the top. The shell hands each spawned node a writable root as <span class="mono">AETHER_DATA_DIR</span>.</p>
+
+    <div class="tree">
+<span class="d">$userData/</span>  <span class="c"># Electron app.getPath('userData')</span>
+├── <span class="d">mesh/</span>                         <span class="c"># mesh runtime — meshRuntimeDir()</span>
+│   ├── <span class="f">core.pid</span> · <span class="f">core.log</span>
+│   ├── <span class="hot">audit.log</span>                 <span class="c"># every signed envelope, append-only</span>
+│   └── <span class="f">&lt;node&gt;.pid</span> · <span class="f">&lt;node&gt;.log</span>   <span class="c"># per-node runtime</span>
+├── <span class="d">data/</span>                         <span class="c"># durable node state — nodeDataDir()</span>
+│   ├── <span class="d">intents/</span><span class="hot">gaps.jsonl</span>         <span class="c"># the gap ledger · append-only + fsync</span>
+│   ├── <span class="d">macos_mail/</span><span class="f">mail.db</span>        <span class="c"># SQLite (WAL)</span>
+│   ├── <span class="d">news_feeds/</span><span class="f">news.db</span>
+│   ├── <span class="d">finance/</span><span class="f">history.db</span>        <span class="c"># + in-memory quote cache</span>
+│   ├── <span class="d">clipboard_history/</span><span class="f">clipboard.db</span>
+│   ├── <span class="d">macos_messages/</span><span class="f">messages.db</span>  <span class="c"># mirror of ~/Library/Messages/chat.db (read-only)</span>
+│   ├── <span class="d">architect/drafts/</span><span class="f">&lt;slug&gt;-&lt;ts&gt;.md</span>  <span class="c"># lane drafts · raven-local, no mesh hop</span>
+│   └── <span class="d">raven-avp/</span><span class="f">scene_state.json</span>  <span class="c"># scene-server persisted SceneDoc</span>
+├── <span class="d">raven/</span>                        <span class="c"># raven-daemon dir</span>
+│   ├── <span class="f">daemon.pid</span>
+│   └── <span class="d">transcripts/</span><span class="hot">session-&lt;ts&gt;-&lt;id&gt;.jsonl</span>  <span class="c"># survive restart</span>
+└── <span class="f">scene-order.json</span>              <span class="c"># user's drag-reordered panel sequence</span>
+    </div>
+    <div class="cite">shell/electron/main/services/paths.ts · nodes/intents/src/index.ts (gaps.jsonl) · nodes/macos_mail · nodes/finance · daemons/raven-daemon/src/transcriptStore.ts · raven_core/tools/draft_lane_tool.py</div>
+
+    <p style="margin-top:28px">Two stores carry the system's self-knowledge: <span class="mono">gaps.jsonl</span> — the append-only log of what Aether was asked and could not do, the input to the self-building loop — and the <span class="mono">transcripts/</span> JSONL, what it heard and said, surfaced in the Chats view. The <span class="mono">audit.log</span> is the third: a complete record of every signed mesh hop.</p>
+  </div>
+</section>
+
+<!-- ════════════════════════════ 05 · COCKPIT ════════════════════════════ -->
+<section id="cockpit">
+  <div class="wrap">
+    <div class="kicker">05 · the cockpit</div>
+    <h2>Four instrument views, one command line</h2>
+    <p class="sub">The renderer is not a launcher of apps — the content apps were archived in Sprint 6. What remains is a cockpit: four views the voice can navigate between, a typed CLI sharing the voice brain, and a hot-mic indicator. Defined as a 4-member <span class="mono">View</span> union in <span class="mono">shell/src/dashboard/Shell.tsx</span>.</p>
+
+    <table>
+      <thead><tr><th>View</th><th>Component</th><th>What it instruments</th></tr></thead>
+      <tbody>
+        <tr><td>scene</td><td>SceneView.tsx</td><td>The ambient panel home — the scene-server feed, rendered via PanelRenderer. Stays <b style="color:var(--txt)">mounted</b> even when hidden so panels never tear down.</td></tr>
+        <tr><td>chats</td><td>ChatsView.tsx</td><td>Durable session transcripts — what was heard and said, from the raven-daemon JSONL.</td></tr>
+        <tr><td>mesh</td><td>MeshView.tsx</td><td>The live topology instrument — nodes by category (shape + hue), inspectable signed edges.</td></tr>
+        <tr><td>lanes</td><td>LanesView.tsx</td><td>Agent-visibility — active development lanes with PR state, polled from the lanes node.</td></tr>
+      </tbody>
+    </table>
+    <div class="cite">shell/src/dashboard/Shell.tsx:13 (View union) + TABS · {Scene,Chats,Mesh,Lanes}View.tsx · Cli.tsx · VoiceIndicator.tsx · PanelRenderer.tsx</div>
+
+    <p style="margin-top:28px">Voice navigation closes the loop: <span class="mono">"go to the mesh"</span> fires the raven-local <span class="mono">navigate</span> tool, which flips the active view over IPC with zero new transport and no manifest edge — distinct from <span class="mono">"show me the mesh,"</span> which summons a panel.</p>
+  </div>
+</section>
+
+<!-- ════════════════════════════ 06 · LOOP ════════════════════════════ -->
+<section id="loop">
+  <div class="wrap">
+    <div class="kicker">06 · the self-building loop</div>
+    <h2>It records what it can't do, then proposes the work</h2>
+    <p class="sub">The first floor is complete: six stages run on the system's own failures, each a live tool or node. The output of stage six is a house-format lane prompt on disk — the same shape this very document was built from. The seventh rung, where Aether spawns its own implementers, is in flight by design.</p>
+
+    <div class="loop">
+      <div class="lc"><span class="n mono">01</span><h3>Notice</h3><p><span class="mono">report_gap</span> on any unfulfillable ask</p><span class="chip live">● live</span></div>
+      <div class="lc"><span class="n mono">02</span><h3>Record</h3><p>intents node → <span class="mono">gaps.jsonl</span>, append-only + fsync</p><span class="chip live">● live</span></div>
+      <div class="lc"><span class="n mono">03</span><h3>See</h3><p>gaps panel — "N open, M closed"</p><span class="chip live">● live</span></div>
+      <div class="lc"><span class="n mono">04</span><h3>Close</h3><p><span class="mono">close_gap</span> → lifecycle events</p><span class="chip live">● live</span></div>
+      <div class="lc"><span class="n mono">05</span><h3>Propose</h3><p><span class="mono">review_gaps</span> → clustered lanes</p><span class="chip live">● live</span></div>
+      <div class="lc"><span class="n mono">06</span><h3>Draft</h3><p><span class="mono">draft_lane</span> → spec on disk</p><span class="chip live">● live</span></div>
+    </div>
+    <p class="loopnote">↻ every closed gap feeds the next build &nbsp;·&nbsp; <b>merge authority never delegates</b> — proposals and specs from the machine, the gate stays human.</p>
+
+    <div class="rung">
+      <span class="k">Rung 2 · in flight</span>
+      <h3>The spawn actor</h3>
+      <p>Aether launches its own Claude Code implementers from a drafted lane — spawn-approval UX, default-permission allowlists, kill switch, teardown. Design session pending; the merge gate is constitutional and is never on the table. <span class="tag flight" style="margin-left:4px">in-flight</span></p>
+    </div>
+
+    <div class="inflight">
+      <span class="k">just landed · #187 — second client still in flight</span>
+      <h3>aether-rag — a retrieval brain, now served over MCP</h3>
+      <p>The standalone RAG core under <span class="mono">daemons/aether-rag/</span> indexes Aether's own corpus (governance log, DECISIONS, CHANGELOG, CLAUDE.md, scene protocol, release notes, READMEs, manifest) with <span class="mono">fastembed</span> (<span class="mono">bge-small-en-v1.5</span>, ONNX, no torch) + <span class="mono">sqlite-vec</span>; index at <span class="mono">.rag/index.db</span>. As of <span class="mono">#187</span> it is wrapped as a <b style="color:var(--txt)">stdio MCP server</b> (<span class="mono">server.py</span>) exposing one read-only tool — <span class="mono">search_corpus(query, k, source_filter)</span> — registered project-scoped in a committed <span class="mono">.mcp.json</span>. This is Aether's first real adoption of MCP: an MCP server can serve <i>both</i> the voice brain and the spawned implementers, which a mesh node cannot. <b style="color:var(--txt)">Client one is live</b> — every Claude Code session in the repo inherits the corpus, and <span class="mono">CLAUDE.md §13.13 Precedent-First Implementers</span> now makes a <span class="mono">search_corpus</span> query the default discovery step before each build (this atlas's own drafts route through it). <b style="color:var(--txt)">Client two — the voice brain — is the half still in flight</b>: <span class="mono">raven</span> does not yet query the corpus. <span class="tag flight" style="margin-left:4px">voice client in-flight</span></p>
+    </div>
+    <div class="cite">raven_core/tools/{report_gap,review_gaps,close_gap,draft_lane}_tool.py · nodes/intents · daemons/aether-rag/{server.py,README.md} · .mcp.json · CLAUDE.md §13.13 · CHANGELOG [Unreleased] (#187 RAG MCP)</div>
+  </div>
+</section>
+
+<!-- ════════════════════════════ 07 · PORTS ════════════════════════════ -->
+<section id="ports">
+  <div class="wrap">
+    <div class="kicker">07 · ports &amp; processes</div>
+    <h2>Quick reference</h2>
+    <table>
+      <thead><tr><th>Port</th><th>Process</th><th>Lang</th><th>Spawned by</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td>8000</td><td>RAVEN_MESH Core</td><td><span class="tag py">py</span></td><td>coreManager.ts</td><td>signed-envelope broker + dispatch · <span class="mono">/v0/healthz</span></td></tr>
+        <tr><td>7433</td><td>raven-daemon</td><td><span class="tag ts">TS</span></td><td>ravenDaemonManager.ts</td><td>voice HTTP+WS supervisor (loopback)</td></tr>
+        <tr><td><span style="color:var(--dim)">child</span></td><td>raven-core</td><td><span class="tag py">py</span></td><td>raven-daemon</td><td>Gemini Live brain + 41 voice fns</td></tr>
+        <tr><td>5180</td><td>RAVEN_AVP scene</td><td><span class="tag py">py</span></td><td>sceneServerDaemonManager.ts</td><td>FastAPI · authoritative SceneDoc + WS · submodule</td></tr>
+        <tr><td>5173</td><td>Vite dev server</td><td><span class="tag ts">TS</span></td><td>electron-vite</td><td>renderer HMR · <b style="color:var(--txt)">dev only</b></td></tr>
+        <tr><td><span style="color:var(--dim)">n/a</span></td><td>14 TS mesh nodes</td><td><span class="tag ts">TS</span></td><td>nodeManager.ts</td><td>one process each · <span class="mono">dist/index.js</span></td></tr>
+        <tr><td><span style="color:var(--dim)">n/a</span></td><td>3 Python mesh nodes</td><td><span class="tag py">py</span></td><td>calendar / reminders / vision managers</td><td>venv-bootstrapped · AppleScript / camera</td></tr>
+      </tbody>
+    </table>
+    <div class="cite">grep ports across shell/electron/main · coreManager.ts:30 (8000) · ravenDaemonManager.ts:49 (7433) · sceneServerDaemonManager.ts:41 (5180) · docs/agent-platform-roadmap.md:157 (5173)</div>
+  </div>
+</section>
+
+<!-- ════════════════════════════ APPENDIX ════════════════════════════ -->
+<section id="appendix">
+  <div class="wrap">
+    <div class="kicker">appendix A · observed discrepancies</div>
+    <h2>Where a doc and the code disagree</h2>
+    <p class="sub">Per the scene-protocol precedent, divergences are recorded here rather than silently "fixed" in prose. <span class="mono">drift</span> = a doc that has fallen behind the code and is worth a future correction; <span class="mono">frozen</span> = an explicitly historical statement, correct for its moment and preserved verbatim.</p>
+
+    <div class="disc">
+      <div class="top"><b>daemons/README.md — "the only two tools currently registered"</b><span class="verdict drift">drift</span></div>
+      <div class="body">
+        <div class="col claim"><span>doc claims</span><p>raven-core registers only <span class="mono">time</span> + <span class="mono">memory</span>; cerebras/silence/system "remain vendored but commented out until the mesh-rebase PR."</p></div>
+        <div class="col"><span>source of truth</span><p><span class="mono">tools/__init__.py</span> auto-discovers every tool module at import. <b style="color:var(--txt)">19 live modules → 41 functions</b>; only 3 modules are held in <span class="mono">_DISABLED_MODULES</span>. The README is frozen at the mesh-rebase era.</p></div>
+      </div>
+    </div>
+
+    <div class="disc">
+      <div class="top"><b>README.md §Architecture — "src/apps/ content apps"</b><span class="verdict drift">drift</span></div>
+      <div class="body">
+        <div class="col claim"><span>doc claims</span><p>repo-layout block lists <span class="mono">src/apps/</span> "Content apps (welcome, news, finance, markdown, voice, mesh-devtools)."</p></div>
+        <div class="col"><span>source of truth</span><p><span class="mono">shell/src</span> has no <span class="mono">apps/</span> directory — content apps were archived in Sprint 6. The surface today is the 4 instrument views under <span class="mono">shell/src/dashboard/</span>.</p></div>
+      </div>
+    </div>
+
+    <div class="disc">
+      <div class="top"><b>"Voice tools" — the count that means two things</b><span class="verdict frozen">terminology</span></div>
+      <div class="body">
+        <div class="col claim"><span>the snapshots say</span><p>sprint-review (06-03): "37 voice functions." progress-ledger / rag-sketch (06-04): "20 voice tools." README: "~20 voice tools."</p></div>
+        <div class="col"><span>source of truth</span><p>Two distinct units, both honest: <b style="color:var(--txt)">19 live tool <i>modules</i></b> (≈20) vs <b style="color:var(--txt)">41 live <i>function declarations</i></b>. Functions grew 37→41 since 06-03. The snapshots are frozen and count different things; this map states both.</p></div>
+      </div>
+    </div>
+
+    <div class="disc">
+      <div class="top"><b>scene-protocol.md — server self-IDs "v1.0," wire models ~v1.7</b><span class="verdict frozen">cross-ref</span></div>
+      <div class="body">
+        <div class="col claim"><span>doc states</span><p>The FastAPI app self-identifies as <span class="mono">RAVEN_AVP v1.0</span>; the contract doc's version is <span class="mono">v1</span>.</p></div>
+        <div class="col"><span>source of truth</span><p>Per that doc's own Appendix A, the wire models have grown to ~v1.7 internally. The scene server is a submodule on the AVP track; this is tracked there, not re-resolved in the atlas.</p></div>
+      </div>
+    </div>
+
+    <div class="disc">
+      <div class="top"><b>core/README.md §Required env — only 2 node secrets</b><span class="verdict frozen">frozen</span></div>
+      <div class="body">
+        <div class="col claim"><span>doc states</span><p>"For Aether week-1 those are" — lists only <span class="mono">MESH_SHELL_SECRET</span> + <span class="mono">MESH_HOST_NOTIFICATIONS_SECRET</span>.</p></div>
+        <div class="col"><span>source of truth</span><p>All 19 nodes now carry an <span class="mono">env:MESH_*_SECRET</span> reference in <span class="mono">manifest.yaml</span>. The phrase is explicitly "week-1," so this is a preserved historical statement, not drift.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>AETHER · the atlas · drawn 2026-06-07 against v0.10.0 · every count cites its source<br>
+  This page is the <b>living</b> map — kept current; the dated files in <b>history/</b> are point-in-time snapshots, never updated.</p>
+</footer>
+
+</body>
+</html>

@@ -18,6 +18,14 @@ The forward-looking plan for each architectural arc.
 | [voice-extensibility-roadmap.md](voice-extensibility-roadmap.md) | The voice-tool extensibility substrate |
 | [mcp-integration-arc-roadmap.md](mcp-integration-arc-roadmap.md) | MCP client integration (three-tier auth) |
 
+## Architecture (visual)
+
+The living map of the running system, plus a frozen gallery of point-in-time snapshots.
+
+| Doc | What's in it |
+|---|---|
+| [atlas/](atlas/README.md) | **The Atlas** — `architecture.html` is the living map (process topology, mesh, voice pipeline, data layer, cockpit, self-building loop, ports); `history/` holds dated, frozen snapshots |
+
 ## Patterns & process
 
 How work gets built and shipped.

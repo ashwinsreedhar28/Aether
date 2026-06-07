@@ -10,6 +10,17 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Calendar weekly view — a fourth calendar surface and voice tool. New
+  `calendar.get_week {date}` surface on `nodes/calendar` returns every event in
+  the 7-day window `[date, date + 7 days)`, sorted by start time (the node stays
+  date-agnostic: it returns seven days from whatever date it is handed and
+  imposes no week boundary; `date` omitted = the next seven days). New
+  `calendar_get_week(week='this'|'next'|'last')` voice tool answers "what's on my
+  calendar this/next/last week" — because the voice model does not know today's
+  date, the tool resolves the relative week to its Monday (ISO-8601 week start)
+  on its own clock and hands the surface a concrete ISO date. `prompts.json` gains
+  the tool entry + a worked example; `manifest.yaml` gains the surface and the
+  `raven → calendar.get_week` edge. (Issue #193.)
 - The Atlas (`docs/atlas/`) — Aether's living visual architecture map.
   `architecture.html` is one self-contained dark-theme page covering process
   topology, the signed mesh (19 nodes, 69 edges, 40 surfaces — counts parsed

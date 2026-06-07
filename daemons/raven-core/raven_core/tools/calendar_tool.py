@@ -1,10 +1,11 @@
 """Calendar Tool - macOS Calendar.app event readbacks via the mesh.
 
-Three tools, all routed through ``mesh_invoke`` to the calendar node:
+Four tools, all routed through ``mesh_invoke`` to the calendar node:
 
   - ``calendar_today()``              → ``calendar.today()``
   - ``calendar_next()``               → ``calendar.next_event()``
   - ``calendar_upcoming(limit?)``     → ``calendar.upcoming(limit)``
+  - ``calendar_get_week(week?)``      → ``calendar.get_week(date)``
 
 Pattern matches news_tool / finance_tool: declare the function for
 Gemini, implement as a thin ``await mesh_invoke(...)``, add edges in
@@ -12,6 +13,13 @@ manifest.yaml. The calendar node already returns natural data
 (title / start / end / location / notes), so summarisation is minimal
 — just format the event list into a natural-language string and
 return both the structured data and a ``spoken`` field.
+
+The weekly view carries one extra wrinkle: the voice model does NOT
+know today's date (see prompts.json), so it cannot compute "next
+week" itself. ``calendar_get_week`` therefore takes a relative week
+('this' / 'next' / 'last'), and the TOOL — which has a real clock —
+resolves it to the Monday (ISO-8601 week start) of that week and hands
+the surface a concrete ISO ``date``. The node stays date-agnostic.
 
 On first invocation macOS prompts the user for Calendar access
 permission. If the user denies, all surfaces return
@@ -21,15 +29,25 @@ hands back a clear "Calendar access denied" message.
 from __future__ import annotations
 
 from typing import Any
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 from google.genai import types
 
 from ..mesh_client import MeshUnavailable, mesh_invoke
 
-FUNCTIONS = ["calendar_today", "calendar_next", "calendar_upcoming"]
+FUNCTIONS = [
+    "calendar_today",
+    "calendar_next",
+    "calendar_upcoming",
+    "calendar_get_week",
+]
 
 DEFAULT_UPCOMING_LIMIT = 5
+
+# Spoken labels per relative week, and the default when the model omits /
+# garbles the argument. 'this' is the safe default — the current week.
+_WEEK_LABELS = {"this": "this week", "next": "next week", "last": "last week"}
+DEFAULT_WEEK = "this"
 
 
 def _format_event(event: dict[str, Any]) -> str:
@@ -60,6 +78,38 @@ def _format_event(event: dict[str, Any]) -> str:
         parts.append(location)
 
     return ", ".join(parts)
+
+
+def _monday_for_week(week: str) -> date:
+    """Resolve the Monday (ISO-8601 week start) of this / next / last week.
+
+    The voice model does not know the current date, so the tool does the
+    week arithmetic from its own clock and hands the surface a concrete ISO
+    date. weekday() is Mon=0, so subtracting it lands on this week's Monday.
+    """
+    today = datetime.now().date()
+    monday = today - timedelta(days=today.weekday())
+    if week == "next":
+        return monday + timedelta(days=7)
+    if week == "last":
+        return monday - timedelta(days=7)
+    return monday
+
+
+def _format_week_event(event: dict[str, Any]) -> str:
+    """Format an event for a week list, prefixed with its weekday + date.
+
+    Example: "Mon Jun 9 — Team standup, 10:00 AM to 10:30 AM, Zoom". The day
+    prefix is what makes a seven-day list legible by ear; within a single day
+    the base _format_event line already carries the time.
+    """
+    start_iso = event.get("start", "")
+    try:
+        start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        day_label = start_dt.strftime("%a %b %-d")
+    except (ValueError, AttributeError):
+        day_label = "?"
+    return f"{day_label} — {_format_event(event)}"
 
 
 async def _calendar_today() -> dict[str, Any]:
@@ -189,6 +239,58 @@ async def _calendar_upcoming(limit: int) -> dict[str, Any]:
     return {"events": events, "count": count, "spoken": spoken}
 
 
+async def _calendar_get_week(week: str) -> dict[str, Any]:
+    """Fetch every event for this / next / last week."""
+    week = week if week in _WEEK_LABELS else DEFAULT_WEEK
+    label = _WEEK_LABELS[week]
+    monday = _monday_for_week(week)
+
+    try:
+        response = await mesh_invoke(
+            "calendar.get_week", {"date": monday.isoformat()}
+        )
+    except MeshUnavailable as e:
+        return {"error": "mesh unavailable", "detail": str(e)}
+
+    if not isinstance(response, dict):
+        return {"error": "malformed response"}
+
+    available = response.get("available", False)
+    if not available:
+        reason = response.get("reason", "unknown")
+        if reason == "permission_denied":
+            return {
+                "error": "permission_denied",
+                "spoken": "Calendar access isn't authorized yet, sir. Please grant permission in System Settings."
+            }
+        if reason == "no_events":
+            return {
+                "events": [],
+                "spoken": f"Nothing on your calendar {label}, sir."
+            }
+        if reason == "framework_unavailable":
+            return {
+                "error": "unavailable",
+                "spoken": "Calendar integration isn't available on this platform."
+            }
+        return {"error": "unavailable", "detail": reason}
+
+    events = response.get("events", [])
+    if not events:
+        return {"events": [], "spoken": f"Nothing on your calendar {label}, sir."}
+
+    # Format each event into a weekday-prefixed line so a full week reads
+    # naturally; lead the spoken summary with the count.
+    lines = [_format_week_event(e) for e in events]
+    count = len(lines)
+    spoken = (
+        f"You have {count} {'event' if count == 1 else 'events'} {label}, sir: "
+        + "; ".join(lines)
+    )
+
+    return {"events": events, "count": count, "week": week, "spoken": spoken}
+
+
 def get_tools() -> list[types.Tool]:
     """Return Gemini function declarations for all calendar tools."""
     today_func = types.FunctionDeclaration(
@@ -254,9 +356,44 @@ def get_tools() -> list[types.Tool]:
         ),
     )
 
+    get_week_func = types.FunctionDeclaration(
+        name="calendar_get_week",
+        description=(
+            "Get every event for a whole week from macOS Calendar.app — "
+            "this week, next week, or last week. Use when the user asks "
+            "'what's on my calendar this week', 'what do I have next week', "
+            "'anything on next week's schedule', 'what was on last week'. "
+            "Returns the week's events, each labelled with its weekday and "
+            "sorted by start time. You do NOT need to know today's date — "
+            "pass the relative week and the tool resolves it. On first "
+            "invocation, macOS prompts the user for Calendar access "
+            "permission. If the week is empty, returns a spoken 'nothing' "
+            "message. Read the spoken field verbatim — it leads with the "
+            "count and lists events by day."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "week": types.Schema(
+                    type=types.Type.STRING,
+                    enum=list(_WEEK_LABELS),
+                    description=(
+                        "Which week to fetch: 'this' (default), 'next', or "
+                        "'last'. Map natural phrasing: 'this week' → this, "
+                        "'next week' / 'the coming week' → next, 'last week' "
+                        "/ 'the past week' → last."
+                    ),
+                ),
+            },
+            required=[],
+        ),
+    )
+
     return [
         types.Tool(
-            function_declarations=[today_func, next_func, upcoming_func]
+            function_declarations=[
+                today_func, next_func, upcoming_func, get_week_func
+            ]
         )
     ]
 
@@ -272,4 +409,9 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
         if not isinstance(limit, int):
             limit = DEFAULT_UPCOMING_LIMIT
         return await _calendar_upcoming(limit)
+    if name == "calendar_get_week":
+        week = args.get("week", DEFAULT_WEEK)
+        if not isinstance(week, str):
+            week = DEFAULT_WEEK
+        return await _calendar_get_week(week)
     return None

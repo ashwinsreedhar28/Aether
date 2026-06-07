@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "calendar.get_week",
+  "description": "Fetches all events in the seven-day window starting at the given date (date 00:00 local through date + 7 days), sorted by start time. The date marks the week-start: the calendar_get_week voice tool aligns it to a Monday (ISO-8601 week start), but the surface simply returns seven days from whatever date it is handed and imposes no week boundary of its own. If date is omitted, defaults to today (the next seven days). On first invocation, macOS prompts the user for Calendar access permission. If permission is denied, returns {available: false, reason: 'permission_denied'}. If no events fall in the window, returns {available: false, reason: 'no_events'}.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "date": {
+      "type": "string",
+      "description": "ISO date (YYYY-MM-DD) or ISO datetime marking the week-start. The returned window is [date, date + 7 days). Optional; defaults to today."
+    }
+  }
+}

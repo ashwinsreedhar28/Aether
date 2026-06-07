@@ -377,7 +377,16 @@ full-stack lane needs submodules, gitignored config, and workspace
 > git worktree add <dir> -b <branch> && cd <dir> && git submodule update --init --recursive && cp ~/aether/.env.local . && pnpm install
 > ```
 >
-> Teardown gotcha: a worktree with an initialized submodule needs `git submodule deinit -f <path>` BEFORE `git worktree remove --force`, and `deinit` is GLOBAL across worktrees sharing a `.git` — re-run `git submodule update --init --recursive` in main afterward. Full rationale in `docs/governance-log.md` (2026-06-03).
+> RAG bootstrap (so the worktree's `/mcp` is green and `/doctor` stays quiet). A fresh worktree has no `daemons/aether-rag/.venv` or index, so the corpus the lane prompt tells you to query is dead until you build it. Match what the spawn actor does — but pick the interpreter EXPLICITLY: macOS system `python3`'s `sqlite3` cannot load extensions, so `sqlite-vec` won't load and `reindex.sh` dies; a venv inherits its creator interpreter's sqlite build, so never trust a bare `python3` in a spawned/sparse-PATH environment. Use an extension-capable interpreter (the one behind main's working `daemons/aether-rag/.venv/bin/python`, fully symlink-resolved, is ground truth on this machine; else Homebrew's `python3`):
+>
+> ```
+> cd <dir>/daemons/aether-rag
+> CAP_PY="$(readlink -f ~/aether/daemons/aether-rag/.venv/bin/python)"   # or /opt/homebrew/bin/python3
+> "$CAP_PY" -c 'import sqlite3; sqlite3.connect(":memory:").enable_load_extension(True)'  # must exit 0
+> "$CAP_PY" -m venv .venv && .venv/bin/pip install -q -r requirements.txt && bash reindex.sh
+> ```
+>
+> Teardown gotcha: a worktree with an initialized submodule needs `git submodule deinit -f <path>` BEFORE `git worktree remove --force`, and `deinit` is GLOBAL across worktrees sharing a `.git` — re-run `git submodule update --init --recursive` in main afterward. Full rationale in `docs/governance-log.md` (2026-06-03 worktree teardown; 2026-06-07 the sqlite-extension interpreter pin).
 
 ---
 

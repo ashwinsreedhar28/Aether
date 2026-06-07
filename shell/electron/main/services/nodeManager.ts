@@ -23,6 +23,7 @@ import {
 } from './paths'
 import type { MeshSecrets } from './secrets'
 import { warnIfDistStale } from './staleDist'
+import { isQuitting } from './appLifecycle'
 
 const SHUTDOWN_GRACE_MS = 3_000
 
@@ -341,6 +342,13 @@ export class NodeManager {
   }
 
   private async spawnNode(spec: NodeSpawnSpec): Promise<void> {
+    // Don't launch a node into a shell that's already tearing down. startAll()
+    // fans out in parallel and a quit can land mid-flight; a node spawned now
+    // would orphan past the app (the same race the raven manager guards).
+    if (isQuitting()) {
+      console.warn(`[nodeManager] skipping ${spec.id} spawn — app is quitting`)
+      return
+    }
     if (!existsSync(spec.entry)) {
       throw new Error(
         `${spec.id} dist not found at ${spec.entry}. Run ${spec.buildHint} and retry.`,

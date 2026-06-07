@@ -27,6 +27,7 @@ import { EventEmitter } from 'node:events'
 import { WebSocket } from 'ws'
 import { getRavenMeshConfig, waitForMeshReady } from './mesh'
 import { nodeDataDir } from './paths'
+import { isQuitting } from './appLifecycle'
 
 // Prepend `<repo>/core` to the raven-core child's PYTHONPATH at spawn
 // time so `from node_sdk import MeshNode` resolves to
@@ -175,9 +176,20 @@ export class RavenDaemonManager extends EventEmitter {
   }
 
   /**
-   * Reap a stale PID file left by a daemon that died without cleaning up.
-   * Without this, the next launch trips on "address in use" or thinks the
-   * daemon is alive when it isn't.
+   * Reap the PID file left by a prior daemon. Reached only AFTER the
+   * isHealthy() adopt check in ensureRunning() has already failed, so any
+   * process still alive at this PID is either dead-and-stale or hung/orphaned —
+   * never a healthy daemon we'd want to adopt.
+   *
+   * Two cases:
+   *  - Dead PID: clear the stale file (the original job — otherwise the next
+   *    launch trips on "address in use" or thinks the daemon is still up).
+   *  - Alive but NOT ours: an orphan from a prior session — most often a daemon
+   *    that spawned into a quitting shell (the pid=91597 incident) and survived
+   *    the app, still holding the port. SIGTERM it and log, then clear the file,
+   *    so this launch can bind a fresh daemon. ("Ours" = the child this manager
+   *    spawned this session; at boot that is null, so a live PID here is by
+   *    definition not ours.)
    */
   private reapStalePid(): void {
     const pidFile = path.join(this.dataDir, 'daemon.pid')
@@ -186,17 +198,59 @@ export class RavenDaemonManager extends EventEmitter {
       const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10)
       if (Number.isFinite(pid)) {
         // kill(pid, 0) throws if the process doesn't exist.
+        let alive = false
         try {
           process.kill(pid, 0)
-          // Live — leave the PID file alone.
-          return
+          alive = true
         } catch {
-          // Dead — clear the stale PID file.
+          // Dead — fall through to clear the stale PID file.
+        }
+        if (alive) {
+          if (this.daemonProcess?.pid === pid) return // our own live child — leave it
+          // Identity check before signalling. kill(pid,0) only proves the pid is
+          // LIVE, and pids recycle — an unrelated process could now hold it. Only
+          // SIGTERM when the pid's command line actually matches our daemon;
+          // otherwise it's a recycled pid and we just drop the stale file.
+          if (this.isDaemonProcess(pid)) {
+            console.warn(
+              `[ravenDaemonManager] reaping orphan daemon pid=${pid} (alive but not ours; unhealthy at boot)`,
+            )
+            try {
+              process.kill(pid, 'SIGTERM')
+            } catch {
+              // already gone between the check and here
+            }
+          } else {
+            console.warn(
+              `[ravenDaemonManager] pid=${pid} is alive but not our daemon (recycled) — clearing stale pid file only`,
+            )
+          }
         }
       }
       fs.unlinkSync(pidFile)
     } catch {
       // best-effort
+    }
+  }
+
+  /**
+   * Identity check for a pid before we signal it: is it actually OUR raven
+   * daemon and not a recycled pid now held by something unrelated? We match the
+   * process command line against the daemon dir (`<repo>/daemons/raven-daemon`,
+   * which the `node <daemonDir>/dist/index.js` invocation carries) — far more
+   * specific than the bare `node` comm name. ps unavailable / no match → treat
+   * as NOT ours (fail safe: never SIGTERM on an uncertain identity).
+   */
+  private isDaemonProcess(pid: number): boolean {
+    try {
+      const out = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], {
+        encoding: 'utf-8',
+      })
+      if (out.status !== 0 || !out.stdout) return false
+      const cmd = out.stdout.trim()
+      return cmd.includes(this.daemonDir) || /raven[-_]daemon/.test(cmd)
+    } catch {
+      return false
     }
   }
 
@@ -433,6 +487,12 @@ export class RavenDaemonManager extends EventEmitter {
    * against the vendored tree.
    */
   private spawnDaemon(meshConfig: { ravenSecret: string; coreUrl: string }): void {
+    // Defensive belt to the ensureRunning() guard: never launch into a
+    // quitting app, even if a future caller reaches here by another path.
+    if (isQuitting()) {
+      console.warn('[ravenDaemonManager] spawnDaemon aborted — app is quitting')
+      return
+    }
     const daemonDist = path.join(this.daemonDir, 'dist', 'index.js')
     const venvPython = path.join(this.coreDir, '.venv', 'bin', 'python')
 
@@ -547,6 +607,15 @@ export class RavenDaemonManager extends EventEmitter {
           kind: 'unavailable',
           reason: meshReady ? 'mesh ready but identity unavailable' : 'mesh not ready',
         })
+        return this.availability
+      }
+
+      // The shutdown race: ensureBuilt()/waitForMeshReady() above can burn
+      // tens of seconds, and the Director may quit inside that window. If the
+      // app is now tearing down, do NOT spawn — a daemon launched here parents
+      // to a dying shell and orphans (the pid=91597 incident).
+      if (isQuitting()) {
+        this.setAvailability({ kind: 'unavailable', reason: 'app is quitting' })
         return this.availability
       }
 

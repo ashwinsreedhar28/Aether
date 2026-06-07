@@ -26,6 +26,7 @@ import { SceneServerDaemonManager } from './services/sceneServerDaemonManager'
 import { SceneSubscriber } from './services/sceneSubscriber'
 import { SpawnService } from './services/spawnService'
 import { REPO_ROOT, spawnsLedgerPath } from './services/paths'
+import { markQuitting } from './services/appLifecycle'
 import { registerPythonDaemonNode, waitForMeshReady } from './services/nodeRegistry'
 
 // Lock Electron's app name before any code calls app.getPath('userData') —
@@ -686,6 +687,10 @@ async function stopAllChildren(): Promise<void> {
 
 app.on('before-quit', (event) => {
   if (cleanedUp) return
+  // Latch the shutdown flag FIRST so any in-flight daemon bootstrap aborts
+  // before its deferred spawn fires (the orphaned-daemon race). Set it even on
+  // the re-entrant calls below — idempotent, and cheap insurance.
+  markQuitting()
   event.preventDefault()
   if (quitInFlight) return
   quitInFlight = true
@@ -702,6 +707,7 @@ app.on('before-quit', (event) => {
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   process.on(sig, () => {
     if (cleanedUp) return
+    markQuitting()
     void (async () => {
       await stopAllChildren()
       cleanedUp = true

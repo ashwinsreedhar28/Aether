@@ -87,6 +87,66 @@ closer), the `source:start-end` location, the heading breadcrumb, and a
 snippet. Scores are reported verbatim — a weak match shows a low number, not
 a padded one, so "confident answer" and "shrug" look different.
 
+## MCP server
+
+`server.py` wraps the same `rag_lib.search` primitive as a **stdio MCP
+server**, so every Claude Code session opened in this repo inherits the corpus
+as a tool — the query step above, but always-on and callable mid-task. It
+exposes one read-only tool:
+
+- **`search_corpus(query, k=5, source_filter=None)`** → up to `k` passages,
+  each with its cosine-similarity score, `source:start-end` location, heading
+  breadcrumb, and text. `source_filter` is an optional case-insensitive
+  substring matched against the source path (`"DECISIONS"`, `"nodes/"`,
+  `"governance-log"`) to scope results to one file or tree.
+
+There is **no** reindex tool and no write surface by design — building the
+index stays the human-run `reindex.sh`. If the index is missing the tool
+returns an instructive error naming `reindex.sh` rather than building one on
+first call (predictable startup over magic).
+
+### Registration
+
+Registration is committed at the repo root in [`.mcp.json`](../../.mcp.json)
+(project-scoped). It launches this venv's Python on `server.py`, with paths
+resolved via `${CLAUDE_PROJECT_DIR:-.}` so the server works from a git worktree
+as well as the main checkout. Because the config travels with the repo, you do
+**not** run `claude mcp add`. Two prerequisites must be satisfied first (both
+human-run, once) — the [Setup](#setup) venv and the [Reindex](#reindex) index:
+
+```bash
+cd daemons/aether-rag
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # venv
+./reindex.sh                                                          # index
+```
+
+### Approval & verification
+
+Project-scoped servers from `.mcp.json` require **explicit approval** the first
+time — Claude Code does not auto-run a server a repo ships. In a session opened
+at the repo root:
+
+1. Run `/mcp` and approve the `aether-rag` server when prompted (a one-time
+   trust step for this project's `.mcp.json`).
+2. Verify it's connected:
+
+   ```bash
+   claude mcp list
+   ```
+
+   `aether-rag` should appear with a connected status.
+3. The tool is then available as `search_corpus` (namespaced
+   `mcp__aether-rag__search_corpus`).
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `claude mcp list` shows `aether-rag` disconnected / failed | venv missing or deps not installed | `cd daemons/aether-rag && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` |
+| `search_corpus` returns an error naming `reindex.sh` | index not built (or wiped) | run `daemons/aether-rag/reindex.sh` |
+| Server never offered for approval | session not opened at the repo root, so `.mcp.json` was not found | reopen Claude Code at the repo root |
+| First `search_corpus` call is slow | embedding model populates the fastembed cache on first use | one-time; `./reindex.sh` warms the cache, after which calls are fast |
+
 ## Eval
 
 ```bash

@@ -10,6 +10,17 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- RAG MCP server — `daemons/aether-rag/server.py` wraps the spike's retrieval core
+  (`rag_lib.search`) as a **stdio MCP server** so every Claude Code session opened in
+  this repo inherits the corpus as a tool. One read-only tool, `search_corpus(query,
+  k=5, source_filter=None)`, returns scored passages with source path, heading
+  breadcrumb, and line span; `source_filter` is a case-insensitive substring on the
+  source path to scope a search to one file or tree. No reindex tool and no write
+  surface — building the index stays the human-run `reindex.sh`, and a missing index
+  yields an instructive error rather than an auto-build (predictable startup over
+  magic). Registered project-scoped in a committed `.mcp.json` at the repo root (paths
+  via `${CLAUDE_PROJECT_DIR:-.}` so worktrees resolve); `mcp==1.27.2` pinned in
+  `requirements.txt`. Approve once via `/mcp`, verify with `claude mcp list`.
 - RAG core spike under `daemons/aether-rag/` — standalone retrieval over Aether's
   own corpus (governance log, DECISIONS, CHANGELOG, CLAUDE.md, scene protocol,
   release notes, READMEs, manifest). Locked stack: `fastembed` (ONNX, no torch,

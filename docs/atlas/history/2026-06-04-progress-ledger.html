@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AETHER · progress ledger · 2026-06-04</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#08090c; --panel:#0d0f14; --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.14);
+    --txt:#e8eaf0; --mut:#8b90a0; --dim:#565b6b;
+    --accent:#6ea8ff; --teal:#35c79a; --amber:#e8a33d; --coral:#f07b5a; --violet:#a78bfa; --gray:#5f6475;
+    --mono:'IBM Plex Mono',monospace; --sans:'Archivo',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.55;
+    background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);background-size:28px 28px}
+  .wrap{max-width:1020px;margin:0 auto;padding:0 44px}
+  section{padding:72px 0;border-bottom:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.32em;text-transform:uppercase;color:var(--accent);margin-bottom:16px}
+  .kicker::before{content:"";display:inline-block;width:34px;height:1px;background:var(--accent);vertical-align:middle;margin-right:14px;opacity:.6}
+  h1{font-size:clamp(34px,5.4vw,60px);font-weight:600;letter-spacing:-.02em;line-height:1.06}
+  h2{font-size:clamp(24px,3vw,32px);font-weight:600;letter-spacing:-.015em;margin-bottom:8px}
+  .sub{color:var(--mut);font-size:15px;max-width:640px}
+  .mono{font-family:var(--mono)}
+  .hero{min-height:62vh;display:flex;flex-direction:column;justify-content:center}
+  .hero .date{font-family:var(--mono);font-size:12px;color:var(--dim);letter-spacing:.18em;margin-top:18px}
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);margin-top:44px}
+  .stat{background:var(--panel);padding:20px 18px}
+  .stat b{display:block;font-family:var(--mono);font-size:28px;font-weight:500}
+  .stat span{font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut)}
+
+  .tl{margin-top:36px;border-left:1px solid var(--line2);list-style:none}
+  .tl li{position:relative;padding:16px 0 16px 38px}
+  .tl li::before{content:"";position:absolute;left:-6px;top:24px;width:11px;height:11px;border-radius:50%;background:var(--dot,var(--gray));box-shadow:0 0 0 4px var(--bg)}
+  .tl .tag{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--dot,var(--gray))}
+  .tl h3{font-size:18px;font-weight:600;margin:2px 0}
+  .tl p{color:var(--mut);font-size:14px;max-width:580px}
+  .teal{--dot:var(--teal)}.amber{--dot:var(--amber)}.grayd{--dot:var(--gray)}.coral{--dot:var(--coral)}.violet{--dot:var(--violet)}
+
+  .loop{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:40px}
+  .card{background:var(--panel);border:1px solid var(--line2);border-radius:10px;padding:16px 14px;position:relative}
+  .card .n{font-family:var(--mono);font-size:10px;color:var(--dim)}
+  .card h3{font-size:15px;font-weight:600;margin:6px 0 4px}
+  .card p{font-size:12px;color:var(--mut);line-height:1.45}
+  .chip{display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+    padding:3px 8px;border-radius:99px;margin-top:10px;border:1px solid}
+  .chip.live{color:var(--teal);border-color:var(--teal);background:rgba(53,199,154,.08)}
+  .chip.next{color:var(--mut);border-color:var(--line2)}
+  .loopnote{margin-top:24px;font-family:var(--mono);font-size:12px;color:var(--mut)}
+  .loopnote b{color:var(--accent);font-weight:500}
+
+  table{width:100%;border-collapse:collapse;margin-top:32px;font-size:13.5px}
+  th{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);text-align:left;padding:10px 14px;border-bottom:1px solid var(--line2)}
+  td{padding:11px 14px;border-bottom:1px solid var(--line);color:var(--mut);vertical-align:top}
+  td:first-child{font-family:var(--mono);font-size:12px;color:var(--txt);white-space:nowrap}
+  tr.hold td{color:var(--dim)}
+  .pill{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;padding:2px 8px;border-radius:99px;border:1px solid var(--line2)}
+  .pill.m{color:var(--teal);border-color:rgba(53,199,154,.5)}
+  .pill.p{color:var(--amber);border-color:rgba(232,163,61,.5)}
+
+  .lessons{margin-top:32px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .lesson{border:1px solid var(--line);border-radius:10px;padding:16px 18px;background:rgba(255,255,255,.012)}
+  .lesson b{display:block;font-size:14px;font-weight:600;margin-bottom:4px}
+  .lesson span{font-size:12.5px;color:var(--mut)}
+
+  .agenda{margin-top:32px}
+  .ag{display:flex;gap:18px;padding:16px 0;border-top:1px solid var(--line);align-items:baseline}
+  .ag .k{font-family:var(--mono);font-size:11px;color:var(--accent);min-width:34px}
+  .ag b{font-size:15px;font-weight:600}
+  .ag p{font-size:13.5px;color:var(--mut);margin-top:3px}
+  .you{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);border:1px solid rgba(232,163,61,.5);border-radius:99px;padding:2px 8px;margin-left:8px}
+
+  footer{padding:56px 0;text-align:center}
+  footer p{font-family:var(--mono);font-size:12.5px;color:var(--dim)}
+  footer b{color:var(--accent);font-weight:500}
+  @media(max-width:880px){.stats{grid-template-columns:repeat(2,1fr)}.loop{grid-template-columns:repeat(2,1fr)}.lessons{grid-template-columns:1fr}.wrap{padding:0 22px}}
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="kicker">Aether · progress ledger</div>
+    <h1>Two days.<br>The cockpit, then the loop<br>that builds the rest.</h1>
+    <div class="date">2026 · 06 · 03 — 04 · COCKPIT DAY + SELF-BUILDING DAY · FOR REFERENCE</div>
+    <div class="stats">
+      <div class="stat"><b>31</b><span>PRs merged, two days</span></div>
+      <div class="stat"><b>14</b><span>merged today (+1 pending)</span></div>
+      <div class="stat"><b>19</b><span>mesh nodes</span></div>
+      <div class="stat"><b>20</b><span>voice tools</span></div>
+      <div class="stat"><b>v0.6.0</b><span>release cut pending tag</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">01 · The arc</div>
+    <h2>How the two days stack</h2>
+    <ul class="tl">
+      <li class="teal"><span class="tag">Day 1 · Jun 3</span><h3>Cockpit day — 17 merges</h3>
+        <p>Hot mic on boot, one brain for typed + spoken input, instrument views (lanes, mesh graph, chats), voice navigation, gap sensor, gaps panel, transcript persistence + caps.</p></li>
+      <li class="teal"><span class="tag">Day 1 · night</span><h3>The first gap</h3>
+        <p>Mail bodies recorded as gap #1 by the machine itself; two RCAs, one honest hold, Mail.app's AppleScript surface documented as environmentally degraded.</p></li>
+      <li class="teal"><span class="tag">Day 2 · Jun 4</span><h3>Gap #1 closed — redesigned better</h3>
+        <p>"Pull it up, don't read it": open_message via LaunchServices, immune to AppleScript. First full loop revolution in ~24h.</p></li>
+      <li class="violet"><span class="tag">Day 2</span><h3>The Architect era opens</h3>
+        <p>Aether proposes lanes from its own ledger (#158), gains a gap lifecycle so it knows what's been answered (#164), and drafts lane prompts on accept (#168, RECON-FIRST guarded).</p></li>
+      <li class="coral"><span class="tag">Day 2</span><h3>Cockpit matures</h3>
+        <p>Inspectable mesh edges (#161) + category shapes/hues, arrangeable Scene (#166) + first-summon scroll fix, agenda by voice + panel (#170), stale-dist boot guard.</p></li>
+      <li class="amber"><span class="tag">Day 2 · close</span><h3>The shop window</h3>
+        <p>Scene protocol contract v1 for the AVP track; README + v0.6.0 release cut in flight.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">02 · The loop, complete first floor</div>
+    <h2>Six stages live, one gate human</h2>
+    <div class="loop">
+      <div class="card"><span class="n mono">01</span><h3>Notice</h3><p>report_gap on every unfulfillable ask</p><span class="chip live">● live</span></div>
+      <div class="card"><span class="n mono">02</span><h3>Record</h3><p>intents node, append-only + fsync</p><span class="chip live">● live</span></div>
+      <div class="card"><span class="n mono">03</span><h3>See</h3><p>gaps panel · "N open, M closed"</p><span class="chip live">● live</span></div>
+      <div class="card"><span class="n mono">04</span><h3>Close</h3><p>lifecycle events; mail gaps closed</p><span class="chip live">● live</span></div>
+      <div class="card"><span class="n mono">05</span><h3>Propose</h3><p>review_gaps → clustered lanes</p><span class="chip live">● live</span></div>
+      <div class="card"><span class="n mono">06</span><h3>Draft</h3><p>draft_lane → house-format specs on disk</p><span class="chip live">● live</span></div>
+    </div>
+    <p class="loopnote">Next stage on the ladder: <b>rung 2 — the spawn actor</b> (design session pending) · merge authority never delegates, by constitution.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">03 · Day-2 ledger</div>
+    <h2>What shipped today</h2>
+    <table>
+      <tr><th>PR</th><th>Lane</th><th>Status</th></tr>
+      <tr><td>#154</td><td>Mail vertical, pivoted — open_message via LaunchServices; body capture demoted to non-blocking; gap #1 closed</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>#156</td><td>Encore docs bank — measurement, signals, the honest hold</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>#158</td><td>Architect v0 — raven proposes lanes from its gap log</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>#161</td><td>Mesh edge detail — hover labels, edge click, node↔edge loop</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>#162</td><td>Chores — manifest ≤280 lint, skill literal, §13.10 shape 6</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>#164</td><td>Gap lifecycle — open/closed as appended events, fold-forward</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>#166</td><td>Scene arrangement v1 — drag-reorder + persisted order</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>#168</td><td>Rung 1 — proposals become draft lane prompts, RECON-FIRST guard</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>#170</td><td>Agenda by voice + panel (and the oracle-calibration story)</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>#171</td><td>Day-2 docs bank — the stale family, oracle calibration</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>—</td><td>Hygiene — tool-count can't lie + stale-dist boot guard</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>—</td><td>Mesh aesthetic — shape + hue by category, §15 calm</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>—</td><td>First-summon scroll-into-view fix</td><td><span class="pill m">merged</span></td></tr>
+      <tr><td>—</td><td>Scene panel protocol contract v1 (the AVP handoff doc)</td><td><span class="pill m">merged</span></td></tr>
+      <tr class="hold"><td>—</td><td>Repo front v2 — README rewrite, v0.6.0 CHANGELOG cut + release notes, GH templates/metadata</td><td><span class="pill p">in flight</span></td></tr>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">04 · Lessons banked</div>
+    <h2>The day-2 additions to the governance log</h2>
+    <div class="lessons">
+      <div class="lesson"><b>The stale family, complete</b><span>Stale runtime · stale detached daemon · stale dist. "Fresh" must be proven at every layer the change rides — install ≠ build.</span></div>
+      <div class="lesson"><b>Calibrate the oracle</b><span>The smoke's external ground truth (Calendar.app's timezone) is part of the test rig. Verify the instrument before trusting the failure.</span></div>
+      <div class="lesson"><b>Recount, don't inherit</b><span>Parallel editors of one fact re-derive it from ground truth at merge — the tool count was counted, not adopted.</span></div>
+      <div class="lesson"><b>RECON-FIRST guardrail</b><span>Fixed template lines make thin machine drafts self-limiting: the implementer recons and stops at uncovered decisions.</span></div>
+      <div class="lesson"><b>Routing is runtime behavior</b><span>A declared tool isn't a called tool. Instruction strength earns its keep in the live session, not the harness.</span></div>
+      <div class="lesson"><b>Rung-1 expectations</b><span>Fireable starts for simple lanes, guarded skeletons for hard ones. Depth is model-bounded; deep specs stay with the Architect.</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">05 · On return</div>
+    <h2>The agenda, in order</h2>
+    <div class="agenda">
+      <div class="ag"><span class="k">1</span><div><b>Land the repo front <span class="you">your button</span></b><p>Review + merge the README/v0.6.0 PR, confirm the version, run the prepared tag + release commands, final worktree sweep.</p></div></div>
+      <div class="ag"><span class="k">2</span><div><b>The calendar draft <span class="you">paste it</span></b><p>Your rung-1 drafted spec → Architect tightens → first production lane written by Aether itself.</p></div></div>
+      <div class="ag"><span class="k">3</span><div><b>Spotify setup <span class="you">~10 min</span></b><p>Developer app + keys into .env.local → music node fires as rung 1's commission, closing the music gap on the ledger.</p></div></div>
+      <div class="ag"><span class="k">4</span><div><b>Roadmap session</b><p>The mail decision (lean: IMAP/Gmail API, kill the AppleScript dependency for good — mail_meta still reads timeout) · the distance from here to "just ask Aether to bring things in" · sequencing the banked trio (multi-repo, dynamic topology, edge richness ✓ done).</p></div></div>
+      <div class="ag"><span class="k">5</span><div><b>Rung 2 design session — the spawn actor</b><p>Aether launches its own implementers: spawn-approval UX, default-permission + allowlists, kill switch, teardown. Guardrails are the product. 30 focused minutes; Architect opens with a proposal.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>AETHER · v0.6.0 era · the ledger knows what it lacks, proposes what to build, and drafts the work — <b>your hand stays on the gate.</b></p>
+</footer>
+
+</body>
+</html>

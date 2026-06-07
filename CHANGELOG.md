@@ -10,6 +10,18 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- The Atlas (`docs/atlas/`) — Aether's living visual architecture map.
+  `architecture.html` is one self-contained dark-theme page covering process
+  topology, the signed mesh (19 nodes, 69 edges, 40 surfaces — counts parsed
+  from `manifest.yaml`), the voice pipeline (Gemini Live → tools → mesh → spoken
+  + panels; 41 live voice functions), the `$userData` data layer, the four
+  cockpit views, the self-building loop (rung 2 in-flight; the `aether-rag` MCP
+  server shown as landed per #187), and a ports/processes quick-reference. Every
+  count cites the source it was read from; doc-vs-code disagreements are recorded
+  in an Appendix rather than smoothed over (the scene-protocol precedent).
+  `docs/atlas/README.md` indexes it and the three frozen `history/` snapshots;
+  the living map is re-snapshotted into `history/` at each release cut. Linked
+  from `README.md` and `docs/README.md`.
 - Precedent-first implementers + the rebase playbook — recipe wiring for the
   self-building loop. CLAUDE.md gains two standing rules: **§13.13
   Precedent-First Implementers** (the default discovery mode is to query the

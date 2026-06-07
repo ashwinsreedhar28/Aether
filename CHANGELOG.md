@@ -101,6 +101,17 @@ historical record.
   `docs/releases/v0.10.0.md` (release narrative). Sets GitHub repo topics.
 
 ### Changed
+- CLAUDE.md diet — the operating core trimmed from 42,603 to 29,752 chars (~30%),
+  back under Claude Code's 40k performance threshold that every Implementer session
+  paid on first read. Zero section renumbering and zero meaning lost: every `§N` /
+  `§N.M` keeps its meaning, and the reference bodies (long worked examples, historical
+  PR lists, the six-shape manual-completion history, templates, the glossary, and
+  extended rationale) **relocate** verbatim to a new `docs/claude-reference.md` whose
+  `§` anchors match CLAUDE.md — each slimmed section keeps its rule plus a one-line
+  pointer. Operating law (gates, the §13 discipline, the §7 template, the §11
+  heuristics) stays in CLAUDE.md. The new doc is added to the `aether-rag`
+  `CORPUS_GLOBS` (`daemons/aether-rag/rag_lib.py`) so the moved text stays
+  retrievable via `search_corpus`, and indexed in `docs/README.md`. (Issue #195.)
 
 ### Fixed
 

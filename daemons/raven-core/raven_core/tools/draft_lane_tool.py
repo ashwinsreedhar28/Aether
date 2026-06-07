@@ -87,14 +87,18 @@ def _compose_lane_prompt(
     """Deterministically assemble a house-format lane prompt.
 
     Shape mirrors the lanes the Director actually pastes (=== LANE … ===
-    fences, role line, a fixed RECON-FIRST guardrail line, branch/worktree,
-    GOAL, SCOPE, numbered BUILD STEPS, Director-run smoke, the verify-then-ship
-    Ship line, a PR title). Branch and worktree are derived placeholders the
-    Architect can edit before dispatch — paste-ready defaults beat literal
-    <fill-me> tokens. The RECON-FIRST line is fixed (not model-supplied) so a
-    thin draft is self-limiting: a spawned implementer reads the named
-    precedents and STOPS to report options rather than freelancing a design
-    decision the draft didn't cover.
+    fences, role line, a fixed RECON-FIRST guardrail line, a fixed PRECEDENT
+    line, branch/worktree, GOAL, SCOPE, numbered BUILD STEPS, Director-run
+    smoke, the verify-then-ship Ship line, a PR title). Branch and worktree are
+    derived placeholders the Architect can edit before dispatch — paste-ready
+    defaults beat literal <fill-me> tokens. The RECON-FIRST line is fixed (not
+    model-supplied) so a thin draft is self-limiting: a spawned implementer
+    reads the named precedents and STOPS to report options rather than
+    freelancing a design decision the draft didn't cover. The PRECEDENT line is
+    likewise fixed: it routes the implementer to query the aether-rag corpus
+    (search_corpus) for relevant decisions/patterns before each step, so
+    discovery is precedent-first by default rather than dependent on the draft
+    hand-listing every relevant file (CLAUDE.md §13.13).
     """
     slug = _slugify(name)
     title = (name or "").strip().upper() or "UNTITLED LANE"
@@ -109,6 +113,8 @@ def _compose_lane_prompt(
         "RECON FIRST: read the named precedents; if the approach requires a "
         "design decision not covered here, STOP and report options instead of "
         "building.",
+        "PRECEDENT: query the aether-rag MCP (search_corpus) for decisions and "
+        "patterns relevant to each step before implementing it.",
         f"Branch: feat/{slug}   Worktree: ~/aether-{slug}",
         "",
         f"GOAL: {(goal or '').strip() or '(Architect to state the one-sentence goal)'}",

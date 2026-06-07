@@ -573,6 +573,18 @@ git worktree add <dir> -b <branch> && cd <dir> && git submodule update --init --
 
 Teardown gotcha: a worktree with an initialized submodule needs `git submodule deinit -f <path>` BEFORE `git worktree remove --force`, and `deinit` is GLOBAL across worktrees sharing a `.git` — re-run `git submodule update --init --recursive` in main afterward. Full rationale in `docs/governance-log.md` (2026-06-03).
 
+## 13.13 Precedent-First Implementers
+
+The default way an Implementer discovers relevant prior art is to **query the `aether-rag` MCP (`search_corpus`) for the decisions and patterns relevant to each build step, before implementing it** — not to wait for the lane prompt to hand-list every file. The corpus is Aether's own written record (governance log, DECISIONS, CHANGELOG, CLAUDE.md, scene protocol, release notes, the node READMEs, the manifest, and `docs/rebase-playbook.md`), so "how have we solved this before?" is a retrieval, not a guess. This replaces exhaustive **hand-fed file lists** as the default: the Architect no longer has to anticipate and pre-stage every relevant file for a lane to be discoverable.
+
+What does NOT change: **hand-named precedents remain for load-bearing reads** — the specific files whose exact contract the Implementer must not get wrong (wire formats, the named source in a `_ingest/` pattern-lift, a choke-file region). §13 items 2 (pre-flight reads), 3 (large-file caution), and 4 (pre-staged context) still govern those; precedent-querying supplements them for *discovery*, it does not retire the load-bearing safety rails. Rule of thumb: if getting a file wrong breaks the build or the wire contract, name it; if it is context an Implementer would want to *find*, let `search_corpus` find it.
+
+Caveat — **the index can only retrieve law that is written.** Oral law (a convention that lives only in chat or in the Architect's head) is invisible to `search_corpus` until it is banked in a corpus file (governance-log, this file, or a `docs/` doc the corpus indexes). When you rely on an unwritten convention, write it down so the next lane can retrieve it; `docs/rebase-playbook.md` is the first deliberate write-down-to-make-retrievable (it closed the RAG eval's Q1 corpus gap). The `draft_lane` tool bakes a fixed PRECEDENT line into every machine-drafted prompt — the composer instantiation of this rule.
+
+## 13.14 Open-Own-Issue Default
+
+A lane that arrives **without a supplied GitHub Issue opens its own** (using `.github/ISSUE_TEMPLATE/lane.yml`) and proceeds — it does not pause to ask the Director "should I open an issue?". That recurring question now has a standing answer. If the lane spec supplies an issue number, use it; absent one, open it, then carry on with the work. The PR body still references it with `Closes #<issue>` (§13 item 12, *One issue per lane*); this subsection only fixes *who* opens it when the spec is silent — the Implementer, not a round-trip to the Director.
+
 ---
 
 *End of CLAUDE.md. If you reached this line and something above contradicts itself, or doesn't cover a situation you hit, raise it in the next PR's description under "Open questions for Architect." This file is meant to grow.*

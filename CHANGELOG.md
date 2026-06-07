@@ -10,6 +10,25 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Precedent-first implementers + the rebase playbook — recipe wiring for the
+  self-building loop. CLAUDE.md gains two standing rules: **§13.13
+  Precedent-First Implementers** (the default discovery mode is to query the
+  `aether-rag` MCP `search_corpus` for relevant decisions/patterns before each
+  build step, replacing exhaustive hand-fed file lists; hand-named precedents
+  remain only for *load-bearing* reads — wire formats, choke-file regions,
+  pattern-lift sources — and the index can only retrieve law that's *written*)
+  and **§13.14 Open-Own-Issue Default** (a lane without a supplied issue opens
+  its own and proceeds, instead of round-tripping the Director). The `draft_lane`
+  tool bakes a fixed **PRECEDENT** composer line into every machine-drafted
+  prompt, right after RECON-FIRST, routing the spawned implementer to
+  `search_corpus` before each step. New **`docs/rebase-playbook.md`** writes down
+  the rebase oral law — CHANGELOG keep-all, `prompts.json`/`manifest.yaml`
+  keep-both-distinct-sections, recount-don't-inherit for shared scalars,
+  force-push-with-lease, smoke-then-rebase ordering, re-verify post-rebase — and
+  is added to the RAG `CORPUS_GLOBS` so it is actually retrievable (closing the
+  eval's Q1 *"how do we resolve CHANGELOG conflicts"* corpus gap). Linked from
+  CLAUDE.md §13.13 and the `docs/README.md` index. Docs/process + one composer
+  line + one corpus-glob entry; no wire-contract or runtime-behavior change.
 - RAG MCP server — `daemons/aether-rag/server.py` wraps the spike's retrieval core
   (`rag_lib.search`) as a **stdio MCP server** so every Claude Code session opened in
   this repo inherits the corpus as a tool. One read-only tool, `search_corpus(query,

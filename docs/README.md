@@ -28,6 +28,7 @@ How work gets built and shipped.
 | [scene-protocol.md](scene-protocol.md) | Scene-server wire contract — renderer-facing (the AVP / 3D-shell track) |
 | [implementer-prompt-template.md](implementer-prompt-template.md) | The template every Implementer lane prompt is drafted against |
 | [manual-completion.md](manual-completion.md) | The hand-completion fallback for hostile-API days |
+| [rebase-playbook.md](rebase-playbook.md) | The rebase oral law — keep-all CHANGELOG, keep-both sections, recount shared scalars, lease the force-push |
 | [BRANCH_PROTECTION.md](BRANCH_PROTECTION.md) | Branch-protection configuration and rationale |
 
 ## Governance & decisions

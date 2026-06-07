@@ -8,7 +8,11 @@
 #     for KNN vector search. No server, no separate vector DB process.
 #
 # Transitive deps (onnxruntime, numpy, tokenizers, huggingface-hub, …) are
-# resolved by fastembed; we pin only the two stack choices the lane locked.
-# This is a standalone spike — no mesh, no MCP, no imports from repo code.
+# resolved by fastembed; we pin only the stack choices the lane locked.
+#   - mcp: the official Python Model Context Protocol SDK. server.py wraps the
+#     retrieval core (rag_lib.search) as a stdio MCP server so every Claude
+#     Code session in this repo inherits the corpus as a tool. The spike core
+#     itself stays MCP-free — only server.py imports this.
 fastembed==0.8.0
 sqlite-vec==0.1.9
+mcp==1.27.2

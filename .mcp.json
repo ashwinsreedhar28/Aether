@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "aether-rag": {
+      "command": "${CLAUDE_PROJECT_DIR:-.}/daemons/aether-rag/.venv/bin/python",
+      "args": ["${CLAUDE_PROJECT_DIR:-.}/daemons/aether-rag/server.py"]
+    }
+  }
+}

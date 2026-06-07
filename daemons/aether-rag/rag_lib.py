@@ -69,6 +69,64 @@ def rel(path: Path) -> str:
         return path.as_posix()
 
 
+# --- Freshness --------------------------------------------------------------
+# The index is a DERIVED artifact, rebuilt by reindex.sh, and gitignored. It
+# drifts behind the corpus between manual reindexes. These helpers compare
+# mtimes only — no model load, no DB open — so callers (server.py at startup,
+# the shell boot guard via its own mirror) can detect drift cheaply and
+# predictably. See the README "Freshness model" section.
+
+
+class Staleness(NamedTuple):
+    # "missing" → index not built yet (DB_PATH absent); callers decide whether
+    #             that warrants a rebuild (server.py raises an instructive
+    #             error; the shell warns but never bootstraps at boot).
+    # "stale"   → index strictly older than the newest corpus file.
+    # "fresh"   → index at least as new as every corpus file.
+    state: str
+    index_mtime: float | None  # epoch seconds, None when the index is missing
+    corpus_mtime: float        # newest corpus mtime, 0.0 if no corpus files
+    newest_source: str | None  # repo-rel path of the newest corpus file
+
+
+def _mtime(path: Path) -> float:
+    """mtime in epoch seconds, or 0.0 if the path can't be stat'd."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def newest_corpus_file() -> tuple[Path | None, float]:
+    """The most recently modified existing corpus file and its mtime (epoch
+    seconds). Returns (None, 0.0) when no corpus files exist."""
+    newest_path: Path | None = None
+    newest = 0.0
+    for path in corpus_files():
+        m = _mtime(path)
+        if m > newest:
+            newest, newest_path = m, path
+    return newest_path, newest
+
+
+def index_staleness() -> Staleness:
+    """Compare the index mtime against the newest corpus-file mtime.
+
+    Pure filesystem stat — does NOT load the embedding model or open the DB,
+    so it is safe to call at process startup. The strict ``<`` mirrors the
+    shell's staleDist guard: reindex.sh writes the DB after reading the
+    sources, so a fresh build leaves index_mtime >= every corpus mtime, and an
+    equal mtime is treated as fresh (no false-positive warning).
+    """
+    newest_path, corpus_mtime = newest_corpus_file()
+    newest_source = rel(newest_path) if newest_path is not None else None
+    if not DB_PATH.exists():
+        return Staleness("missing", None, corpus_mtime, newest_source)
+    idx = _mtime(DB_PATH)
+    state = "stale" if idx < corpus_mtime else "fresh"
+    return Staleness(state, idx, corpus_mtime, newest_source)
+
+
 # --- Embedding model --------------------------------------------------------
 _MODEL = None
 

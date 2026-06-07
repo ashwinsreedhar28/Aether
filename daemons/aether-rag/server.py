@@ -77,6 +77,32 @@ def _missing_index_message() -> str:
     )
 
 
+def _staleness_notice() -> str | None:
+    """A loud one-block notice when the on-disk index is older than the corpus,
+    else None. Mtime-only (see rag_lib.index_staleness) — no model load, no DB
+    open. A *missing* index is deliberately NOT reported here: the search_corpus
+    path already raises the instructive _missing_index_message. This notice is
+    specifically the "index exists but has drifted behind the corpus" case."""
+    s = rag_lib.index_staleness()
+    if s.state != "stale":
+        return None
+    newest = s.newest_source or "the corpus"
+    return (
+        "⚠️  STALE INDEX — index older than corpus — run reindex.sh\n"
+        "        daemons/aether-rag/reindex.sh\n"
+        f"    (newest corpus change: {newest}; the results below were embedded "
+        "from an older corpus and may miss or misrepresent recent edits.)"
+    )
+
+
+# Computed once at import. A read-only server never rebuilds the index, so the
+# freshness verdict cannot change mid-session — a startup snapshot is the honest
+# and predictable signal (matching the "no magic at startup" stance of the
+# missing-index path). A new session re-evaluates, picking up any reindex that
+# ran in between (e.g. the shell's boot-time heal).
+_STALENESS_NOTICE = _staleness_notice()
+
+
 def _format(query: str, k: int, source_filter: str | None, passages: list) -> str:
     head = f"query: {query!r}  (k={k}"
     if source_filter:
@@ -165,8 +191,20 @@ def search_corpus(
     finally:
         conn.close()
 
-    return _format(query, k, source_filter, passages)
+    result = _format(query, k, source_filter, passages)
+    # Prepend the staleness banner to the result metadata so a drifted index is
+    # impossible to miss in-session. The server still serves (stale > nothing);
+    # it just never silently pretends to be fresh.
+    if _STALENESS_NOTICE:
+        return f"{_STALENESS_NOTICE}\n\n{result}"
+    return result
 
 
 if __name__ == "__main__":
+    # Surface staleness on the stderr boot channel too — visible in `claude`'s
+    # MCP logs even before the first search_corpus call. Stale serves anyway;
+    # rebuilding inside a stdio session is out of bounds by design (reindex.sh
+    # is the only path that touches the index).
+    if _STALENESS_NOTICE:
+        print(_STALENESS_NOTICE, file=sys.stderr, flush=True)
     mcp.run(transport="stdio")

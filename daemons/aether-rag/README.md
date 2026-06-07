@@ -145,8 +145,23 @@ at the repo root:
 |---|---|---|
 | `claude mcp list` shows `aether-rag` disconnected / failed | venv missing or deps not installed | `cd daemons/aether-rag && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` |
 | `search_corpus` returns an error naming `reindex.sh` | index not built (or wiped) | run `daemons/aether-rag/reindex.sh` |
+| `search_corpus` results are prefixed with a `STALE INDEX` banner | index older than the corpus (docs edited since the last reindex) | run `reindex.sh` — or just restart the shell, which heals a stale index at boot |
 | Server never offered for approval | session not opened at the repo root, so `.mcp.json` was not found | reopen Claude Code at the repo root |
 | First `search_corpus` call is slow | embedding model populates the fastembed cache on first use | one-time; `./reindex.sh` warms the cache, after which calls are fast |
+
+## Freshness model
+
+The index is a **derived, gitignored artifact** rebuilt by `reindex.sh`, so it
+drifts behind the corpus whenever a tracked doc is edited without a reindex.
+`server.py` catches that at startup with an mtime-only comparison (newest
+corpus file vs. the index): if the index is older it still serves, but prepends
+a loud `STALE INDEX — index older than corpus — run reindex.sh` banner to every
+`search_corpus` result and to stderr — it never rebuilds inside a stdio session
+(predictable startup over magic, the same stance as the missing-index path).
+The Electron shell closes the loop at boot: if the committed index **exists and
+is stale** it runs `reindex.sh` as a background child (a *missing* index or venv
+is warn-only — boot never bootstraps the corpus from nothing), so a normal
+restart is enough to heal drift without a manual reindex.
 
 ## Eval
 

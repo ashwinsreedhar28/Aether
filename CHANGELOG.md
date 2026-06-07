@@ -10,6 +10,15 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- RAG core spike under `daemons/aether-rag/` — standalone retrieval over Aether's
+  own corpus (governance log, DECISIONS, CHANGELOG, CLAUDE.md, scene protocol,
+  release notes, READMEs, manifest). Locked stack: `fastembed` (ONNX, no torch,
+  `bge-small-en-v1.5`) + `sqlite-vec`. Heading-aware chunking (`##`/`###` sections,
+  oversize windows with overlap, per-node manifest chunks); `indexer.py`,
+  `query.py` CLI (honest cosine-similarity scores), `eval.py` (six canned gate
+  questions, human-judged — no auto-grading), `reindex.sh`. No mesh, no MCP, no
+  imports from repo code — a quality probe before any MCP wrapping. Index lives at
+  `daemons/aether-rag/.rag/index.db` (gitignored derived artifact).
 - Repo front v2 — README rewritten to describe what Aether is *today* (a voice-first
   personal-OS substrate: signed mesh, `raven` voice brain, scene cockpit, and the
   human-gated self-building loop `gaps → proposals → drafts`), with an honest

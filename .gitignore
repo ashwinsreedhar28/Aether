@@ -17,6 +17,11 @@ daemons/raven-daemon/node_modules/
 daemons/raven-core/.venv/
 daemons/raven-core/**/__pycache__/
 
+# aether-rag spike: venv + derived vector index (rebuilt by reindex.sh)
+daemons/aether-rag/.venv/
+daemons/aether-rag/.rag/
+daemons/aether-rag/**/__pycache__/
+
 # Runtime / data — per CLAUDE.md §4, `data/` is gitignored
 data/
 *.db

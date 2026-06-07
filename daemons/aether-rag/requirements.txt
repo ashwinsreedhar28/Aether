@@ -1,0 +1,14 @@
+# aether-rag spike runtime deps — locked stack (CLAUDE.md lane: RAG CORE SPIKE).
+#
+# Two pins, deliberately minimal:
+#   - fastembed: ONNX-backed embeddings, NO torch. Default model is
+#     BAAI/bge-small-en-v1.5 (384-dim). The model ONNX weights (~130 MB)
+#     are downloaded on first index into the fastembed HF cache, not vendored.
+#   - sqlite-vec: loadable SQLite extension providing the vec0 virtual table
+#     for KNN vector search. No server, no separate vector DB process.
+#
+# Transitive deps (onnxruntime, numpy, tokenizers, huggingface-hub, …) are
+# resolved by fastembed; we pin only the two stack choices the lane locked.
+# This is a standalone spike — no mesh, no MCP, no imports from repo code.
+fastembed==0.8.0
+sqlite-vec==0.1.9

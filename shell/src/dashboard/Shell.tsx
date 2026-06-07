@@ -4,6 +4,7 @@ import { ChatsView } from './ChatsView'
 import { LanesView } from './LanesView'
 import { MeshView } from './MeshView'
 import { SceneView } from './SceneView'
+import { SpawnApproval } from './SpawnApproval'
 import { VoiceIndicator } from './VoiceIndicator'
 
 // The instrument views of the cockpit. Scene is the ambient default home (the
@@ -135,6 +136,10 @@ export function Shell(): React.ReactElement {
           Chats the echo log is hidden (the chat view IS the transcript); the
           input stays so you can still type to Aether from there. */}
       <Cli showEcho={view !== 'chats'} />
+
+      {/* Global spawn approval card — a modal raised over any view when a spawn
+          request lands. Human gate for the self-build loop. */}
+      <SpawnApproval />
     </div>
   )
 }

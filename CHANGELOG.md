@@ -52,6 +52,25 @@ historical record.
   magic). Registered project-scoped in a committed `.mcp.json` at the repo root (paths
   via `${CLAUDE_PROJECT_DIR:-.}` so worktrees resolve); `mcp==1.27.2` pinned in
   `requirements.txt`. Approve once via `/mcp`, verify with `claude mcp list`.
+- The spawn actor (rung 2 of the Architect arc) — Aether can spawn its own
+  Implementers, human-gated by construction. New `request_spawn(draft, passphrase)`
+  voice tool (raven-core): arms a spawn only on a spoken passphrase checked
+  constant-time against `AETHER_SPAWN_PHRASE`, then appends a `requested` line to
+  the append-only ledger `$AETHER_DATA_DIR/spawns/requests.jsonl` (raven-side
+  write, no mesh edge — same shape as `draft_lane`). The shell's new `SpawnService`
+  watches the ledger and raises a global **approval card** (full prompt preview,
+  target branch/worktree, Approve / Dismiss); on approval it runs the CLAUDE.md
+  §13.12 worktree recipe (`git fetch` → `worktree add` → submodules → copy
+  `.env.local` → `pnpm install` → write `LANE.md`) and launches a **visible
+  Terminal.app** window running Claude Code against the lane. Concurrency is capped
+  at one live spawn; closing the spawned Terminal is the kill switch. The Lanes
+  view gains a **Spawns strip** reading the ledger
+  (requested/spawned/closed/dismissed/failed). The spawn passphrase is scrubbed to
+  `[REDACTED]` from persisted transcripts (and the live ring) so it is
+  unretrievable from the eventual RAG corpus. Merge authority is untouched — the
+  tool only *requests*; the Director *approves*. `prompts.json` gains tool #21 +
+  instruction + example; `AETHER_SPAWN_PHRASE` is passed through
+  `ravenDaemonManager`.
 - RAG core spike under `daemons/aether-rag/` — standalone retrieval over Aether's
   own corpus (governance log, DECISIONS, CHANGELOG, CLAUDE.md, scene protocol,
   release notes, READMEs, manifest). Locked stack: `fastembed` (ONNX, no torch,

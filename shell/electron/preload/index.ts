@@ -110,6 +110,42 @@ export interface ScenePostResult {
   error?: string
 }
 
+// ---- Spawn types (kept in sync with main/services/spawnService.ts) ----------
+// Duplicated rather than imported so the preload (a sandbox-loaded script)
+// stays free of cross-package imports.
+
+export type SpawnStatus = 'requested' | 'spawned' | 'closed' | 'dismissed' | 'failed'
+
+export interface SpawnView {
+  id: string
+  ts: string
+  requestedTs: string
+  draftName: string
+  draftPath: string
+  status: SpawnStatus
+  worktree?: string
+  branch?: string
+  step?: string
+  error?: string
+  // Derived target for the card (before the worktree exists).
+  targetBranch: string
+  targetWorktree: string
+  // Full draft prompt, attached only to an actionable 'requested' record.
+  preview?: string
+}
+
+export interface SpawnSnapshot {
+  spawns: SpawnView[]
+  running: string | null
+  runningStep: string | null
+  busy: boolean
+}
+
+export interface SpawnActionResult {
+  ok: boolean
+  error?: string
+}
+
 // ---- Files types ----------------------------------------------------------
 
 interface FileFilter {
@@ -223,6 +259,19 @@ const scene = {
     ipcRenderer.invoke('scene:set-order', order),
 }
 
+// Spawn namespace — the spawn actor's approval card + Spawns strip. The
+// passphrase never reaches the renderer; it is verified inside raven-core before
+// a request lands in the ledger. The renderer only lists requests, approves,
+// dismisses, or marks them complete.
+const spawn = {
+  list: (): Promise<SpawnSnapshot> => ipcRenderer.invoke('spawn:list'),
+  approve: (id: string): Promise<SpawnActionResult> => ipcRenderer.invoke('spawn:approve', id),
+  dismiss: (id: string): Promise<SpawnActionResult> => ipcRenderer.invoke('spawn:dismiss', id),
+  complete: (id: string): Promise<SpawnActionResult> => ipcRenderer.invoke('spawn:complete', id),
+  // Push on every ledger change (request landed, approved, spawned, failed, …).
+  onChanged: (cb: (snap: SpawnSnapshot) => void): Unsubscribe => subscribe('spawn:changed', cb),
+}
+
 const api = {
   signalReady: (): void => {
     ipcRenderer.send('shell:renderer-ready')
@@ -239,6 +288,7 @@ const api = {
   mesh,
   voice,
   scene,
+  spawn,
   shell: shellApi,
 }
 

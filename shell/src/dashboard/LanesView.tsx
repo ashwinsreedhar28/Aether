@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { SpawnSnapshot, SpawnView } from '../../electron/preload'
 
 // Lanes — an instrument view onto the parallel CC sessions working this repo.
 // A "lane" is one git worktree (see CLAUDE.md §13 lanes model). Data comes from
@@ -219,6 +220,74 @@ function Field({
   )
 }
 
+// Per-status chip colour. requested awaits the Director; spawned is live (glow);
+// the terminal states (closed/dismissed/failed) recede.
+function spawnChipColor(status: SpawnView['status']): { color: string; glow: boolean } {
+  switch (status) {
+    case 'requested':
+      return { color: 'var(--holo-accent)', glow: false }
+    case 'spawned':
+      return { color: 'var(--holo-accent)', glow: true }
+    default:
+      // closed / dismissed / failed — all settled; dim them.
+      return { color: 'var(--holo-muted)', glow: false }
+  }
+}
+
+// A thin strip at the top of the Lanes view reading the spawn ledger — the
+// self-build loop's history (requested → spawned → closed / dismissed / failed).
+// Hidden entirely when no spawn has ever been recorded. No new tab: the spawn
+// actor surfaces here and on the global approval card, nowhere else.
+function SpawnsStrip(): React.ReactElement | null {
+  const [snap, setSnap] = useState<SpawnSnapshot | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void window.aether.spawn.list().then((s) => {
+      if (alive) setSnap(s)
+    })
+    const unsub = window.aether.spawn.onChanged((s) => setSnap(s))
+    return () => {
+      alive = false
+      unsub()
+    }
+  }, [])
+
+  const spawns = snap?.spawns ?? []
+  if (spawns.length === 0) return null
+
+  return (
+    <div
+      className="shrink-0 px-4 py-2 border-b flex items-center gap-3 overflow-x-auto"
+      style={{ borderColor: 'var(--holo-border)' }}
+    >
+      <span className="text-[10px] tracking-[0.3em] shrink-0" style={{ color: 'var(--holo-muted)' }}>
+        SPAWNS
+      </span>
+      <div className="flex items-center gap-2">
+        {spawns.map((s) => {
+          const { color, glow } = spawnChipColor(s.status)
+          return (
+            <span
+              key={s.id}
+              className="text-[9px] tracking-[0.12em] px-2 py-0.5 rounded font-mono shrink-0 flex items-center gap-1.5"
+              style={{
+                color,
+                border: `1px solid ${color}`,
+                boxShadow: glow ? '0 0 6px var(--holo-glow)' : 'none',
+              }}
+              title={`${s.draftName} · ${s.status}${s.branch ? ` · ${s.branch}` : ''}`}
+            >
+              <span style={{ color: 'var(--holo-text)' }}>{s.draftName}</span>
+              {s.status}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function LanesView(): React.ReactElement {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [selected, setSelected] = useState<string | null>(null)
@@ -273,6 +342,10 @@ export function LanesView(): React.ReactElement {
 
   return (
     <div className="h-full flex flex-col">
+      {/* Spawns strip — the self-build ledger, above the lanes proper. Hidden
+          until a spawn has been recorded. */}
+      <SpawnsStrip />
+
       {/* Header row: title + manual refresh affordance. */}
       <div className="shrink-0 flex items-center justify-between px-4 py-2">
         <div className="text-xs tracking-[0.3em]" style={{ color: 'var(--holo-muted)' }}>

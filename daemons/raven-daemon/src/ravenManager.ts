@@ -12,7 +12,7 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as readline from 'readline';
 import { randomUUID } from 'crypto';
-import { TranscriptStore } from './transcriptStore';
+import { TranscriptStore, redactSecrets } from './transcriptStore';
 import type {
   RavenState,
   RavenStatus,
@@ -302,12 +302,17 @@ export class RavenManager extends EventEmitter {
    * turn so they share one code path.
    */
   private recordTranscript(entry: TranscriptEntry): void {
-    this.store.append(entry);
-    this.transcriptBuffer.push(entry);
+    // Scrub the spawn passphrase once, here, so the SAME redacted entry flows to
+    // all three sinks — persist (store.append re-scrubs defensively), the
+    // in-memory ring served to the Chats view, and the WS broadcast. Redacting
+    // only at persist would leave the live ring carrying the phrase until restart.
+    const safe = { ...entry, text: redactSecrets(entry.text) };
+    this.store.append(safe);
+    this.transcriptBuffer.push(safe);
     if (this.transcriptBuffer.length > MAX_TRANSCRIPT_BUFFER) {
       this.transcriptBuffer.shift();
     }
-    this.emit('transcript', entry);
+    this.emit('transcript', safe);
   }
 
   private handleFunctionCallEvent(event: Extract<RavenLogEvent, { type: 'function_call' }>): void {

@@ -156,6 +156,18 @@ export function sceneOrderPath(): string {
   return join(app.getPath('userData'), 'scene-order.json')
 }
 
+// Spawn actor ledger. Lives under the shared data root (nodeDataDir =
+// $userData/data = AETHER_DATA_DIR) so the raven request_spawn tool and the
+// shell's SpawnService resolve the SAME append-only requests.jsonl. A sibling of
+// architect/drafts (where draft_lane writes the prompts this ledger references).
+export function spawnsDir(): string {
+  return join(nodeDataDir(), 'spawns')
+}
+
+export function spawnsLedgerPath(): string {
+  return join(spawnsDir(), 'requests.jsonl')
+}
+
 export const CORE_PID_FILE = (): string => join(meshRuntimeDir(), 'core.pid')
 export const CORE_LOG_FILE = (): string => join(meshRuntimeDir(), 'core.log')
 export const CORE_AUDIT_FILE = (): string => join(meshRuntimeDir(), 'audit.log')

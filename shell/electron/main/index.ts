@@ -24,6 +24,8 @@ import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
 import { SceneServerDaemonManager } from './services/sceneServerDaemonManager'
 import { SceneSubscriber } from './services/sceneSubscriber'
+import { SpawnService } from './services/spawnService'
+import { REPO_ROOT, spawnsLedgerPath } from './services/paths'
 import { registerPythonDaemonNode, waitForMeshReady } from './services/nodeRegistry'
 
 // Lock Electron's app name before any code calls app.getPath('userData') —
@@ -489,6 +491,28 @@ sceneSubscriber.on('connection-changed', (connected: boolean) =>
 )
 sceneSubscriber.start()
 
+// Spawn actor — watches the append-only spawn ledger (written by raven's
+// request_spawn tool), raises the approval card via the 'spawn:changed' push,
+// and runs the §13.12 worktree recipe + Terminal launch on the Director's
+// approval. Human-gated by construction: nothing spawns until Approve is
+// pressed; concurrency is capped at one. REPO_ROOT is the single registered
+// repo (the recipe is otherwise repo-agnostic).
+const spawnService = new SpawnService({
+  repoRoot: REPO_ROOT,
+  ledgerPath: spawnsLedgerPath(),
+})
+spawnService.on('changed', (snap) => broadcastToRenderers('spawn:changed', snap))
+spawnService.start()
+
+// Spawn IPC. Renderer-facing surface is window.aether.spawn in preload. The
+// passphrase never crosses this boundary — it is verified inside raven-core
+// before a request ever reaches the ledger; the renderer only approves/dismisses
+// requests that already exist.
+ipcMain.handle('spawn:list', () => spawnService.snapshot())
+ipcMain.handle('spawn:approve', (_e, id: unknown) => spawnService.approve(String(id)))
+ipcMain.handle('spawn:dismiss', (_e, id: unknown) => spawnService.dismiss(String(id)))
+ipcMain.handle('spawn:complete', (_e, id: unknown) => spawnService.complete(String(id)))
+
 // Scene panel POST — the renderer asks main to POST a panel to the scene
 // server; main does the HTTP call so the renderer never touches :5180
 // directly. NOTE: panel.style values MUST be strings — the scene server's AVP
@@ -651,6 +675,7 @@ async function stopAllChildren(): Promise<void> {
     reminders.stop(),
     sceneServer.stop(),
     Promise.resolve(sceneSubscriber.stop()),
+    Promise.resolve(spawnService.stop()),
   ])
   for (const r of results) {
     if (r.status === 'rejected') {

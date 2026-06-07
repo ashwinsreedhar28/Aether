@@ -27,6 +27,30 @@ import type { TranscriptEntry } from './types';
 
 const SUBDIR = 'transcripts';
 
+// Marker substituted for the spawn passphrase wherever it appears in transcript
+// text. The phrase must be unretrievable from stored transcripts — the eventual
+// RAG corpus will index them — so it is scrubbed at the persist chokepoint
+// (append, below) AND before the daemon rings/broadcasts an entry (recordTranscript
+// in ravenManager). See the spawn-actor ADR in DECISIONS.md.
+const REDACTED = '[REDACTED]';
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Scrub the spawn passphrase (AETHER_SPAWN_PHRASE) from a transcript line —
+ * exact and case-insensitive, every occurrence, in BOTH speaker roles. No-op
+ * when the env var is unset/empty (a blank phrase would otherwise match
+ * everywhere). Read from process.env at call time: the value is fixed for the
+ * process lifetime and transcripts are low-frequency, so re-reading is free.
+ */
+export function redactSecrets(text: string): string {
+  const phrase = process.env.AETHER_SPAWN_PHRASE;
+  if (!phrase || !text) return text;
+  return text.replace(new RegExp(escapeRegExp(phrase), 'gi'), REDACTED);
+}
+
 // Keep at most this many session files on disk; oldest beyond it are pruned.
 // 50 is generous for week-1 single-user use while bounding the dir across
 // reboots. Override with RAVEN_TRANSCRIPT_MAX_SESSIONS (positive integer).
@@ -100,11 +124,18 @@ export class TranscriptStore {
     }
   }
 
-  /** Append one entry to the current session file. No-op before openSession. */
+  /**
+   * Append one entry to the current session file. No-op before openSession.
+   * Scrubs the spawn passphrase before writing so the stored (RAG-indexable)
+   * transcript can never carry it — this is the authoritative persist-time
+   * chokepoint, independent of any upstream redaction (idempotent if already
+   * scrubbed).
+   */
   append(entry: TranscriptEntry): void {
     if (!this.currentFile) return;
+    const safe = { ...entry, text: redactSecrets(entry.text) };
     try {
-      fs.appendFileSync(this.currentFile, JSON.stringify(entry) + '\n');
+      fs.appendFileSync(this.currentFile, JSON.stringify(safe) + '\n');
     } catch (err) {
       console.error('[transcriptStore] append failed:', err);
     }

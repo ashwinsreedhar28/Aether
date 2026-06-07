@@ -15,6 +15,11 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
+    // Lets isolated tests (run by Node's built-in `node --test`, which requires
+    // explicit local-import extensions) import sibling source as './x.ts' and
+    // still be typechecked by tsc. Safe with noEmit; production code keeps the
+    // extensionless imports electron-vite bundles.
+    "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {

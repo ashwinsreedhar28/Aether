@@ -470,6 +470,12 @@ export class RavenDaemonManager extends EventEmitter {
         // than in raven's private dir. The tool keeps a RAVEN_USER_DIR → ~/.raven
         // fallback for standalone runs where this isn't set.
         AETHER_DATA_DIR: nodeDataDir(),
+        // Arms the request_spawn voice tool (constant-time check) and drives the
+        // transcript store's passphrase redaction. Sourced from .env.local via
+        // process.env; passed explicitly (like AETHER_DATA_DIR) so the intent is
+        // visible at the spawn site rather than riding implicitly on ...process.env.
+        // Empty when unset — request_spawn refuses, and redaction no-ops, on ''.
+        AETHER_SPAWN_PHRASE: process.env.AETHER_SPAWN_PHRASE ?? '',
         // Mesh identity for raven-core. raven_core/mesh_client.py reads
         // these at orchestrator startup and registers with Core. Missing
         // either is a hard error in mesh_client (we always pass both

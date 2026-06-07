@@ -28,6 +28,7 @@ import { SpawnService } from './services/spawnService'
 import { REPO_ROOT, spawnsLedgerPath } from './services/paths'
 import { markQuitting } from './services/appLifecycle'
 import { registerPythonDaemonNode, waitForMeshReady } from './services/nodeRegistry'
+import { healStaleRagIndexAtBoot } from './services/staleRagIndex'
 
 // Lock Electron's app name before any code calls app.getPath('userData') —
 // app.getPath derives the userData root from the app name, and we want the
@@ -555,6 +556,13 @@ app.whenReady().then(() => {
   createTray()
 
   void revealMain()
+
+  // aether-rag freshness heal. Off the splash critical path: classifies the
+  // committed retrieval index and, only if it EXISTS and is stale, kicks
+  // reindex.sh as a detached background child (logged start/finish). A missing
+  // index or venv is warn-only — boot never bootstraps the corpus from nothing.
+  // Sibling of staleDist's per-spawn dist/ guard; see staleRagIndex.ts.
+  healStaleRagIndexAtBoot(REPO_ROOT)
 
   // Subsystem boot order: mesh first (load-bearing for mesh-dependent
   // apps — Mesh, eventually anything routed through manifest), then

@@ -35,6 +35,21 @@ historical record.
   raven manager reaps a pid-file daemon that is alive but not ours — gated on a
   command-line **identity** match (`ps`), not just `kill -0` liveness, since pids
   recycle. (Issue #196.)
+- aether-rag index staleness — warn in-session, heal at boot. The retrieval
+  index is a derived, gitignored artifact (`reindex.sh`) that drifts behind the
+  corpus between manual reindexes, so two mtime-only guards now make drift
+  loud and self-correcting. `server.py` compares the newest corpus-file mtime
+  against the index mtime at startup; if the index is older it serves anyway but
+  prepends a loud `STALE INDEX — index older than corpus — run reindex.sh` banner
+  to every `search_corpus` result and to stderr (the verdict is a startup
+  snapshot; it never rebuilds inside a stdio session). The shell adds a boot
+  heal (`staleRagIndex.ts`, sibling of the `staleDist` dist/ guard): if the
+  committed index exists and is stale it runs `reindex.sh` as a detached
+  background child with start/finish logged; a missing index or venv is
+  warn-only (boot never bootstraps the corpus from nothing). The staleness logic
+  lives in `rag_lib.index_staleness()` (single source of truth, derived from
+  `CORPUS_GLOBS`); the shell mirrors the glob list for its best-effort heal.
+  (Issue #197.)
 - Calendar weekly view — a fourth calendar surface and voice tool. New
   `calendar.get_week {date}` surface on `nodes/calendar` returns every event in
   the 7-day window `[date, date + 7 days)`, sorted by start time (the node stays

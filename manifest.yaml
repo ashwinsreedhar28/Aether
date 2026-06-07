@@ -247,8 +247,9 @@ nodes:
         macOS Calendar.app integration via EventKit. Reads events
         from all calendars visible to the app. First invocation
         prompts for access; if denied, surfaces return {available:
-        false, reason: 'permission_denied'}. Three surfaces: today,
-        upcoming (default 5, max 20), next_event.
+        false, reason: 'permission_denied'}. Four surfaces: today,
+        upcoming (default 5, max 20), next_event, get_week (the
+        7-day window from a given date; date omitted = next 7 days).
     surfaces:
       - name: today
         type: tool
@@ -262,6 +263,10 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/calendar/schemas/next_event.json
+      - name: get_week
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/calendar/schemas/get_week.json
 
   - id: reminders
     runtime: local-process
@@ -589,17 +594,21 @@ relationships:
   - from: raven
     to: vision.frame
 
-  # Calendar events: raven reads macOS Calendar.app via EventKit. Three
+  # Calendar events: raven reads macOS Calendar.app via EventKit. Four
   # voice tools: calendar_today ("what's on my calendar today"),
   # calendar_next ("what's my next event"), calendar_upcoming ("next
-  # five things on my calendar"). All route through mesh.invoke. No
-  # shell edges in this PR — reserved for a future Calendar app UI.
+  # five things on my calendar"), calendar_get_week ("what's on my
+  # calendar next week" — the tool resolves this/next/last week to a
+  # date the surface reads). All route through mesh.invoke. No shell
+  # edges in this PR — reserved for a future Calendar app UI.
   - from: raven
     to: calendar.today
   - from: raven
     to: calendar.upcoming
   - from: raven
     to: calendar.next_event
+  - from: raven
+    to: calendar.get_week
 
   # Voice consumes reminders
   - from: raven

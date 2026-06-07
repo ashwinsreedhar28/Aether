@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """macOS Calendar mesh node.
 
-Reads events from macOS Calendar.app via EventKit. Three surfaces:
+Reads events from macOS Calendar.app via EventKit. Four surfaces:
 - calendar.today: all events on today's date
 - calendar.upcoming: next N events from now (default 5, max 20)
 - calendar.next_event: single next upcoming event
+- calendar.get_week: all events in the 7-day window from a given date
 
-Sprint 2 data-breadth lane.
+Sprint 2 data-breadth lane; get_week added in the calendar-weekly-view lane.
 """
 
 import asyncio
@@ -228,6 +229,99 @@ async def handle_next_event(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _start_of_day(dt: datetime) -> datetime:
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _parse_week_start(date_str: Any) -> datetime:
+    """Resolve the week-window start (local midnight) from the date param.
+
+    Accepts an ISO date ('2026-06-08') or a full ISO datetime; normalises to
+    that day's local midnight. A tz-aware value is converted to the system
+    zone first, matching python_date_from_ns()'s local-zone rendering (see
+    its docstring). Empty / unparseable → today's local midnight, so a bare
+    calendar.get_week() means 'the next seven days'.
+    """
+    if not date_str:
+        return _start_of_day(datetime.now())
+    try:
+        parsed = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return _start_of_day(datetime.now())
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone().replace(tzinfo=None)
+    return _start_of_day(parsed)
+
+
+async def handle_week(params: dict[str, Any]) -> dict[str, Any]:
+    """Fetch all events in the 7-day window starting at the given date.
+
+    The window is [date 00:00 local, date + 7 days). The caller supplies the
+    week-start date; the calendar_get_week voice tool aligns it to a Monday
+    (ISO-8601 week start), but the node itself just returns seven days from
+    whatever date it is handed — it imposes no week boundary of its own.
+    Omitting date defaults to today, i.e. the next seven days.
+    """
+    if not AVAILABLE:
+        return {"available": False, "reason": "framework_unavailable"}
+
+    store = EKEventStore.alloc().init()
+
+    # Check authorization
+    status = EKEventStore.authorizationStatusForEntityType_(EKEntityTypeEvent)
+    if status != EKAuthorizationStatusAuthorized:
+        granted = await asyncio.to_thread(
+            lambda: store.requestAccessToEntityType_completion_(
+                EKEntityTypeEvent, None
+            )
+        )
+        if not granted:
+            return {"available": False, "reason": "permission_denied"}
+
+    start = _parse_week_start(params.get("date"))
+    end = start + timedelta(days=7)
+
+    start_ns = ns_date_from_python(start)
+    end_ns = ns_date_from_python(end)
+
+    predicate = store.predicateForEventsWithStartDate_endDate_calendars_(
+        start_ns, end_ns, None
+    )
+    ek_events = store.eventsMatchingPredicate_(predicate) or []
+
+    # Daemon-side truth for the window: the only honest record of what the
+    # node returned, independent of how the voice layer later relays it. The
+    # predicate is NOT now-clamped — past-week windows return their full set
+    # (verified against the real store: last-week window → 8 events, incl.
+    # events earlier than now). Read this line, not the spoken echo, when a
+    # weekly smoke looks short.
+    log.info(
+        "get_week window [%s, %s) → %d event(s)",
+        start.date().isoformat(),
+        end.date().isoformat(),
+        len(ek_events),
+    )
+
+    if not ek_events:
+        return {
+            "available": False,
+            "reason": "no_events",
+            "week_start": start.date().isoformat(),
+            "timestamp": int(datetime.now().timestamp() * 1000),
+        }
+
+    # Sort by start time
+    events = [format_event(e) for e in ek_events]
+    events.sort(key=lambda x: x["start"])
+
+    return {
+        "available": True,
+        "events": events,
+        "week_start": start.date().isoformat(),
+        "timestamp": int(datetime.now().timestamp() * 1000),
+    }
+
+
 async def main() -> int:
     node_id = os.getenv("NODE_ID", "calendar")
     secret = os.getenv("MESH_CALENDAR_SECRET")
@@ -252,6 +346,7 @@ async def main() -> int:
     node.on("today", handle_today)
     node.on("upcoming", handle_upcoming)
     node.on("next_event", handle_next_event)
+    node.on("get_week", handle_week)
 
     try:
         await node.start()

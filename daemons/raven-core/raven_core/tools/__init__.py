@@ -320,7 +320,12 @@ def update_session_context(name: str, args: dict, result: Any) -> None:
             summary = _summarise_weather_current(result_dict)
         elif name == "weather_forecast":
             summary = _summarise_weather_forecast(args, result_dict)
-        elif name in ("calendar_today", "calendar_next", "calendar_upcoming"):
+        elif name in (
+            "calendar_today",
+            "calendar_next",
+            "calendar_upcoming",
+            "calendar_get_week",
+        ):
             summary = _summarise_calendar(name, result_dict)
         else:
             # time, notify, memory tools: just record the call. They

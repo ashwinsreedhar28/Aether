@@ -26,6 +26,7 @@ Indexed globs (resolved against the repo root):
 | Glob | What it is |
 |---|---|
 | `docs/governance-log.md` | Hard-won gotchas + sprint lessons (`###`-structured) |
+| `docs/rebase-playbook.md` | The rebase oral law (`##`-per-rule) |
 | `DECISIONS.md` | Append-only ADRs (`##`-dated entries) |
 | `CHANGELOG.md` | Keep-a-Changelog history |
 | `CLAUDE.md` | Operating manual (note: a copy lives at repo root too) |

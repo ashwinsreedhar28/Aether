@@ -36,6 +36,7 @@ EMBED_DIM = 384  # bge-small-en-v1.5 output dimension
 # resolved path so overlapping globs are harmless.
 CORPUS_GLOBS: tuple[str, ...] = (
     "docs/governance-log.md",
+    "docs/rebase-playbook.md",
     "DECISIONS.md",
     "CHANGELOG.md",
     "CLAUDE.md",

@@ -32,6 +32,7 @@ How work gets built and shipped.
 
 | Doc | What's in it |
 |---|---|
+| [claude-reference.md](claude-reference.md) | Reference appendix for [CLAUDE.md](../CLAUDE.md) — relocated worked examples, historical PR lists, shape histories, templates, the glossary, and extended rationale (§ anchors match CLAUDE.md; keeps the operating core ≤30k). Indexed by the `aether-rag` corpus |
 | [new-node-pattern.md](new-node-pattern.md) | The canonical recipe for adding a mesh node |
 | [scene-protocol.md](scene-protocol.md) | Scene-server wire contract — renderer-facing (the AVP / 3D-shell track) |
 | [implementer-prompt-template.md](implementer-prompt-template.md) | The template every Implementer lane prompt is drafted against |

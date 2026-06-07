@@ -40,6 +40,7 @@ CORPUS_GLOBS: tuple[str, ...] = (
     "DECISIONS.md",
     "CHANGELOG.md",
     "CLAUDE.md",
+    "docs/claude-reference.md",
     "docs/scene-protocol.md",
     "docs/releases/*.md",
     "docs/README.md",

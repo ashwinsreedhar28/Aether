@@ -129,7 +129,12 @@ const handlers: Record<string, ActionHandler> = {
     const windowId = store.openWindow({
       title,
       appId,
-      filePath: '',
+      // Standalone apps use the appId as a stable filePath identity — the same
+      // convention the Cmd+P SearchModal uses. It's load-bearing: openWindow
+      // only materializes a tab when BOTH filePath and appId are truthy. Passing
+      // '' here left the window tabless → blank (the bug Raven hit opening apps,
+      // while Cmd+P worked because it sets filePath = appId).
+      filePath: appId,
       position: { x: 150 + Math.random() * 100, y: 80 + Math.random() * 100 },
       size: defaultSize,
       isMinimized: false,

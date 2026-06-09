@@ -103,6 +103,9 @@ export interface AetherBridge {
     status: () => Promise<VoiceStatus>
     start: () => Promise<RavenState>
     stop: () => Promise<RavenState>
+    muted: () => Promise<boolean>
+    setMuted: (muted: boolean) => Promise<{ muted: boolean }>
+    onMutedChanged: (cb: (muted: boolean) => void) => Unsub
     sendText: (text: string) => Promise<{ ok: true } | { error: string }>
     recentTranscripts: (limit?: number) => Promise<{ transcripts: TranscriptEntry[] }>
     getTranscripts: (opts?: { limit?: number }) => Promise<{ transcripts: TranscriptEntry[] }>

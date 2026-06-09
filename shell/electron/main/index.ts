@@ -82,6 +82,11 @@ let tray: Tray | null = null
 let quitInFlight = false
 let cleanedUp = false
 
+// User-toggled voice mute. When true, the mic is stopped AND the ambient
+// auto-listen is suppressed (otherwise ensureAmbientListening would re-engage
+// it on the next status push). Drives the VoiceMuteButton in the renderer.
+let voiceMuted = false
+
 // The viewer_desktop control node: agent->renderer dispatch (open/close/focus
 // apps + views) hosted in this process. Created after the mesh is ready so its
 // identity secret + Core both exist. null until then / if the mesh fails.
@@ -420,6 +425,28 @@ ipcMain.handle('voice:status', () => {
 })
 ipcMain.handle('voice:start', () => raven.listenStart())
 ipcMain.handle('voice:stop', () => raven.listenStop())
+// Mute toggle. true → stop the mic + suppress ambient re-engage; false → clear
+// the mute and re-engage listening immediately. Broadcasts voice:muted-changed
+// so every renderer (the mute button + the ⌘/ console) stays in sync.
+ipcMain.handle('voice:muted', () => voiceMuted)
+ipcMain.handle('voice:set-muted', async (_e, muted: unknown) => {
+  const next = Boolean(muted)
+  if (next === voiceMuted) return { muted: voiceMuted }
+  voiceMuted = next
+  broadcastToRenderers('voice:muted-changed', voiceMuted)
+  try {
+    if (voiceMuted) {
+      await raven.listenStop()
+    } else {
+      // Clear the cooldown so unmute re-engages the mic right away.
+      ambientLastStart = 0
+      await ensureAmbientListening()
+    }
+  } catch (err) {
+    console.error('[aether] voice set-muted failed:', err)
+  }
+  return { muted: voiceMuted }
+})
 ipcMain.handle('voice:send-text', async (_e, text: unknown) => {
   // Default CLI input routes here — typed and spoken commands hit one brain.
   // Normalize the daemon's throw (e.g. 409 no_session) into a renderer-shaped
@@ -502,6 +529,8 @@ let ambientLastStart = 0
 // (ravenManager.ts:69), so re-firing on reconnect is safe.
 async function ensureAmbientListening(state?: { status?: string }): Promise<void> {
   if (!AMBIENT_VOICE) return
+  // Muted by the user — do not re-engage the mic until they unmute.
+  if (voiceMuted) return
   if (raven.getAvailability().kind !== 'available') return
   // On a status push, only re-engage when the session has actually dropped.
   // 'running'/'starting' mean listening is already (re)engaging; re-firing

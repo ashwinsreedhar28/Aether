@@ -221,6 +221,12 @@ const voice = {
   status: (): Promise<VoiceStatus> => ipcRenderer.invoke('voice:status'),
   start: (): Promise<RavenState> => ipcRenderer.invoke('voice:start'),
   stop: (): Promise<RavenState> => ipcRenderer.invoke('voice:stop'),
+  // Mute toggle (mic off + ambient-listen suppressed). Synced across renderers.
+  muted: (): Promise<boolean> => ipcRenderer.invoke('voice:muted'),
+  setMuted: (muted: boolean): Promise<{ muted: boolean }> =>
+    ipcRenderer.invoke('voice:set-muted', muted),
+  onMutedChanged: (cb: (muted: boolean) => void): Unsubscribe =>
+    subscribe('voice:muted-changed', cb),
   // Route a typed turn to raven — the same brain a spoken turn reaches.
   // Resolves {ok:true} on accept, {error} on a cold mic / daemon-down.
   sendText: (text: string): Promise<{ ok: true } | { error: string }> =>

@@ -61,30 +61,6 @@ export interface TerminalShellsResponse {
   defaultShell: string;
 }
 
-// Claude types
-export interface ClaudeStreamMessage {
-  type: 'assistant' | 'user' | 'result' | 'system' | 'stream_event';
-  uuid?: string;
-  session_id?: string;
-  message?: {
-    content?: Array<{
-      type: 'text' | 'tool_use' | 'tool_result';
-      text?: string;
-      name?: string;
-      input?: unknown;
-    }>;
-  };
-  event?: {
-    delta?: {
-      type: string;
-      text?: string;
-    };
-  };
-  is_error?: boolean;
-  errors?: string[];
-  result?: string;
-}
-
 // MCP Types
 export interface McpServerConfig {
   command: string;
@@ -92,7 +68,7 @@ export interface McpServerConfig {
   env?: Record<string, string>;
 }
 
-export interface ClaudeSettings {
+export interface McpSettings {
   mcpServers?: Record<string, McpServerConfig>;
 }
 
@@ -362,11 +338,11 @@ const electronAPI = {
       };
     },
 
-    onMenuOpenClaudePalette: (callback: () => void): (() => void) => {
+    onMenuOpenCommandPalette: (callback: () => void): (() => void) => {
       const handler = () => callback();
-      ipcRenderer.on('menu:open-claude-palette', handler);
+      ipcRenderer.on('menu:open-command-palette', handler);
       return () => {
-        ipcRenderer.removeListener('menu:open-claude-palette', handler);
+        ipcRenderer.removeListener('menu:open-command-palette', handler);
       };
     },
   },
@@ -444,7 +420,7 @@ const electronAPI = {
   // MCP operations
   mcp: {
     // Load settings from ~/.claude/settings.json
-    loadSettings: (): Promise<ClaudeSettings> =>
+    loadSettings: (): Promise<McpSettings> =>
       ipcRenderer.invoke('mcp:loadSettings'),
 
     // List all configured servers with status
@@ -514,24 +490,6 @@ const electronAPI = {
       const handler = (_: Electron.IpcRendererEvent, data: { serverId: string; notification: JsonRpcNotification }) => callback(data);
       ipcRenderer.on('mcp:notification', handler);
       return () => ipcRenderer.removeListener('mcp:notification', handler);
-    },
-  },
-
-  // Claude Command Palette operations
-  claude: {
-    query: (prompt: string, context: { cwd: string; currentFile?: string; model?: string; resume?: string; openFiles?: string[] }): Promise<{ success: boolean }> =>
-      ipcRenderer.invoke('claude:query', prompt, context),
-
-    abort: (): Promise<{ success: boolean }> =>
-      ipcRenderer.invoke('claude:abort'),
-
-    getAuthStatus: (): Promise<{ authenticated: boolean; email?: string }> =>
-      ipcRenderer.invoke('claude:auth-status'),
-
-    onStream: (callback: (message: ClaudeStreamMessage) => void): (() => void) => {
-      const handler = (_: Electron.IpcRendererEvent, message: ClaudeStreamMessage) => callback(message);
-      ipcRenderer.on('claude:stream', handler);
-      return () => ipcRenderer.removeListener('claude:stream', handler);
     },
   },
 

@@ -45,7 +45,7 @@ if (isBrowser) {
       onMenuFocusRight: noopUnsubscribe,
       onMenuNewProject: noopUnsubscribe,
       onMenuLayoutPreset: noopUnsubscribe,
-      onMenuOpenClaudePalette: noopUnsubscribe,
+      onMenuOpenCommandPalette: noopUnsubscribe,
     },
     config: {
       load: () => Promise.resolve({
@@ -106,12 +106,6 @@ if (isBrowser) {
       onStatusChange: noopUnsubscribe,
       onMessage: noopUnsubscribe,
       onNotification: noopUnsubscribe,
-    },
-    claude: {
-      query: () => Promise.resolve({ success: false }),
-      abort: () => Promise.resolve({ success: true }),
-      getAuthStatus: () => Promise.resolve({ authenticated: false }),
-      onStream: noopUnsubscribe,
     },
     control: {
       bridgeReady: noopPromise,

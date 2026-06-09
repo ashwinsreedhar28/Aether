@@ -16,8 +16,8 @@ function App() {
   const openWorkspace = useWorkspaceStore(s => s.openWorkspace);
   const loadSettings = useSettingsStore(s => s.loadSettings);
   const applyTheme = useSettingsStore(s => s.applyTheme);
-  const [showClaudePalette, setShowClaudePalette] = useState(false);
-  const [claudeProcessing, setClaudeProcessing] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [paletteProcessing, setPaletteProcessing] = useState(false);
 
   // Load config on mount
   useEffect(() => {
@@ -54,10 +54,10 @@ function App() {
     return () => unsubscribe();
   }, [openWorkspace]);
 
-  // Listen for Claude palette menu event
+  // Listen for command palette menu event
   useEffect(() => {
-    const unsubscribe = window.electron.app.onMenuOpenClaudePalette(() => {
-      setShowClaudePalette(prev => !prev);
+    const unsubscribe = window.electron.app.onMenuOpenCommandPalette(() => {
+      setShowCommandPalette(prev => !prev);
     });
     return () => unsubscribe();
   }, []);
@@ -99,13 +99,13 @@ function App() {
       <SpawnApproval />
       <DictationOverlay />
       <CommandPalette
-        isVisible={showClaudePalette}
-        onClose={() => setShowClaudePalette(false)}
-        onProcessingChange={setClaudeProcessing}
+        isVisible={showCommandPalette}
+        onClose={() => setShowCommandPalette(false)}
+        onProcessingChange={setPaletteProcessing}
       />
-      {!showClaudePalette && claudeProcessing && (
+      {!showCommandPalette && paletteProcessing && (
         <div
-          onClick={() => setShowClaudePalette(true)}
+          onClick={() => setShowCommandPalette(true)}
           className="fixed bottom-0 left-0 right-0 h-0.5 z-[9998] cursor-pointer overflow-hidden"
         >
           <div className="h-full w-full bg-blue-500 animate-[shimmer_1.5s_ease-in-out_infinite]"

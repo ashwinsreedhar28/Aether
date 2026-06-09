@@ -250,10 +250,10 @@ export function createApplicationMenu(
       label: 'AI',
       submenu: [
         {
-          label: 'Claude Command Palette',
+          label: 'Command Palette',
           accelerator: 'CmdOrCtrl+/',
           click: () => {
-            mainWindow.webContents.send('menu:open-claude-palette');
+            mainWindow.webContents.send('menu:open-command-palette');
           },
         },
       ],

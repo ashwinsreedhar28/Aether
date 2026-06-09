@@ -1,0 +1,598 @@
+@import "tailwindcss";
+@import "katex/dist/katex.min.css";
+
+@font-face {
+  font-family: 'DepartureMono';
+  src: url('/fonts/DepartureMono-Regular.woff2') format('woff2'),
+    url('/fonts/DepartureMono-Regular.woff') format('woff'),
+    url('/fonts/DepartureMono-Regular.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Holographic theme colors - these are defaults, can be overridden by JS */
+  --holo-bg: #0a0a0f;
+  --holo-panel: rgba(20, 20, 30, 0.8);
+  --holo-border: rgba(100, 150, 255, 0.2);
+  --holo-glow: rgba(100, 150, 255, 0.4);
+  --holo-accent: #4a9eff;
+  --holo-accent-rgb: 100, 150, 255;
+  --holo-text: #e0e0e0;
+  --holo-muted: #888888;
+  --holo-window-opacity: 0.95;
+  --font-size-multiplier: 1;
+}
+
+body {
+  margin: 0;
+  background: var(--holo-bg);
+  color: var(--holo-text);
+  overflow: hidden;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Holographic panel base */
+.holo-panel {
+  background: var(--holo-panel);
+  border: 1px solid var(--holo-border);
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 10px rgba(var(--holo-accent-rgb), 0.08);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Subtle hover effect on windows */
+.holo-panel:hover:not(.window-focused) {
+  border-color: rgba(var(--holo-accent-rgb), 0.3);
+  box-shadow: 0 0 15px rgba(var(--holo-accent-rgb), 0.12);
+}
+
+/* Strong focused window state */
+.holo-panel.window-focused {
+  border-color: rgba(var(--holo-accent-rgb), 0.6);
+  box-shadow:
+    0 0 25px rgba(var(--holo-accent-rgb), 0.3),
+    0 0 50px rgba(var(--holo-accent-rgb), 0.15),
+    inset 0 0 30px rgba(var(--holo-accent-rgb), 0.05);
+}
+
+/* Holographic glow on hover/focus */
+.holo-glow {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.holo-glow:hover,
+.holo-glow:focus {
+  border-color: var(--holo-glow);
+  box-shadow: 0 0 30px rgba(var(--holo-accent-rgb), 0.25);
+}
+
+/* Window animations */
+.window-enter {
+  animation: windowEnter 0.2s ease-out;
+}
+
+/* Tiling animation with smooth cubic-bezier easing */
+.window-tiling {
+  transition:
+    left 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes windowEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Holographic shimmer effect for focused windows during transitions */
+.window-tiling.window-focused::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(
+    45deg,
+    transparent 0%,
+    rgba(var(--holo-accent-rgb), 0.1) 25%,
+    rgba(var(--holo-accent-rgb), 0.2) 50%,
+    rgba(var(--holo-accent-rgb), 0.1) 75%,
+    transparent 100%
+  );
+  background-size: 200% 200%;
+  animation: holoShimmer 0.6s ease-out;
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@keyframes holoShimmer {
+  0% {
+    background-position: 200% 0%;
+    opacity: 1;
+  }
+  100% {
+    background-position: -200% 0%;
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(20, 20, 30, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--holo-accent-rgb), 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--holo-accent-rgb), 0.5);
+}
+
+/* File tree styling */
+.file-tree-item {
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.file-tree-item:hover {
+  background: rgba(var(--holo-accent-rgb), 0.1);
+}
+
+.file-tree-item.selected {
+  background: rgba(var(--holo-accent-rgb), 0.2);
+}
+
+/* Root drop zone indicator */
+.root-drag-over {
+  background: rgba(var(--holo-accent-rgb), 0.05);
+}
+
+.root-drop-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--holo-accent);
+  z-index: 10;
+  animation: pulse-glow 1s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.7;
+    box-shadow: 0 0 8px var(--holo-accent);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 16px var(--holo-accent);
+  }
+}
+
+/* Selection */
+::selection {
+  background: rgba(var(--holo-accent-rgb), 0.3);
+}
+
+/* Window title bar */
+.window-title-bar {
+  cursor: grab;
+  user-select: none;
+}
+
+.window-title-bar:active {
+  cursor: grabbing;
+}
+
+/* Resize handles */
+.resize-handle {
+  position: absolute;
+  z-index: 10;
+}
+
+.resize-handle-n {
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 4px;
+  cursor: n-resize;
+}
+
+.resize-handle-s {
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  height: 4px;
+  cursor: s-resize;
+}
+
+.resize-handle-e {
+  right: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  cursor: e-resize;
+}
+
+.resize-handle-w {
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  cursor: w-resize;
+}
+
+.resize-handle-ne {
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  cursor: ne-resize;
+}
+
+.resize-handle-nw {
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  cursor: nw-resize;
+}
+
+.resize-handle-se {
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  cursor: se-resize;
+}
+
+.resize-handle-sw {
+  bottom: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  cursor: sw-resize;
+}
+
+/* Markdown prose customization for holographic theme */
+.prose {
+  color: var(--holo-text);
+  max-width: none;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  color: var(--holo-accent);
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose h1 {
+  font-size: 2em;
+  border-bottom: 1px solid var(--holo-border);
+  padding-bottom: 0.3em;
+}
+
+.prose h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid rgba(var(--holo-accent-rgb), 0.1);
+  padding-bottom: 0.3em;
+}
+
+.prose a {
+  color: var(--holo-accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(var(--holo-accent-rgb), 0.3);
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.prose a:hover {
+  color: var(--holo-accent);
+  filter: brightness(1.2);
+  border-bottom-color: var(--holo-accent);
+}
+
+.prose code {
+  background: rgba(var(--holo-accent-rgb), 0.1);
+  color: var(--holo-accent);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+}
+
+.prose pre {
+  background: rgba(10, 10, 20, 0.8);
+  border: 1px solid var(--holo-border);
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: auto;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.prose pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: var(--holo-text);
+  font-size: 0.9em;
+}
+
+.prose blockquote {
+  border-left: 3px solid var(--holo-accent);
+  background: rgba(var(--holo-accent-rgb), 0.05);
+  padding: 0.5em 1em;
+  margin: 1em 0;
+  font-style: italic;
+  color: var(--holo-text);
+  opacity: 0.9;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+
+.prose th {
+  background: rgba(var(--holo-accent-rgb), 0.15);
+  color: var(--holo-accent);
+  font-weight: 600;
+  padding: 0.5em;
+  border: 1px solid var(--holo-border);
+}
+
+.prose td {
+  padding: 0.5em;
+  border: 1px solid var(--holo-border);
+}
+
+.prose tr:nth-child(even) {
+  background: rgba(var(--holo-accent-rgb), 0.03);
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.5em;
+}
+
+.prose li {
+  margin: 0.3em 0;
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid var(--holo-border);
+  margin: 2em 0;
+}
+
+/* Task lists */
+.prose ul.contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.prose .task-list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.prose .task-list-item input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+  width: 1em;
+  height: 1em;
+  accent-color: var(--holo-accent);
+}
+
+/* KaTeX math styling */
+.katex {
+  font-size: 1.1em;
+}
+
+.katex-display {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.katex .mord {
+  color: var(--holo-text);
+}
+
+.katex .mbin,
+.katex .mrel {
+  color: var(--holo-accent);
+}
+
+/* Inline code in headings */
+.prose h1 code,
+.prose h2 code,
+.prose h3 code,
+.prose h4 code,
+.prose h5 code,
+.prose h6 code {
+  color: var(--holo-accent);
+  filter: brightness(1.2);
+  font-size: 0.85em;
+}
+
+/* Leap Motion overlay */
+body.leap-hide-native-cursor,
+body.leap-hide-native-cursor * {
+  cursor: none !important;
+}
+
+.leap-overlay {
+  user-select: none;
+}
+
+.leap-crosshair {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  filter: drop-shadow(0 0 10px rgba(var(--holo-accent-rgb), 0.3));
+  transition: opacity 0.08s linear;
+}
+
+.leap-crosshair-center {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  left: 14px;
+  top: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.65);
+}
+
+.leap-crosshair-ring {
+  position: absolute;
+  inset: 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--holo-accent-rgb), 0.7);
+  background: radial-gradient(circle, rgba(var(--holo-accent-rgb), 0.2), transparent 70%);
+}
+
+.leap-crosshair-arms {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+}
+
+.leap-crosshair-arms::before,
+.leap-crosshair-arms::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 1px;
+  width: 2px;
+  height: 32px;
+  background: linear-gradient(to bottom, transparent 0%, rgba(var(--holo-accent-rgb), 0.7) 30%, rgba(var(--holo-accent-rgb), 0.7) 70%, transparent 100%);
+}
+
+.leap-crosshair-arms::after {
+  transform: rotate(90deg);
+}
+
+.leap-crosshair-left .leap-crosshair-ring {
+  border-color: rgba(75, 211, 255, 0.75);
+  background: radial-gradient(circle, rgba(75, 211, 255, 0.2), transparent 70%);
+}
+
+.leap-crosshair-left .leap-crosshair-arms::before,
+.leap-crosshair-left .leap-crosshair-arms::after {
+  background: linear-gradient(to bottom, transparent 0%, rgba(75, 211, 255, 0.75) 30%, rgba(75, 211, 255, 0.75) 70%, transparent 100%);
+}
+
+.leap-crosshair-right .leap-crosshair-ring {
+  border-color: rgba(255, 191, 90, 0.75);
+  background: radial-gradient(circle, rgba(255, 191, 90, 0.2), transparent 70%);
+}
+
+.leap-crosshair-right .leap-crosshair-arms::before,
+.leap-crosshair-right .leap-crosshair-arms::after {
+  background: linear-gradient(to bottom, transparent 0%, rgba(255, 191, 90, 0.75) 30%, rgba(255, 191, 90, 0.75) 70%, transparent 100%);
+}
+
+.leap-crosshair.is-pinching .leap-crosshair-ring {
+  animation: leapRingPulse 180ms ease-out;
+  box-shadow: 0 0 18px rgba(var(--holo-accent-rgb), 0.5);
+}
+
+.leap-crosshair-minimal .leap-crosshair-center {
+  width: 4px;
+  height: 4px;
+  left: 15px;
+  top: 15px;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.55);
+}
+
+.leap-crosshair-minimal .leap-crosshair-ring {
+  inset: 9px;
+  border-width: 1px;
+  background: transparent;
+}
+
+.leap-crosshair-minimal .leap-crosshair-arms::before,
+.leap-crosshair-minimal .leap-crosshair-arms::after {
+  left: 16px;
+  top: 5px;
+  width: 1px;
+  height: 24px;
+}
+
+.leap-crosshair-dot .leap-crosshair-ring,
+.leap-crosshair-dot .leap-crosshair-arms {
+  display: none;
+}
+
+.leap-crosshair-dot .leap-crosshair-center {
+  width: 10px;
+  height: 10px;
+  left: 12px;
+  top: 12px;
+  box-shadow:
+    0 0 10px rgba(255, 255, 255, 0.75),
+    0 0 18px rgba(var(--holo-accent-rgb), 0.5);
+}
+
+.leap-crosshair-dot.is-pinching .leap-crosshair-center {
+  transform: scale(0.85);
+}
+
+@keyframes leapRingPulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.86);
+  }
+  100% {
+    transform: scale(1);
+  }
+}

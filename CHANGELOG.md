@@ -9,6 +9,9 @@ historical record.
 
 ## [Unreleased]
 
+### Changed
+- ADR (2026-06-09): Viewer × Aether capability-merge plan — scene server archived (supersedes the 2026-05-26 data-layer/presentation-layer ADR), Raven-only assistant, strict TS bar held, mesh SDK collapse; Lanes 1-7 defined. PR #201 is staging substrate, not merged.
+
 ### Added
 - Spawn actor v1.1 — armed with the corpus, honest lifecycle. Five changes to
   the self-build loop (`shell/electron/main/services/spawnService.ts`,

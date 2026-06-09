@@ -42,6 +42,8 @@ _DISABLED_MODULES = frozenset([
     "cerebras_tool",  # second-LLM HTML generator, needs Flask sidecar
     "silence_tool",   # no_response gating, low priority for the demo
     "system_tool",    # macOS shell-out (open_url, open_app) — needs scoping
+    "navigate_tool",  # Dashboard instrument-view switch — Dashboard retired, Viewer-only now
+    "visualize_tool", # Dashboard visualization panel — Dashboard retired, Viewer-only now
 ])
 
 def _discover_tool_modules():

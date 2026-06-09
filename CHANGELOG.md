@@ -11,8 +11,20 @@ historical record.
 
 ### Changed
 - ADR (2026-06-09): Viewer × Aether capability-merge plan — scene server archived (supersedes the 2026-05-26 data-layer/presentation-layer ADR), Raven-only assistant, strict TS bar held, mesh SDK collapse; Lanes 1-7 defined. PR #201 is staging substrate, not merged.
+- Lane 2 (ADR 2026-06-09 §3): the cmd-/ AI-menu label "Command Palette" →
+  "Aether Console" (Director's ruling). Display string only — the
+  `menu:open-command-palette` channel and `CmdOrCtrl+/` accelerator are unchanged.
 
 ### Removed
+- Lane 2 (ADR 2026-06-09 §3, mesh-SDK collapse): the entire `viewer-desktop/`
+  staging tree (261 files) — the original, untouched Viewer Electron app vendored
+  side-by-side in PR #201 for the architects to diff, including its vendored
+  `MeshNode` SDK (`electron/main/services/mesh-sdk/`). Its capabilities were
+  already absorbed into `shell/`, which runs entirely on the canonical
+  `@aether/mesh-node-sdk` (`core/node_sdk_ts`). The tree was never a pnpm-workspace
+  member (CI's `pnpm -r` never built/typechecked/linted it) and the live shell
+  referenced it only in one comment (now reworded). Net: one mesh SDK across the
+  repo, one less duplicate of every absorbed capability.
 - Lane 1 (ADR 2026-06-09 §6, Raven-only): the dormant Claude Agent SDK
   command-palette runtime — the `claude:` preload IPC surface
   (`query`/`abort`/`getAuthStatus`/`onStream`), its `ClaudeStreamMessage` type,

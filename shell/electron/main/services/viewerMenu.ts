@@ -250,7 +250,7 @@ export function createApplicationMenu(
       label: 'AI',
       submenu: [
         {
-          label: 'Command Palette',
+          label: 'Aether Console',
           accelerator: 'CmdOrCtrl+/',
           click: () => {
             mainWindow.webContents.send('menu:open-command-palette');

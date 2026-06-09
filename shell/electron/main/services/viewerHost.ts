@@ -3,8 +3,8 @@
 // browser IPC handlers, the file watcher lifecycle, the application menu, and
 // the before-input-event keyboard shortcuts (⌘/ palette, ⌘+arrow window nav).
 //
-// Adapted from viewer-desktop/electron/main/index.ts (the parts that served the
-// renderer). Aether's shell index.ts stays the host/boot orchestrator and calls
+// Adapted from the Viewer Electron host's main process (the parts that served
+// the renderer). Aether's shell index.ts stays the host/boot orchestrator and calls
 // initViewerHost() + attachViewerWindow() — the mesh/voice/spawn boot is
 // unchanged and lives in index.ts.
 import { BrowserWindow, ipcMain, dialog, Menu } from 'electron'

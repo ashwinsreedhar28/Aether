@@ -127,8 +127,10 @@ export function CommandPalette({ isVisible, onClose, onProcessingChange }: Comma
 
   const toggleMic = async () => {
     try {
-      if (listening) await window.aether.voice.stop();
-      else await window.aether.voice.start();
+      // Drive the shared mute flag (not a raw start/stop) so the palette mic and
+      // the floating VoiceMuteButton stay in sync and the ambient auto-listen
+      // doesn't immediately re-engage a "stop".
+      await window.aether.voice.setMuted(listening);
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'mic toggle failed');
     }

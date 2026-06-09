@@ -100,6 +100,11 @@ export function initViewerHost(getMainWindow: () => BrowserWindow | null): void 
   registerConfigHandlers()
   registerTerminalHandlers(getWin, requireRootDir)
   registerBrowserHandlers()
+
+  // The renderer's control bridge announces itself on mount. The full agent→
+  // renderer dispatch (viewer_desktop mesh node) lands in Phase 2; for now ack
+  // so the renderer doesn't log an unhandled-invoke error.
+  ipcMain.handle('control:bridge-ready', () => ({ ok: true }))
 }
 
 // Per-window setup: keyboard shortcuts, menu, file watcher start, initial folder.

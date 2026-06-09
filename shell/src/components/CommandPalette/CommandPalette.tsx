@@ -1,22 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, X, Loader2, AlertCircle, Sparkles, RotateCcw } from 'lucide-react';
+import { Send, X, AlertCircle, Mic, MicOff, Radio, Wrench } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type {
+  TranscriptEntry,
+  ToolCallEntry,
+  VoiceAvailability,
+  RavenStatus,
+} from '../../types/aether';
 
-interface StreamedContent {
-  id: string;
-  type: 'text' | 'tool_use' | 'thinking';
-  content: string;
-}
-
-const AVAILABLE_MODELS = [
-  { value: 'sonnet', label: 'Sonnet' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'haiku', label: 'Haiku' },
-] as const;
+// The cmd-/ palette is the console for Aether's raven-core voice assistant —
+// NOT a Claude chat. Typed input is injected via window.aether.voice.sendText
+// (the same brain the mic feeds); replies + tool calls arrive on the voice push
+// channels, so a typed conversation reads exactly like a spoken one.
 
 interface CommandPaletteProps {
   isVisible: boolean;
@@ -24,250 +22,133 @@ interface CommandPaletteProps {
   onProcessingChange?: (processing: boolean) => void;
 }
 
+type LogLine =
+  | { kind: 'speech'; id: string; speaker: 'user' | 'raven' | 'system'; text: string }
+  | { kind: 'tool'; id: string; toolName: string; ok: boolean };
+
 export function CommandPalette({ isVisible, onClose, onProcessingChange }: CommandPaletteProps) {
   const [input, setInput] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [responses, setResponses] = useState<StreamedContent[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [streamingText, setStreamingText] = useState('');
-  const [selectedModel, setSelectedModel] = useState<string>('sonnet');
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [log, setLog] = useState<LogLine[]>([]);
+  const [available, setAvailable] = useState<VoiceAvailability | null>(null);
+  const [status, setStatus] = useState<RavenStatus>('stopped');
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const responseRef = useRef<HTMLDivElement>(null);
-  const sessionIdRef = useRef<string | null>(null);
-  const scrollPositionRef = useRef<number>(0);
+  const logRef = useRef<HTMLDivElement>(null);
 
-  const activeWorkspace = useWorkspaceStore(s => {
-    const id = s.activeWorkspaceId;
-    return s.workspaces.find(w => w.id === id);
-  });
+  const listening = status === 'running' || status === 'starting';
+  const isAvailable = available?.kind === 'available';
 
-  // Get current file from active window/tab
-  const getCurrentFile = useCallback((): string | undefined => {
-    if (!activeWorkspace) return undefined;
-    const activeWindow = activeWorkspace.windows.find(w => w.id === activeWorkspace.focusedWindowId);
-    if (!activeWindow) return undefined;
-    const activeTab = activeWindow.tabs?.find(t => t.id === activeWindow.activeTabId);
-    return activeTab?.filePath;
-  }, [activeWorkspace]);
-
-  // Get all open file paths across all windows/tabs
-  const getOpenFiles = useCallback((): string[] => {
-    if (!activeWorkspace) return [];
-    return activeWorkspace.windows
-      .flatMap(w => w.tabs || [])
-      .map(tab => tab.filePath);
-  }, [activeWorkspace]);
-
-  // Check auth status on mount
-  useEffect(() => {
-    window.electron.claude.getAuthStatus().then(status => {
-      setIsAuthenticated(status.authenticated);
+  // Append a transcript fragment, merging it into the previous line when the
+  // same speaker is still talking (transcription arrives incrementally).
+  const pushTranscript = useCallback((entry: TranscriptEntry) => {
+    if (!entry.text) return;
+    setLog((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.kind === 'speech' && last.speaker === entry.speaker) {
+        const merged = { ...last, text: last.text + entry.text };
+        return [...prev.slice(0, -1), merged];
+      }
+      return [...prev, { kind: 'speech', id: entry.id, speaker: entry.speaker, text: entry.text }];
     });
   }, []);
 
-  // Set up stream listener
-  useEffect(() => {
-    const cleanup = window.electron.claude.onStream((message) => {
-      // Capture session ID from any message
-      if (message.session_id && !sessionIdRef.current) {
-        sessionIdRef.current = message.session_id;
-        setSessionId(message.session_id);
-      }
+  const pushToolCall = useCallback((entry: ToolCallEntry) => {
+    setLog((prev) => [
+      ...prev,
+      { kind: 'tool', id: entry.id, toolName: entry.toolName, ok: !entry.error },
+    ]);
+  }, []);
 
-      if (message.type === 'assistant') {
-        const content = message.message?.content;
-        if (Array.isArray(content)) {
-          content.forEach((block) => {
-            if (block.type === 'text' && block.text) {
-              setResponses(prev => [...prev, {
-                id: crypto.randomUUID(),
-                type: 'text',
-                content: block.text!
-              }]);
-              setStreamingText('');
-            } else if (block.type === 'tool_use' && block.name) {
-              setResponses(prev => [...prev, {
-                id: crypto.randomUUID(),
-                type: 'tool_use',
-                content: `Using ${block.name}...`
-              }]);
-            }
-          });
-        }
-      } else if (message.type === 'stream_event') {
-        const delta = message.event?.delta;
-        if (delta?.type === 'text_delta' && delta.text) {
-          setStreamingText(prev => prev + delta.text);
-        }
-      } else if (message.type === 'result') {
-        // Flush any remaining streaming text
-        if (streamingText) {
-          setResponses(prev => [...prev, {
-            id: crypto.randomUUID(),
-            type: 'text',
-            content: streamingText
-          }]);
-          setStreamingText('');
-        }
-        setIsProcessing(false);
-        if (message.is_error) {
-          setError(message.errors?.join(', ') || 'An error occurred');
-        }
-      }
+  // Subscribe to the voice push channels + seed current state on mount.
+  useEffect(() => {
+    let alive = true;
+    window.aether.voice.availability().then((a) => alive && setAvailable(a));
+    window.aether.voice.status().then((s) => alive && setStatus(s.status));
+    window.aether.voice.recentTranscripts(20).then(({ transcripts }) => {
+      if (!alive) return;
+      transcripts.forEach(pushTranscript);
     });
 
-    return cleanup;
-  }, [streamingText]);
+    const unsubs = [
+      window.aether.voice.onTranscript(pushTranscript),
+      window.aether.voice.onToolCall(pushToolCall),
+      window.aether.voice.onAvailabilityChanged((a) => setAvailable(a)),
+      window.aether.voice.onStatusChanged((s) => setStatus(s.status)),
+    ];
+    return () => {
+      alive = false;
+      unsubs.forEach((u) => u());
+    };
+  }, [pushTranscript, pushToolCall]);
 
-  // Auto-scroll responses
+  // Auto-scroll
   useEffect(() => {
-    responseRef.current?.scrollTo(0, responseRef.current.scrollHeight);
-  }, [responses, streamingText]);
+    logRef.current?.scrollTo(0, logRef.current.scrollHeight);
+  }, [log]);
 
-  // Focus input and restore scroll position when palette becomes visible
+  // Focus when shown
   useEffect(() => {
-    if (isVisible) {
-      inputRef.current?.focus();
-      requestAnimationFrame(() => {
-        if (responseRef.current) {
-          responseRef.current.scrollTop = scrollPositionRef.current;
-        }
-      });
-    } else {
-      if (responseRef.current) {
-        scrollPositionRef.current = responseRef.current.scrollTop;
-      }
-    }
+    if (isVisible) inputRef.current?.focus();
   }, [isVisible]);
 
-  // Notify parent of processing state changes
   useEffect(() => {
-    onProcessingChange?.(isProcessing);
-  }, [isProcessing, onProcessingChange]);
+    // Only the brief text-send counts as "processing" for the parent's shimmer
+    // bar — ambient listening is the steady state, not an in-flight turn.
+    onProcessingChange?.(sending);
+  }, [sending, onProcessingChange]);
 
-  // Clear conversation and session
-  const handleClear = () => {
-    sessionIdRef.current = null;
-    setSessionId(null);
-    setResponses([]);
-    setStreamingText('');
-    setError(null);
-    setInput('');
-    inputRef.current?.focus();
-  };
-
-  // Handle submit
   const handleSubmit = async () => {
-    if (!input.trim() || isProcessing) return;
-
-    const query = input;
-    setIsProcessing(true);
-    setStreamingText('');
-    setError(null);
-
-    // Add separator for follow-up queries in the same session
-    if (sessionId && responses.length > 0) {
-      setResponses(prev => [...prev, {
-        id: crypto.randomUUID(),
-        type: 'text',
-        content: `\n> ${query}\n`
-      }]);
-    } else if (!sessionId) {
-      setResponses([]);
-    }
-
+    const text = input.trim();
+    if (!text || sending) return;
     setInput('');
-
+    setFeedback(null);
+    setSending(true);
     try {
-      await window.electron.claude.query(query, {
-        cwd: activeWorkspace?.rootDir || process.cwd(),
-        currentFile: getCurrentFile(),
-        model: selectedModel,
-        resume: sessionId || undefined,
-        openFiles: getOpenFiles(),
-      });
+      const res = await window.aether.voice.sendText(text);
+      if ('error' in res) {
+        const reason =
+          res.error === 'no_session'
+            ? 'Raven is not listening — turn the mic on.'
+            : res.error === 'empty'
+              ? 'Say something first.'
+              : res.error;
+        setFeedback(reason);
+      }
+      // On success the daemon echoes a 'user' transcript + raven's reply over
+      // the push channel, so we don't append here.
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Query failed');
-      setIsProcessing(false);
+      setFeedback(err instanceof Error ? err.message : 'send failed');
+    } finally {
+      setSending(false);
     }
   };
 
-  // Handle abort
-  const handleAbort = () => {
-    window.electron.claude.abort();
-    setIsProcessing(false);
+  const toggleMic = async () => {
+    try {
+      if (listening) await window.aether.voice.stop();
+      else await window.aether.voice.start();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'mic toggle failed');
+    }
   };
 
-  // Handle keyboard
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    } else if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Escape') onClose();
+    else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit();
+      void handleSubmit();
     }
   };
 
-  // Handle backdrop click
   const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
+    if (e.target === e.currentTarget) onClose();
   };
 
-  // Hide when not visible (component stays mounted for background processing)
   if (!isVisible) return null;
 
-  // Render auth prompt if not authenticated
-  if (isAuthenticated === false) {
-    return (
-      <div
-        className="fixed inset-0 z-[9999] flex items-end justify-center pb-8"
-        onClick={handleBackdropClick}
-      >
-        <div
-          className="w-full max-w-2xl bg-[var(--holo-panel)] border border-[var(--holo-border)] rounded-lg p-6 shadow-2xl"
-          onClick={e => e.stopPropagation()}
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <AlertCircle className="text-[var(--holo-accent)]" size={24} />
-            <h3 className="text-lg text-[var(--holo-text)]">Sign in to Claude</h3>
-          </div>
-          <p className="text-sm text-[var(--holo-muted)] mb-4">
-            The command palette requires authentication. Set the CLAUDE_CODE_OAUTH_TOKEN environment variable or run `claude login` in your terminal.
-          </p>
-          <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-[var(--holo-muted)] hover:text-[var(--holo-text)] transition-colors"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Loading auth state
-  if (isAuthenticated === null) {
-    return (
-      <div
-        className="fixed inset-0 z-[9999] flex items-end justify-center pb-8"
-        onClick={handleBackdropClick}
-      >
-        <div className="w-full max-w-3xl bg-[var(--holo-panel)] border border-[var(--holo-border)] rounded-lg p-4 shadow-2xl">
-          <div className="flex items-center justify-center gap-2 text-[var(--holo-muted)]">
-            <Loader2 size={20} className="animate-spin" />
-            <span>Checking authentication...</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const hasLog = log.length > 0 || feedback;
 
   return (
     <div
@@ -276,87 +157,94 @@ export function CommandPalette({ isVisible, onClose, onProcessingChange }: Comma
     >
       <div
         className="w-full max-w-3xl bg-[var(--holo-panel)]/95 backdrop-blur-md border border-[var(--holo-border)] rounded-lg shadow-2xl overflow-hidden"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
-        {/* Response area - only show if there are responses */}
-        {(responses.length > 0 || streamingText || error) && (
+        {/* Unavailable banner */}
+        {available && !isAvailable && (
+          <div className="px-4 py-3 border-b border-[var(--holo-border)] flex items-start gap-2 text-sm text-amber-300">
+            <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+            <span>
+              Raven is unavailable ({available.reason}). The mesh and apps still work; set
+              {' '}<span className="font-mono">GEMINI_API_KEY</span> in .env.local to wake the assistant.
+            </span>
+          </div>
+        )}
+
+        {/* Transcript */}
+        {hasLog && (
           <div
-            ref={responseRef}
+            ref={logRef}
             className="max-h-80 overflow-y-auto p-4 border-b border-[var(--holo-border)] space-y-2"
           >
-            {error && (
-              <div className="flex items-center gap-2 text-red-400 text-sm">
-                <AlertCircle size={16} />
-                {error}
-              </div>
-            )}
-            {responses.map((r) => (
-              <div key={r.id} className="text-sm">
-                {r.type === 'tool_use' ? (
-                  <span className="text-[var(--holo-accent)] opacity-70 text-xs font-mono">
-                    {r.content}
-                  </span>
-                ) : (
-                  <div className="text-[var(--holo-text)] prose prose-invert prose-sm max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{r.content}</ReactMarkdown>
-                  </div>
-                )}
-              </div>
-            ))}
-            {streamingText && (
-              <div className="text-sm">
-                <div className="text-[var(--holo-text)] prose prose-invert prose-sm max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{streamingText}</ReactMarkdown>
+            {log.map((line) =>
+              line.kind === 'tool' ? (
+                <div
+                  key={line.id}
+                  className="flex items-center gap-1.5 text-xs font-mono text-[var(--holo-accent)] opacity-70"
+                >
+                  <Wrench size={12} />
+                  {line.toolName}
+                  {!line.ok && <span className="text-red-400">(failed)</span>}
                 </div>
-                <span className="inline-block w-2 h-4 bg-[var(--holo-accent)] animate-pulse ml-0.5" />
+              ) : (
+                <div key={line.id} className="text-sm">
+                  <span
+                    className={`text-[10px] uppercase tracking-wider font-mono mr-2 ${
+                      line.speaker === 'user'
+                        ? 'text-[var(--holo-muted)]'
+                        : line.speaker === 'raven'
+                          ? 'text-[var(--holo-accent)]'
+                          : 'text-amber-400'
+                    }`}
+                  >
+                    {line.speaker === 'raven' ? 'Aether' : line.speaker}
+                  </span>
+                  <div className="text-[var(--holo-text)] prose prose-invert prose-sm max-w-none inline">
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+                      {line.text}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              ),
+            )}
+            {feedback && (
+              <div className="flex items-center gap-2 text-amber-300 text-sm">
+                <AlertCircle size={16} />
+                {feedback}
               </div>
             )}
           </div>
         )}
 
-        {/* Input area */}
+        {/* Input */}
         <div className="flex items-center gap-3 p-4">
-          <Sparkles size={20} className="text-[var(--holo-accent)] flex-shrink-0" />
+          <button
+            onClick={toggleMic}
+            disabled={!isAvailable}
+            title={listening ? 'Stop listening' : 'Start listening'}
+            className={`flex-shrink-0 transition-colors disabled:opacity-30 ${
+              listening ? 'text-[var(--holo-accent)]' : 'text-[var(--holo-muted)] hover:text-[var(--holo-accent)]'
+            }`}
+          >
+            {listening ? <Radio size={20} className="animate-pulse" /> : isAvailable ? <Mic size={20} /> : <MicOff size={20} />}
+          </button>
           <input
             ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask Claude anything..."
-            disabled={isProcessing}
-            className="flex-1 bg-transparent text-[var(--holo-text)] placeholder-[var(--holo-muted)] focus:outline-none disabled:opacity-50"
+            placeholder={isAvailable ? 'Talk to Aether…' : 'Aether assistant offline'}
+            className="flex-1 bg-transparent text-[var(--holo-text)] placeholder-[var(--holo-muted)] focus:outline-none"
             autoFocus
           />
-
-          {isProcessing ? (
-            <button
-              onClick={handleAbort}
-              className="text-[var(--holo-accent)] hover:text-red-400 transition-colors flex-shrink-0"
-              title="Stop"
-            >
-              <Loader2 size={20} className="animate-spin" />
-            </button>
-          ) : (
-            <button
-              onClick={handleSubmit}
-              disabled={!input.trim()}
-              className="text-[var(--holo-muted)] hover:text-[var(--holo-accent)] disabled:opacity-30 transition-colors flex-shrink-0"
-            >
-              <Send size={20} />
-            </button>
-          )}
-
-          {sessionId && (
-            <button
-              onClick={handleClear}
-              className="text-[var(--holo-muted)] hover:text-[var(--holo-accent)] transition-colors flex-shrink-0"
-              title="Clear conversation"
-            >
-              <RotateCcw size={16} />
-            </button>
-          )}
-
+          <button
+            onClick={handleSubmit}
+            disabled={!input.trim() || sending}
+            className="text-[var(--holo-muted)] hover:text-[var(--holo-accent)] disabled:opacity-30 transition-colors flex-shrink-0"
+          >
+            <Send size={20} />
+          </button>
           <button
             onClick={onClose}
             className="text-[var(--holo-muted)] hover:text-[var(--holo-text)] transition-colors flex-shrink-0"
@@ -367,34 +255,23 @@ export function CommandPalette({ isVisible, onClose, onProcessingChange }: Comma
 
         {/* Hint bar */}
         <div className="px-4 pb-3 text-xs text-[var(--holo-muted)] flex items-center gap-4">
-          <select
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value)}
-            disabled={isProcessing}
-            className="bg-[var(--holo-bg)] text-[var(--holo-muted)] border border-[var(--holo-border)] rounded px-2 py-0.5 text-xs font-mono focus:outline-none focus:border-[var(--holo-accent)] disabled:opacity-50"
-          >
-            {AVAILABLE_MODELS.map(m => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-          </select>
-          <span>
-            <kbd className="px-1.5 py-0.5 bg-[var(--holo-bg)] rounded border border-[var(--holo-border)] font-mono text-[10px]">Enter</kbd>
-            {' '}Send
+          <span className="flex items-center gap-1.5">
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                listening ? 'bg-[var(--holo-accent)] animate-pulse' : isAvailable ? 'bg-green-500' : 'bg-[var(--holo-muted)]'
+              }`}
+            />
+            {listening ? 'Listening' : isAvailable ? 'Ready' : 'Offline'}
           </span>
           <span>
-            <kbd className="px-1.5 py-0.5 bg-[var(--holo-bg)] rounded border border-[var(--holo-border)] font-mono text-[10px]">esc</kbd>
-            {' '}Close
+            <kbd className="px-1.5 py-0.5 bg-[var(--holo-bg)] rounded border border-[var(--holo-border)] font-mono text-[10px]">Enter</kbd>{' '}
+            Send
           </span>
-          {sessionId && (
-            <span className="text-[var(--holo-accent)] opacity-70">
-              Session active
-            </span>
-          )}
-          {getCurrentFile() && (
-            <span className="ml-auto truncate max-w-xs opacity-70">
-              Context: {getCurrentFile()?.split('/').pop()}
-            </span>
-          )}
+          <span>
+            <kbd className="px-1.5 py-0.5 bg-[var(--holo-bg)] rounded border border-[var(--holo-border)] font-mono text-[10px]">esc</kbd>{' '}
+            Close
+          </span>
+          <span className="ml-auto opacity-70 font-mono">raven-core</span>
         </div>
       </div>
     </div>

@@ -118,7 +118,7 @@ export function attachViewerWindow(win: BrowserWindow): void {
     if (input.type === 'keyDown' && modifierActive && !input.alt && !input.shift) {
       if (input.key === '/') {
         event.preventDefault()
-        win.webContents.send('menu:open-claude-palette')
+        win.webContents.send('menu:open-command-palette')
         return
       }
       const arrowKeys: Record<string, string> = {

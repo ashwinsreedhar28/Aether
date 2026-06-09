@@ -12,6 +12,18 @@ historical record.
 ### Changed
 - ADR (2026-06-09): Viewer × Aether capability-merge plan — scene server archived (supersedes the 2026-05-26 data-layer/presentation-layer ADR), Raven-only assistant, strict TS bar held, mesh SDK collapse; Lanes 1-7 defined. PR #201 is staging substrate, not merged.
 
+### Removed
+- Lane 1 (ADR 2026-06-09 §6, Raven-only): the dormant Claude Agent SDK
+  command-palette runtime — the `claude:` preload IPC surface
+  (`query`/`abort`/`getAuthStatus`/`onStream`), its `ClaudeStreamMessage` type,
+  and the matching `browser-mock` stub. cmd-/ remains the Raven console; the
+  palette UI is unchanged, only de-Claude-branded (`menu:open-claude-palette` →
+  `menu:open-command-palette`; menu label "Claude Command Palette" → "Command
+  Palette"). `mcp-inspector` is re-homed onto app-local MCP types with zero
+  dependency on the removed SDK / preload Claude types (`ClaudeSettings` →
+  `McpSettings`). The `@anthropic-ai/claude-agent-sdk` dependency, `claudeService`,
+  and the `claude:*` main-process handlers were already absent from the shell.
+
 ### Added
 - Spawn actor v1.1 — armed with the corpus, honest lifecycle. Five changes to
   the self-build loop (`shell/electron/main/services/spawnService.ts`,

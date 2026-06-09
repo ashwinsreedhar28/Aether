@@ -4,6 +4,7 @@ import { Welcome } from './components/Welcome';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { CommandPalette } from './components/CommandPalette';
 import { SpawnApproval } from './components/SpawnApproval';
+import { VoiceMuteButton } from './components/VoiceMuteButton';
 import { DictationOverlay } from './components/DictationOverlay';
 import { useWorkspaceStore } from './stores/workspaceStore';
 import { useSettingsStore } from './stores/settingsStore';
@@ -97,6 +98,7 @@ function App() {
     <>
       {content}
       <SpawnApproval />
+      <VoiceMuteButton />
       <DictationOverlay />
       <CommandPalette
         isVisible={showClaudePalette}

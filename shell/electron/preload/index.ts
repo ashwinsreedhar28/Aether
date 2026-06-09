@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
+// Side-effect import: exposes the absorbed Viewer surface as window.electron
+// (fs/app/config/terminal/browser/control/...) alongside window.aether below.
+import './viewerApi'
 
 // The single bridge surface for the renderer. Every channel here is part of
 // the renderer/main contract and should be considered API. Pattern lifted

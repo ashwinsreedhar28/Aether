@@ -19,6 +19,7 @@ import {
 } from './services/mesh'
 import { registerFileHandlers } from './handlers/files'
 import { registerSceneOrderHandlers } from './handlers/sceneOrder'
+import { initViewerHost, attachViewerWindow, stopViewerHost } from './services/viewerHost'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
@@ -147,7 +148,9 @@ function createMain(): BrowserWindow {
       preload: PRELOAD_PATH,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // The absorbed Viewer browser app hosts pages in a <webview>.
+      webviewTag: true
     }
   })
 
@@ -159,6 +162,10 @@ function createMain(): BrowserWindow {
     }
     return { action: 'deny' }
   })
+
+  // Per-window Viewer glue: ⌘/ + ⌘-arrow shortcuts, application menu, file
+  // watcher start, initial-folder handoff.
+  attachViewerWindow(win)
 
   void win.loadURL(getMainURL())
   return win
@@ -551,6 +558,10 @@ app.whenReady().then(() => {
   // (Mesh Dev Tools pill, Voice pill) flip when each becomes healthy.
   registerFileHandlers()
   registerSceneOrderHandlers()
+  // Viewer host: workspace root-dir state + fs/terminal/config/browser IPC for
+  // the absorbed renderer. Registered before the window loads so the renderer's
+  // mount-time IPC calls resolve. Per-window glue is in attachViewerWindow().
+  initViewerHost(() => mainWindow)
   splashWindow = createSplash()
   mainWindow = createMain()
   createTray()
@@ -685,6 +696,7 @@ async function stopAllChildren(): Promise<void> {
     sceneServer.stop(),
     Promise.resolve(sceneSubscriber.stop()),
     Promise.resolve(spawnService.stop()),
+    Promise.resolve(stopViewerHost()),
   ])
   for (const r of results) {
     if (r.status === 'rejected') {

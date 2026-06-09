@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://viewer.local/schemas/session/session_set.payload.json",
+  "title": "session_set payload",
+  "description": "Payload for the viewer session `session_set` surface. Replaces the whole session with the supplied Views. Each item IS a View; the session validates it with the same rules as open_view.",
+  "type": "object",
+  "required": ["views"],
+  "additionalProperties": false,
+  "properties": {
+    "views": {
+      "type": "array",
+      "description": "The canonical open-View set. Deduped by View.id (first position wins, last value wins).",
+      "items": { "$ref": "./view.schema.json" }
+    },
+    "focused": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Id of the View to mark focused. Ignored if it does not match a supplied View."
+    }
+  }
+}

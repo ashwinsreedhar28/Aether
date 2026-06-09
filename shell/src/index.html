@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data:; script-src 'self'; frame-src http://127.0.0.1:5180" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; frame-src 'self' http://127.0.0.1:5180 https:; connect-src 'self' http: https: ws: wss:" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Aether</title>
   </head>

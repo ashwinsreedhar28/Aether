@@ -1,0 +1,25 @@
+{
+  "_comment": "Shared cross-language fixture for the knowledge-graph generator. The vitest suite (src/generators/parity.test.ts) runs `build(input)` and the pytest suite (python/generators/test_viewer_generators.py) runs `knowledge_graph_build(input)`. BOTH must emit `expectedView` exactly. One file, two readers — the TS and Python generators cannot drift. source.value is compact JSON with fixed key order so the serialized strings are byte-identical across languages.",
+  "input": {
+    "id": "kg-test",
+    "title": "Test Graph",
+    "name": "Test",
+    "nodes": [
+      { "id": "a", "title": "Alpha", "position": { "x": 0, "y": 0 }, "color": "#ff0000" },
+      { "id": "b", "title": "Beta", "position": { "x": 100, "y": 80 } }
+    ],
+    "edges": [
+      { "id": "a-b", "source": "a", "target": "b", "label": "links" }
+    ]
+  },
+  "expectedView": {
+    "id": "kg-test",
+    "type": "knowledge-graph",
+    "title": "Test Graph",
+    "source": {
+      "kind": "inline",
+      "value": "{\"name\":\"Test\",\"nodes\":[{\"id\":\"a\",\"title\":\"Alpha\",\"position\":{\"x\":0,\"y\":0},\"color\":\"#ff0000\"},{\"id\":\"b\",\"title\":\"Beta\",\"position\":{\"x\":100,\"y\":80}}],\"edges\":[{\"id\":\"a-b\",\"source\":\"a\",\"target\":\"b\",\"label\":\"links\"}]}"
+    },
+    "layout": { "w": 1.2, "h": 0.9, "hint": "wide" }
+  }
+}

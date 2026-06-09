@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://viewer.local/schemas/session/session_remove.payload.json",
+  "title": "session_remove payload",
+  "description": "Payload for the viewer session `session_remove` surface. Drops a View from the session by id.",
+  "type": "object",
+  "required": ["id"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Id of the View to remove (matches View.id)."
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "surfaces": [
+    {
+      "name": "session_get",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./session_get.payload.json"
+    },
+    {
+      "name": "session_set",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./session_set.payload.json"
+    },
+    {
+      "name": "session_add",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./session_add.payload.json"
+    },
+    {
+      "name": "session_remove",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./session_remove.payload.json"
+    },
+    {
+      "name": "session_handoff",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./session_handoff.payload.json"
+    }
+  ]
+}

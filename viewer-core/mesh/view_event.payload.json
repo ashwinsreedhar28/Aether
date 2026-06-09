@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://viewer.local/schemas/mesh/view_event.payload.json",
+  "title": "view_event payload",
+  "description": "The human→agent feedback envelope. NOT a viewer-node surface — it is the canonical payload a shell EMITS to the agent that opened a view, when the human interacts with that view (drag/edit/toggle). The shell looks up which agent opened the view (env.from captured at open_view time) and emits a NEW fire_and_forget invocation to { to: openedBy, surface: 'view_event' }. The receiving agent exposes `view_event` as an inbox surface; the viewer node never does. Mirrors the LATTICE reply pattern: receivers reply by a fresh invocation to the sender's inbox, never via /v0/respond on the original request.",
+  "type": "object",
+  "required": ["viewId", "type", "action", "data", "ts"],
+  "additionalProperties": false,
+  "properties": {
+    "viewId": {
+      "type": "string",
+      "description": "The View.id the human interacted with (the id the agent passed to open_view)."
+    },
+    "type": {
+      "type": "string",
+      "description": "The View.type (kanban, knowledge-graph, table, markdown, ...). Lets the agent route without re-looking-up the view."
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the human did. The v1 set is intentionally small — card_moved, card_edited, node_moved, checkbox_toggled, cell_edited — but this is deliberately NOT an enum: an unknown action is still valid and is emitted to the agent, which decides what to do. A new gesture never requires revving this contract."
+    },
+    "data": {
+      "type": "object",
+      "description": "Action-specific detail. Permissive by design (additionalProperties allowed) so new gestures never have to rev the contract. Per-action shapes: card_moved { cardId, fromColumn, toColumn, position }; card_edited { cardId, field, value }; node_moved { nodeId, x, y }; checkbox_toggled { itemId, checked }; cell_edited { row, column, value }.",
+      "additionalProperties": true
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 emit time on the shell clock."
+    }
+  }
+}

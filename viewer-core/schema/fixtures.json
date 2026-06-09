@@ -1,0 +1,38 @@
+{
+  "_comment": "Shared accept/reject battery for the View contract. Read by BOTH src/schema/parity.test.ts (vitest) and python/test_viewer_core.py (pytest) so the TS validateView and Python validate_view can be proven to agree fixture-for-fixture. Every entry must be a value the two validators verdict IDENTICALLY. Keep it that way: avoid JS/Python type-coercion corners (booleans-as-numbers, NaN) that the two languages disagree on.",
+  "valid": [
+    { "name": "minimal inline markdown", "view": { "id": "v1", "type": "markdown", "source": { "kind": "inline", "value": "# hi" } } },
+    { "name": "text path source", "view": { "id": "v2", "type": "text", "source": { "kind": "path", "value": "/tmp/a.txt" } } },
+    { "name": "json url source", "view": { "id": "v3", "type": "json", "source": { "kind": "url", "value": "https://x/y.json" } } },
+    { "name": "mermaid", "view": { "id": "v4", "type": "mermaid", "source": { "kind": "inline", "value": "graph TD;" } } },
+    { "name": "kanban with focus hint", "view": { "id": "v5", "type": "kanban", "source": { "kind": "inline", "value": "{}" }, "layout": { "hint": "focus" } } },
+    { "name": "knowledge-graph path", "view": { "id": "v6", "type": "knowledge-graph", "source": { "kind": "path", "value": "/g.json" } } },
+    { "name": "image url", "view": { "id": "v7", "type": "image", "source": { "kind": "url", "value": "https://x/i.png" } } },
+    { "name": "html inline", "view": { "id": "v8", "type": "html", "source": { "kind": "inline", "value": "<b>x</b>" } } },
+    { "name": "latex inline", "view": { "id": "v9", "type": "latex", "source": { "kind": "inline", "value": "E=mc^2" } } },
+    { "name": "table with mediaType", "view": { "id": "v10", "type": "table", "source": { "kind": "inline", "value": "a,b", "mediaType": "text/csv" } } },
+    { "name": "full house: title + layout + meta", "view": { "id": "v11", "type": "table", "title": "Data", "source": { "kind": "inline", "value": "a,b", "mediaType": "text/csv" }, "layout": { "w": 0.8, "h": 0.6, "hint": "wide" }, "meta": { "k": 1 } } },
+    { "name": "layout w only (absolute px / meters)", "view": { "id": "v12", "type": "mermaid", "source": { "kind": "inline", "value": "graph TD;" }, "layout": { "w": 400 } } },
+    { "name": "empty meta object", "view": { "id": "v13", "type": "text", "source": { "kind": "inline", "value": "x" }, "meta": {} } }
+  ],
+  "invalid": [
+    { "name": "not an object (string)", "view": "nope" },
+    { "name": "null", "view": null },
+    { "name": "array", "view": [] },
+    { "name": "missing id", "view": { "type": "markdown", "source": { "kind": "inline", "value": "x" } } },
+    { "name": "empty id", "view": { "id": "", "type": "markdown", "source": { "kind": "inline", "value": "x" } } },
+    { "name": "non-string id", "view": { "id": 5, "type": "markdown", "source": { "kind": "inline", "value": "x" } } },
+    { "name": "unknown type", "view": { "id": "a", "type": "spreadsheet", "source": { "kind": "inline", "value": "x" } } },
+    { "name": "missing type", "view": { "id": "a", "source": { "kind": "inline", "value": "x" } } },
+    { "name": "missing source", "view": { "id": "a", "type": "json" } },
+    { "name": "source not an object", "view": { "id": "a", "type": "json", "source": "x" } },
+    { "name": "bad source kind", "view": { "id": "a", "type": "json", "source": { "kind": "ftp", "value": "x" } } },
+    { "name": "empty source value", "view": { "id": "a", "type": "json", "source": { "kind": "inline", "value": "" } } },
+    { "name": "non-string source value", "view": { "id": "a", "type": "json", "source": { "kind": "inline", "value": 123 } } },
+    { "name": "source missing value", "view": { "id": "a", "type": "json", "source": { "kind": "inline" } } },
+    { "name": "non-string title", "view": { "id": "a", "type": "json", "source": { "kind": "inline", "value": "x" }, "title": 7 } },
+    { "name": "bad layout hint", "view": { "id": "a", "type": "json", "source": { "kind": "inline", "value": "x" }, "layout": { "hint": "gigantic" } } },
+    { "name": "non-number layout w", "view": { "id": "a", "type": "json", "source": { "kind": "inline", "value": "x" }, "layout": { "w": "big" } } },
+    { "name": "meta is an array", "view": { "id": "a", "type": "json", "source": { "kind": "inline", "value": "x" }, "meta": [] } }
+  ]
+}

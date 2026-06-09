@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://viewer.local/schemas/mesh/notify.payload.json",
+  "title": "notify payload",
+  "description": "Payload for the viewer node `notify` inbox. Fire-and-forget; desktop renders a toast, spatial renders a caption / speaks it.",
+  "type": "object",
+  "required": ["text"],
+  "additionalProperties": false,
+  "properties": {
+    "level": {
+      "type": "string",
+      "enum": ["info", "warn", "error"],
+      "description": "Severity hint the shell may use for styling. Defaults to info."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The message to surface to the user."
+    }
+  }
+}

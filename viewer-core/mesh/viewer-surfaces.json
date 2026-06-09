@@ -1,0 +1,46 @@
+{
+  "surfaces": [
+    {
+      "name": "open_view",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./open_view.payload.json"
+    },
+    {
+      "name": "run_generator",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./run_generator.payload.json"
+    },
+    {
+      "name": "close_view",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./close_view.payload.json"
+    },
+    {
+      "name": "focus_view",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./focus_view.payload.json"
+    },
+    {
+      "name": "list_views",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./list_views.payload.json"
+    },
+    {
+      "name": "list_generators",
+      "type": "tool",
+      "invocation_mode": "request_response",
+      "schema": "./list_generators.payload.json"
+    },
+    {
+      "name": "notify",
+      "type": "inbox",
+      "invocation_mode": "fire_and_forget",
+      "schema": "./notify.payload.json"
+    }
+  ]
+}

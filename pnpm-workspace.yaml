@@ -3,3 +3,15 @@ packages:
   - 'core/*'
   - 'nodes/*'
   - 'daemons/raven-daemon'
+  - 'viewer-core'
+
+# Native modules whose install/build scripts are allowed to run. node-pty +
+# @parcel/watcher back the absorbed Viewer terminal + file watcher; better-sqlite3
+# backs the data nodes; esbuild/electron are toolchain. Rebuilt against Electron's
+# ABI via @electron/rebuild (see shell build).
+onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - node-pty
+  - better-sqlite3
+  - esbuild
+  - electron

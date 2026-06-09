@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://viewer.local/schemas/mesh/open_view.payload.json",
+  "title": "open_view payload",
+  "description": "Payload for the viewer node `open_view` surface. The payload IS a View; the host spawns a window (desktop) or an HTML panel (spatial) to display it.",
+  "allOf": [{ "$ref": "../schema/view.schema.json" }]
+}

@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://viewer.local/schemas/view.schema.json",
+  "title": "View",
+  "description": "Platform-agnostic description of a piece of content shown in the viewer ecosystem. The single source of truth shared by viewer-desktop, viewer-spatial, and the mesh control layer.",
+  "type": "object",
+  "required": ["id", "type", "source"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable id used to address the view across open/close/focus + sessions."
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "markdown",
+        "text",
+        "json",
+        "mermaid",
+        "kanban",
+        "knowledge-graph",
+        "image",
+        "html",
+        "latex",
+        "table"
+      ],
+      "description": "Discriminator → which renderer handles this view."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable title (tab label / panel caption)."
+    },
+    "source": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["inline", "path", "url"]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mediaType": {
+          "type": "string"
+        }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "w": { "type": "number" },
+        "h": { "type": "number" },
+        "hint": {
+          "type": "string",
+          "enum": ["default", "wide", "tall", "compact", "focus"]
+        }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "description": "Opaque per-view metadata. Hosts/renderers may read; the contract ignores it."
+    }
+  }
+}

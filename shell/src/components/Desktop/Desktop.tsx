@@ -156,9 +156,11 @@ export const Desktop = memo(function Desktop({ workspaceId }: DesktopProps) {
 
     const currentIndex = tabs.findIndex(t => t.id === focused.activeTabId);
     if (direction === 'prev' && currentIndex > 0) {
-      switchTab(focused.id, tabs[currentIndex - 1].id);
+      const prevTab = tabs[currentIndex - 1];
+      if (prevTab) switchTab(focused.id, prevTab.id);
     } else if (direction === 'next' && currentIndex < tabs.length - 1) {
-      switchTab(focused.id, tabs[currentIndex + 1].id);
+      const nextTab = tabs[currentIndex + 1];
+      if (nextTab) switchTab(focused.id, nextTab.id);
     }
   }, [getFocusedWindow, switchTab]);
 
@@ -357,10 +359,11 @@ export const Desktop = memo(function Desktop({ workspaceId }: DesktopProps) {
       if (e.metaKey && !e.ctrlKey && e.key >= '1' && e.key <= '9') {
         const index = parseInt(e.key) - 1;
         const workspaces = workspacesRef.current;
-        if (index < workspaces.length) {
+        const targetWorkspace = workspaces[index];
+        if (targetWorkspace) {
           e.preventDefault();
           const { switchWorkspace } = useWorkspaceStore.getState();
-          switchWorkspace(workspaces[index].id);
+          switchWorkspace(targetWorkspace.id);
         }
       }
 
@@ -371,9 +374,10 @@ export const Desktop = memo(function Desktop({ workspaceId }: DesktopProps) {
         const workspaces = workspacesRef.current;
         const activeWorkspaceId = activeWorkspaceIdRef.current;
         const currentIndex = workspaces.findIndex(w => w.id === activeWorkspaceId);
-        if (currentIndex < workspaces.length - 1) {
+        const nextWorkspace = workspaces[currentIndex + 1];
+        if (currentIndex < workspaces.length - 1 && nextWorkspace) {
           const { switchWorkspace } = useWorkspaceStore.getState();
-          switchWorkspace(workspaces[currentIndex + 1].id);
+          switchWorkspace(nextWorkspace.id);
         }
       }
 
@@ -384,9 +388,10 @@ export const Desktop = memo(function Desktop({ workspaceId }: DesktopProps) {
         const workspaces = workspacesRef.current;
         const activeWorkspaceId = activeWorkspaceIdRef.current;
         const currentIndex = workspaces.findIndex(w => w.id === activeWorkspaceId);
-        if (currentIndex > 0) {
+        const prevWorkspace = workspaces[currentIndex - 1];
+        if (currentIndex > 0 && prevWorkspace) {
           const { switchWorkspace } = useWorkspaceStore.getState();
-          switchWorkspace(workspaces[currentIndex - 1].id);
+          switchWorkspace(prevWorkspace.id);
         }
       }
     };

@@ -49,7 +49,7 @@ export function calculateTileLayout(
 
   // For single window, no expansion effect needed
   if (tilableWindows.length === 1) {
-    const win = tilableWindows[0];
+    const win = tilableWindows[0]!;
     return [{
       windowId: win.id,
       position: { x: gap, y: gap },
@@ -115,13 +115,13 @@ export function calculateTileLayout(
   // Calculate column X positions
   const colXPositions: number[] = [gap];
   for (let c = 1; c < cols; c++) {
-    colXPositions.push(colXPositions[c - 1] + colWidths[c - 1] + gap);
+    colXPositions.push(colXPositions[c - 1]! + colWidths[c - 1]! + gap);
   }
 
   // Calculate row Y positions
   const rowYPositions: number[] = [gap];
   for (let r = 1; r < rows; r++) {
-    rowYPositions.push(rowYPositions[r - 1] + rowHeights[r - 1] + gap);
+    rowYPositions.push(rowYPositions[r - 1]! + rowHeights[r - 1]! + gap);
   }
 
   const layouts: TileLayout[] = [];
@@ -134,8 +134,8 @@ export function calculateTileLayout(
     const isLastRow = row === rows - 1;
     const itemsInLastRow = tilableWindows.length - (rows - 1) * cols;
 
-    let width = colWidths[col];
-    let finalX = colXPositions[col];
+    let width = colWidths[col]!;
+    let finalX = colXPositions[col]!;
 
     // If last row and fewer items, need special handling
     if (isLastRow && itemsInLastRow < cols) {
@@ -174,8 +174,8 @@ export function calculateTileLayout(
 
     layouts.push({
       windowId: window.id,
-      position: { x: Math.round(finalX), y: Math.round(rowYPositions[row]) },
-      size: { width: Math.round(width), height: Math.round(rowHeights[row]) },
+      position: { x: Math.round(finalX), y: Math.round(rowYPositions[row]!) },
+      size: { width: Math.round(width), height: Math.round(rowHeights[row]!) },
     });
   });
 

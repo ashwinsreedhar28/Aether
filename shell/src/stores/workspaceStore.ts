@@ -190,7 +190,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       if (activeWorkspaceId === id) {
         // Switch to adjacent workspace
         const newIndex = Math.min(closingIndex, newWorkspaces.length - 1);
-        newActiveId = newWorkspaces[newIndex].id;
+        newActiveId = newWorkspaces[newIndex]?.id ?? null;
       } else {
         newActiveId = activeWorkspaceId;
       }
@@ -231,6 +231,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     set(state => {
       const workspaces = [...state.workspaces];
       const [workspace] = workspaces.splice(oldIndex, 1);
+      if (!workspace) return { workspaces };
       workspaces.splice(newIndex, 0, workspace);
       return { workspaces };
     });
@@ -865,8 +866,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
                 }
                 let newActiveTabId = win.activeTabId;
                 if (tabId === win.activeTabId) {
-                  newActiveTabId = newTabs[newTabs.length - 1].id;
-                  newTabs[newTabs.length - 1].isActive = true;
+                  const lastTab = newTabs[newTabs.length - 1];
+                  if (lastTab) {
+                    newActiveTabId = lastTab.id;
+                    lastTab.isActive = true;
+                  }
                 }
                 return { ...win, tabs: newTabs, activeTabId: newActiveTabId };
               }
@@ -991,8 +995,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
               }
               let newActiveTabId = win.activeTabId;
               if (tabId === win.activeTabId) {
-                newActiveTabId = newTabs[newTabs.length - 1].id;
-                newTabs[newTabs.length - 1].isActive = true;
+                const lastTab = newTabs[newTabs.length - 1];
+                if (lastTab) {
+                  newActiveTabId = lastTab.id;
+                  lastTab.isActive = true;
+                }
               }
               return { ...win, tabs: newTabs, activeTabId: newActiveTabId };
             }
@@ -1033,6 +1040,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
               if (win.id === windowId && win.tabs) {
                 const tabs = [...win.tabs];
                 const [tab] = tabs.splice(oldIndex, 1);
+                if (!tab) return win;
                 tabs.splice(newIndex, 0, tab);
                 return { ...win, tabs };
               }
@@ -1073,8 +1081,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
               }
               let newActiveTabId = win.activeTabId;
               if (tabId === win.activeTabId && newTabs.length > 0) {
-                newActiveTabId = newTabs[newTabs.length - 1].id;
-                newTabs[newTabs.length - 1].isActive = true;
+                const lastTab = newTabs[newTabs.length - 1];
+                if (lastTab) {
+                  newActiveTabId = lastTab.id;
+                  lastTab.isActive = true;
+                }
               }
               return { ...win, tabs: newTabs, activeTabId: newActiveTabId };
             }

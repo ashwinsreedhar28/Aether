@@ -13,10 +13,9 @@ const appRegistry = new Map<string, AppDefinition>();
 
 // Initialize registry from discovered modules
 for (const path in appModules) {
-  const module = appModules[path];
-  if (module.app) {
-    appRegistry.set(module.app.id, module.app);
-  }
+  const mod = appModules[path];
+  if (!mod?.app) continue;
+  appRegistry.set(mod.app.id, mod.app);
 }
 
 /**

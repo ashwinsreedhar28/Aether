@@ -203,7 +203,8 @@ export function renderKey(segment: string, mac: boolean): string {
     ArrowLeft: '←',
     ArrowRight: '→',
   };
-  if (segment in map) return map[segment];
+  const mapped = map[segment];
+  if (mapped !== undefined) return mapped;
   if (segment.length === 1) return segment.toUpperCase();
   return segment;
 }

@@ -253,9 +253,9 @@ export function FileExplorer({ isFocused, isSearchOpen }: FileExplorerProps) {
         case 'ArrowDown':
           e.preventDefault();
           if (currentIndex < visibleNodes.length - 1) {
-            const nextPath = visibleNodes[currentIndex + 1].path;
-            selectPath(nextPath, { shift: e.shiftKey, visibleNodes });
-          } else if (currentIndex === -1 && visibleNodes.length > 0) {
+            const nextNode = visibleNodes[currentIndex + 1];
+            if (nextNode) selectPath(nextNode.path, { shift: e.shiftKey, visibleNodes });
+          } else if (currentIndex === -1 && visibleNodes.length > 0 && visibleNodes[0]) {
             selectPath(visibleNodes[0].path);
           }
           break;
@@ -263,9 +263,9 @@ export function FileExplorer({ isFocused, isSearchOpen }: FileExplorerProps) {
         case 'ArrowUp':
           e.preventDefault();
           if (currentIndex > 0) {
-            const prevPath = visibleNodes[currentIndex - 1].path;
-            selectPath(prevPath, { shift: e.shiftKey, visibleNodes });
-          } else if (currentIndex === -1 && visibleNodes.length > 0) {
+            const prevNode = visibleNodes[currentIndex - 1];
+            if (prevNode) selectPath(prevNode.path, { shift: e.shiftKey, visibleNodes });
+          } else if (currentIndex === -1 && visibleNodes.length > 0 && visibleNodes[0]) {
             selectPath(visibleNodes[0].path);
           }
           break;
@@ -280,7 +280,7 @@ export function FileExplorer({ isFocused, isSearchOpen }: FileExplorerProps) {
                 if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
                 return a.name.localeCompare(b.name);
               });
-              selectPath(sortedChildren[0].path);
+              if (sortedChildren[0]) selectPath(sortedChildren[0].path);
             }
           }
           break;

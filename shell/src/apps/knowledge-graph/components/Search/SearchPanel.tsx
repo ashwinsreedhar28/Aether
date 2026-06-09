@@ -69,14 +69,16 @@ export function SearchPanel({ onClose }: SearchPanelProps) {
     if (matchedNodes.length === 0) return;
     const nextIndex = (currentIndex + 1) % matchedNodes.length;
     setCurrentIndex(nextIndex);
-    navigateToNode(matchedNodes[nextIndex].id);
+    const nextNode = matchedNodes[nextIndex];
+    if (nextNode) navigateToNode(nextNode.id);
   }, [currentIndex, matchedNodes, navigateToNode]);
 
   const handlePrev = useCallback(() => {
     if (matchedNodes.length === 0) return;
     const prevIndex = (currentIndex - 1 + matchedNodes.length) % matchedNodes.length;
     setCurrentIndex(prevIndex);
-    navigateToNode(matchedNodes[prevIndex].id);
+    const prevNode = matchedNodes[prevIndex];
+    if (prevNode) navigateToNode(prevNode.id);
   }, [currentIndex, matchedNodes, navigateToNode]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {

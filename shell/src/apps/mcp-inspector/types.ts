@@ -17,7 +17,7 @@ export type {
   JsonRpcRequest,
   JsonRpcResponse,
   JsonRpcNotification,
-} from '../../../electron/preload/index';
+} from '../../../electron/preload/viewerApi';
 
 // UI-specific types
 export type TabId = 'tools' | 'resources' | 'prompts' | 'messages';

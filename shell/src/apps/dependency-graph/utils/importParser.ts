@@ -46,13 +46,14 @@ export function extractImports(content: string): ImportInfo[] {
     let match;
     while ((match = pattern.exec(content)) !== null) {
       const source = match[1];
+      if (source === undefined) continue;
 
       // Skip duplicates
       if (seen.has(source)) continue;
       seen.add(source);
 
       // Check if this specific match is dynamic
-      const isDynamic = DYNAMIC_PATTERN.test(match[0]);
+      const isDynamic = DYNAMIC_PATTERN.test(match[0] ?? '');
       const isExternal = isExternalImport(source);
 
       imports.push({

@@ -322,8 +322,11 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
           // If we removed the active tab, activate the last tab
           let newActiveTabId = w.activeTabId;
           if (tabId === w.activeTabId) {
-            newActiveTabId = newTabs[newTabs.length - 1].id;
-            newTabs[newTabs.length - 1].isActive = true;
+            const lastTab = newTabs[newTabs.length - 1];
+            if (lastTab) {
+              newActiveTabId = lastTab.id;
+              lastTab.isActive = true;
+            }
           }
 
           return {
@@ -388,8 +391,11 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
           // If we removed the active tab, activate the last tab
           let newActiveTabId = w.activeTabId;
           if (tabId === w.activeTabId) {
-            newActiveTabId = newTabs[newTabs.length - 1].id;
-            newTabs[newTabs.length - 1].isActive = true;
+            const lastTab = newTabs[newTabs.length - 1];
+            if (lastTab) {
+              newActiveTabId = lastTab.id;
+              lastTab.isActive = true;
+            }
           }
 
           return {
@@ -433,6 +439,7 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
         if (w.id === windowId && w.tabs) {
           const tabs = [...w.tabs];
           const [tab] = tabs.splice(oldIndex, 1);
+          if (!tab) return w;
           tabs.splice(newIndex, 0, tab);
 
           return { ...w, tabs };
@@ -466,8 +473,11 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
 
           let newActiveTabId = w.activeTabId;
           if (tabId === w.activeTabId && newTabs.length > 0) {
-            newActiveTabId = newTabs[newTabs.length - 1].id;
-            newTabs[newTabs.length - 1].isActive = true;
+            const lastTab = newTabs[newTabs.length - 1];
+            if (lastTab) {
+              newActiveTabId = lastTab.id;
+              lastTab.isActive = true;
+            }
           }
 
           return {

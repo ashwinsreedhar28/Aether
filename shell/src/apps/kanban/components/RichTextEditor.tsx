@@ -221,7 +221,6 @@ function parseContent(content: string): string | JSONContent {
 }
 
 // Helper to extract checklist progress from TipTap JSON
-// eslint-disable-next-line react-refresh/only-export-components -- helper co-located with the editor it supports
 export function getChecklistProgress(content: string): { completed: number; total: number } | null {
   if (!content) return null;
   try {

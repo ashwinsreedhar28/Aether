@@ -108,7 +108,6 @@ function DependencyGraphInner({ isActive }: AppProps) {
 
   // Sync local React Flow state when the computed graph updates.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalNodes(nodes);
     setLocalEdges(edges);
   }, [nodes, edges]);

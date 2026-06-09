@@ -18,7 +18,7 @@ interface AppStore {
 // Get file extension from path
 function getExtension(path: string): string {
   const parts = path.split('.');
-  return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
+  return parts.length > 1 ? (parts[parts.length - 1] ?? '').toLowerCase() : '';
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({

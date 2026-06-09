@@ -30,7 +30,7 @@ export function useKanbanKeyboard({
   // Find card position
   const findCardPosition = useCallback((cardId: string): CardPosition | null => {
     for (let colIdx = 0; colIdx < columns.length; colIdx++) {
-      const column = columns[colIdx];
+      const column = columns[colIdx]!;
       const cardIdx = column.cards.findIndex(c => c.id === cardId);
       if (cardIdx !== -1) {
         return {
@@ -49,9 +49,10 @@ export function useKanbanKeyboard({
     if (!selectedCard) {
       // Select first card in first column
       const firstCol = columns[0];
-      if (firstCol?.cards.length > 0) {
+      const firstCard = firstCol?.cards[0];
+      if (firstCol && firstCard) {
         setSelectedCard({
-          cardId: firstCol.cards[0].id,
+          cardId: firstCard.id,
           columnId: firstCol.id,
           columnIndex: 0,
           cardIndex: 0,
@@ -69,26 +70,27 @@ export function useKanbanKeyboard({
         newCardIdx = Math.max(0, cardIndex - 1);
         break;
       case 'down':
-        newCardIdx = Math.min(columns[columnIndex].cards.length - 1, cardIndex + 1);
+        newCardIdx = Math.min((columns[columnIndex]?.cards.length ?? 0) - 1, cardIndex + 1);
         break;
       case 'left':
         newColIdx = Math.max(0, columnIndex - 1);
         // Try to maintain similar position in new column
-        newCardIdx = Math.min(cardIndex, columns[newColIdx].cards.length - 1);
-        if (columns[newColIdx].cards.length === 0) newCardIdx = -1;
+        newCardIdx = Math.min(cardIndex, (columns[newColIdx]?.cards.length ?? 0) - 1);
+        if ((columns[newColIdx]?.cards.length ?? 0) === 0) newCardIdx = -1;
         break;
       case 'right':
         newColIdx = Math.min(columns.length - 1, columnIndex + 1);
-        newCardIdx = Math.min(cardIndex, columns[newColIdx].cards.length - 1);
-        if (columns[newColIdx].cards.length === 0) newCardIdx = -1;
+        newCardIdx = Math.min(cardIndex, (columns[newColIdx]?.cards.length ?? 0) - 1);
+        if ((columns[newColIdx]?.cards.length ?? 0) === 0) newCardIdx = -1;
         break;
     }
 
-    if (newCardIdx >= 0 && columns[newColIdx]?.cards[newCardIdx]) {
-      const newCard = columns[newColIdx].cards[newCardIdx];
+    const newColumn = columns[newColIdx];
+    const newCard = newColumn?.cards[newCardIdx];
+    if (newCardIdx >= 0 && newColumn && newCard) {
       setSelectedCard({
         cardId: newCard.id,
-        columnId: columns[newColIdx].id,
+        columnId: newColumn.id,
         columnIndex: newColIdx,
         cardIndex: newCardIdx,
       });

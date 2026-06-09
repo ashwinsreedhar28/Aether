@@ -36,7 +36,6 @@ export function WaveformVisualizer({
       analyser = getAnalyser();
     } catch {
       // Audio context not initialized yet
-      // eslint-disable-next-line react-hooks/immutability
       animationRef.current = requestAnimationFrame(draw);
       return;
     }
@@ -68,7 +67,7 @@ export function WaveformVisualizer({
 
       ctx.fillStyle = `${accentColor}20`;
       for (let i = 0; i < barCount; i++) {
-        const value = frequencyData[i * step];
+        const value = frequencyData[i * step] ?? 0;
         const barHeight = (value / 255) * canvas.height;
         ctx.fillRect(
           i * barWidth,
@@ -87,7 +86,7 @@ export function WaveformVisualizer({
       let x = 0;
 
       for (let i = 0; i < bufferLength; i++) {
-        const v = waveformData[i] / 128.0;
+        const v = (waveformData[i] ?? 128) / 128.0;
         const y = (v * canvas.height) / 2;
 
         if (i === 0) {
@@ -109,7 +108,7 @@ export function WaveformVisualizer({
       let x = 0;
 
       for (let i = 0; i < bufferLength; i++) {
-        const v = waveformData[i] / 128.0;
+        const v = (waveformData[i] ?? 128) / 128.0;
         const y = (v * canvas.height) / 2;
 
         if (i === 0) {
@@ -128,7 +127,7 @@ export function WaveformVisualizer({
       const step = Math.floor(bufferLength / barCount);
 
       for (let i = 0; i < barCount; i++) {
-        const value = frequencyData[i * step];
+        const value = frequencyData[i * step] ?? 0;
         const percent = value / 255;
         const barHeight = percent * canvas.height;
 

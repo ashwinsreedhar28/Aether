@@ -40,7 +40,7 @@ function App() {
 
   // Listen for initial folder from CLI
   useEffect(() => {
-    const unsubscribe = window.electron.app.onInitialFolder((path) => {
+    const unsubscribe = window.electron.app.onInitialFolder((path: string) => {
       openWorkspace(path);
     });
     return () => unsubscribe();
@@ -48,7 +48,7 @@ function App() {
 
   // Listen for folder opened from menu
   useEffect(() => {
-    const unsubscribe = window.electron.app.onRootDirChanged((path) => {
+    const unsubscribe = window.electron.app.onRootDirChanged((path: string) => {
       openWorkspace(path);
     });
     return () => unsubscribe();

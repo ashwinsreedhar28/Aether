@@ -115,7 +115,7 @@ export function GraphCanvas({ onNodeContextMenu, onCanvasContextMenu, windowId }
   // final position back to the agent that opened this view. Mirrors the kanban
   // card_moved pattern. Fire-and-forget — a failed emit must never disrupt the
   // local graph; emit only on drag *stop* (not per-frame position change).
-  const handleNodeDragStop = useCallback((_: React.MouseEvent, node: Node) => {
+  const handleNodeDragStop = useCallback((_: MouseEvent | TouchEvent, node: Node) => {
     if (!windowId) return;
     void window.electron?.control
       ?.emitViewEvent(windowId, 'node_moved', {

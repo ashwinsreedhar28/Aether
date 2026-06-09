@@ -28,7 +28,7 @@ function calculateFocusLayout(
 
   if (windows.length === 1) {
     return [{
-      windowId: windows[0].id,
+      windowId: windows[0]!.id,
       position: { x: GAP, y: GAP },
       size: {
         width: container.width - GAP * 2,
@@ -51,7 +51,7 @@ function calculateFocusLayout(
 
   // Primary window
   layouts.push({
-    windowId: windows[primaryIdx].id,
+    windowId: windows[primaryIdx]!.id,
     position: { x: GAP, y: GAP },
     size: {
       width: primaryWidth,
@@ -92,7 +92,7 @@ function calculateSplitLayout(
 
   if (windows.length === 1) {
     return [{
-      windowId: windows[0].id,
+      windowId: windows[0]!.id,
       position: { x: GAP, y: GAP },
       size: {
         width: container.width - GAP * 2,
@@ -107,12 +107,12 @@ function calculateSplitLayout(
   if (windows.length === 2) {
     // Perfect 50/50 split
     layouts.push({
-      windowId: windows[0].id,
+      windowId: windows[0]!.id,
       position: { x: GAP, y: GAP },
       size: { width: halfWidth, height: container.height - GAP * 2 },
     });
     layouts.push({
-      windowId: windows[1].id,
+      windowId: windows[1]!.id,
       position: { x: halfWidth + GAP * 2, y: GAP },
       size: { width: halfWidth, height: container.height - GAP * 2 },
     });
@@ -122,12 +122,12 @@ function calculateSplitLayout(
     const bottomHeight = container.height - topHeight - GAP * 3;
 
     layouts.push({
-      windowId: windows[0].id,
+      windowId: windows[0]!.id,
       position: { x: GAP, y: GAP },
       size: { width: halfWidth, height: topHeight },
     });
     layouts.push({
-      windowId: windows[1].id,
+      windowId: windows[1]!.id,
       position: { x: halfWidth + GAP * 2, y: GAP },
       size: { width: halfWidth, height: topHeight },
     });
@@ -164,7 +164,7 @@ function calculateThirdsLayout(
     // Center the single window in the middle third
     const thirdWidth = (container.width - GAP * 4) / 3;
     return [{
-      windowId: windows[0].id,
+      windowId: windows[0]!.id,
       position: { x: thirdWidth + GAP * 2, y: GAP },
       size: {
         width: thirdWidth,
@@ -180,12 +180,12 @@ function calculateThirdsLayout(
 
     return [
       {
-        windowId: windows[0].id,
+        windowId: windows[0]!.id,
         position: { x: GAP, y: GAP },
         size: { width: twoThirds, height: container.height - GAP * 2 },
       },
       {
-        windowId: windows[1].id,
+        windowId: windows[1]!.id,
         position: { x: twoThirds + GAP * 2, y: GAP },
         size: { width: oneThird, height: container.height - GAP * 2 },
       },
@@ -198,7 +198,7 @@ function calculateThirdsLayout(
   // First 3 windows get full height columns
   for (let i = 0; i < Math.min(3, windows.length); i++) {
     layouts.push({
-      windowId: windows[i].id,
+      windowId: windows[i]!.id,
       position: { x: GAP + i * (thirdWidth + GAP), y: GAP },
       size: {
         width: thirdWidth,
@@ -213,7 +213,7 @@ function calculateThirdsLayout(
     const colHeight = (container.height - GAP * 3) / 2;
 
     // Resize first window to half height
-    layouts[0].size.height = colHeight;
+    layouts[0]!.size.height = colHeight;
 
     extras.forEach((win, i) => {
       const targetCol = i % 3;
@@ -229,7 +229,7 @@ function calculateThirdsLayout(
         });
         // Resize the window above if it exists
         if (targetCol < layouts.length) {
-          layouts[targetCol].size.height = colHeight;
+          layouts[targetCol]!.size.height = colHeight;
         }
       }
     });
@@ -252,7 +252,7 @@ function calculateQuartersLayout(
 
   if (windows.length === 1) {
     return [{
-      windowId: windows[0].id,
+      windowId: windows[0]!.id,
       position: { x: GAP, y: GAP },
       size: { width: halfWidth, height: halfHeight },
     }];
@@ -269,8 +269,8 @@ function calculateQuartersLayout(
 
   for (let i = 0; i < Math.min(4, windows.length); i++) {
     layouts.push({
-      windowId: windows[i].id,
-      position: positions[i],
+      windowId: windows[i]!.id,
+      position: positions[i]!,
       size: { width: halfWidth, height: halfHeight },
     });
   }
@@ -282,7 +282,7 @@ function calculateQuartersLayout(
 
     extras.forEach((win, i) => {
       const quadrant = i % 4;
-      const basePos = positions[quadrant];
+      const basePos = positions[quadrant]!;
       // Place in right half of the quadrant
       layouts.push({
         windowId: win.id,
@@ -294,7 +294,7 @@ function calculateQuartersLayout(
       });
       // Shrink the original window in that quadrant
       if (quadrant < layouts.length - extras.length) {
-        layouts[quadrant].size.width = quarterWidth;
+        layouts[quadrant]!.size.width = quarterWidth;
       }
     });
   }

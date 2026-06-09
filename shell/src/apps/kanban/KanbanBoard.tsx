@@ -84,8 +84,8 @@ function formatDueDate(dateStr: string): string {
 function sortCardsByPriority(cards: KanbanCard[]): KanbanCard[] {
   const priorityOrder: Record<string, number> = { P1: 0, P2: 1, P3: 2 };
   return [...cards].sort((a, b) => {
-    const aOrder = a.priority ? priorityOrder[a.priority] : 3;
-    const bOrder = b.priority ? priorityOrder[b.priority] : 3;
+    const aOrder = a.priority ? priorityOrder[a.priority] ?? 3 : 3;
+    const bOrder = b.priority ? priorityOrder[b.priority] ?? 3 : 3;
     return aOrder - bOrder;
   });
 }
@@ -528,7 +528,7 @@ function DraggableCard({ card, columnId, columnIndex, cardIndex, onDoubleClick, 
         {card.tags && card.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-2">
             {card.tags.map((tag) => {
-              const colors = getTagColor(tag);
+              const colors = getTagColor(tag)!;
               return (
                 <span
                   key={tag}
@@ -610,7 +610,7 @@ function CardPreview({ card }: { card: KanbanCard }) {
       {card.tags && card.tags.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-2">
           {card.tags.slice(0, 3).map((tag) => {
-            const colors = getTagColor(tag);
+            const colors = getTagColor(tag)!;
             return (
               <span
                 key={tag}
@@ -932,7 +932,7 @@ export function KanbanBoard({ windowId, filePath, isActive }: AppProps) {
   });
 
   useEffect(() => {
-    window.electron.app.getRootDir().then((dir) => setRootDir(dir ?? ''));
+    window.electron.app.getRootDir().then((dir: string | null | undefined) => setRootDir(dir ?? ''));
   }, []);
 
   // Filter columns based on search query and active tag filters
@@ -1302,7 +1302,7 @@ export function KanbanBoard({ windowId, filePath, isActive }: AppProps) {
       if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
         const newColumns = [...board.columns];
         const [movedColumn] = newColumns.splice(oldIndex, 1);
-        newColumns.splice(newIndex, 0, movedColumn);
+        newColumns.splice(newIndex, 0, movedColumn!);
         markDirty({ ...board, columns: newColumns });
       }
       return;
@@ -1339,7 +1339,7 @@ export function KanbanBoard({ windowId, filePath, isActive }: AppProps) {
 
       const newCards = [...column.cards];
       const [movedCard] = newCards.splice(oldIndex, 1);
-      newCards.splice(targetIndex, 0, movedCard);
+      newCards.splice(targetIndex, 0, movedCard!);
 
       const newColumns = board.columns.map((col) =>
         col.id === sourceColumnId ? { ...col, cards: newCards } : col
@@ -1751,7 +1751,7 @@ export function KanbanBoard({ windowId, filePath, isActive }: AppProps) {
 
             {/* Active filter tags */}
             {activeTagFilters.map(tag => {
-              const colors = getTagColor(tag);
+              const colors = getTagColor(tag)!;
               return (
                 <button
                   key={tag}

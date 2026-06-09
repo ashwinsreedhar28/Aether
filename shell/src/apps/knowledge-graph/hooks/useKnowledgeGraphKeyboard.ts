@@ -51,14 +51,15 @@ function findNearestInDirection(
 
   if (candidates.length === 0) return null;
 
-  // Find the closest candidate
-  let closest = candidates[0];
+  // Find the closest candidate (candidates is non-empty per the guard above)
+  let closest = candidates[0]!;
   let closestDist = distance(currentPos, closest.position);
 
   for (let i = 1; i < candidates.length; i++) {
-    const d = distance(currentPos, candidates[i].position);
+    const candidate = candidates[i]!;
+    const d = distance(currentPos, candidate.position);
     if (d < closestDist) {
-      closest = candidates[i];
+      closest = candidate;
       closestDist = d;
     }
   }

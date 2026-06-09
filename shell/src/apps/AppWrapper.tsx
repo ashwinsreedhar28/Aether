@@ -26,7 +26,7 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  override componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error(`App "${this.props.appId}" crashed:`, error, errorInfo);
   }
 
@@ -34,7 +34,7 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
     this.setState({ hasError: false, error: null });
   };
 
-  render() {
+  override render() {
     if (this.state.hasError) {
       return (
         <div className="h-full flex flex-col items-center justify-center gap-4 p-6 bg-[rgba(15,15,25,0.9)]">
@@ -117,7 +117,6 @@ export function AppWrapper({ appId, AppComponent, appProps, onClose }: AppWrappe
 /**
  * Create a lazy-loaded app component with error handling
  */
-// eslint-disable-next-line react-refresh/only-export-components -- factory co-located with the wrapper component by design
 export function createLazyApp(
   importFn: () => Promise<{ default: ComponentType<AppProps> }>
 ): ComponentType<AppProps> {

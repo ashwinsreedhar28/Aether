@@ -27,7 +27,7 @@ export function DictationOverlay() {
       cmdOrCtrl: parts.includes('commandorcontrol'),
       shift: parts.includes('shift'),
       alt: parts.includes('alt'),
-      key: parts[parts.length - 1].toLowerCase(),
+      key: (parts[parts.length - 1] ?? '').toLowerCase(),
     };
   };
 

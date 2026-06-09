@@ -104,9 +104,10 @@ const handlers: Record<string, ActionHandler> = {
     const results: unknown[] = [];
     const errors: string[] = [];
 
+    const openFile = handlers['open-file'];
     for (const p of paths) {
       try {
-        const result = handlers['open-file']({ path: p, windowId });
+        const result = openFile?.({ path: p, windowId });
         results.push(result);
       } catch (err) {
         errors.push(`${p}: ${err instanceof Error ? err.message : String(err)}`);

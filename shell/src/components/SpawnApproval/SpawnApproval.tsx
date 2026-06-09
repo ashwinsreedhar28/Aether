@@ -52,7 +52,7 @@ function Btn({
         boxShadow: variant === 'accent' && !disabled ? '0 0 8px var(--holo-glow)' : 'none',
         cursor: disabled ? 'default' : 'pointer',
         opacity: disabled ? 0.4 : 1,
-      }}
+      } as React.CSSProperties}
     >
       {label}
     </button>
@@ -94,7 +94,7 @@ function Frame({
           background: 'var(--holo-panel)',
           border: '1px solid var(--holo-accent)',
           boxShadow: '0 0 40px var(--holo-glow)',
-        }}
+        } as React.CSSProperties}
       >
         <div
           className="shrink-0 flex items-center justify-between px-5 py-3 text-[11px] tracking-[0.3em] border-b"
@@ -114,7 +114,7 @@ function Frame({
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
-              }}
+              } as React.CSSProperties}
             >
               ⎯
             </button>

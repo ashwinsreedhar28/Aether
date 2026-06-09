@@ -152,7 +152,6 @@ export function AdvancedSoundEditor({ onSave }: AdvancedSoundEditorProps) {
     setPitchEnvEnabled(false);
   }, []);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleSave = useCallback(() => {
     if (!name.trim()) return;
 
@@ -187,6 +186,7 @@ export function AdvancedSoundEditor({ onSave }: AdvancedSoundEditorProps) {
     setName(sound.name);
     if (sound.parameters && sound.parameters.length > 0) {
       const p = sound.parameters[0];
+      if (!p) return;
       setParams(p);
       setFilterEnabled(!!p.filter);
       setHarmonicsEnabled(!!p.harmonics && p.harmonics.length > 0);

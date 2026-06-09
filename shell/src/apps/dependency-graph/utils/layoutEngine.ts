@@ -55,14 +55,14 @@ export function layoutGraph(
   const nodePositions = new Map<string, { x: number; y: number }>();
 
   for (let depthIdx = 0; depthIdx < depths.length; depthIdx++) {
-    const depth = depths[depthIdx];
+    const depth = depths[depthIdx]!;
     const nodesAtDepth = depthGroups.get(depth)!;
 
     // Sort by name for consistent ordering
     nodesAtDepth.sort((a, b) => a.name.localeCompare(b.name));
 
     for (let nodeIdx = 0; nodeIdx < nodesAtDepth.length; nodeIdx++) {
-      const node = nodesAtDepth[nodeIdx];
+      const node = nodesAtDepth[nodeIdx]!;
 
       // Calculate position based on direction
       let x: number, y: number;

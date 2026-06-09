@@ -75,7 +75,7 @@ export function QuickCreateMenu({ onCreateFile, onCreateFolder, isOpen: controll
           break;
         case 'Enter':
           e.preventDefault();
-          menuItems[selectedIndex].action();
+          menuItems[selectedIndex]?.action();
           setIsOpen(false);
           break;
       }
@@ -147,7 +147,6 @@ export function QuickCreateMenu({ onCreateFile, onCreateFolder, isOpen: controll
   };
 
   // Reads the (already-mounted) trigger button's rect to position the portal menu.
-  // eslint-disable-next-line react-hooks/refs
   const menuPositionStyle = getMenuPosition();
 
   return (

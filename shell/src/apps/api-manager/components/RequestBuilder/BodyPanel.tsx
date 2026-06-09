@@ -50,7 +50,7 @@ export function BodyPanel({ body, onChange }: BodyPanelProps) {
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      const base64 = result.split(',')[1];
+      const base64 = result.split(',')[1] ?? '';
       onChange({
         ...body,
         binary: {
@@ -72,7 +72,7 @@ export function BodyPanel({ body, onChange }: BodyPanelProps) {
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      const base64 = result.split(',')[1];
+      const base64 = result.split(',')[1] ?? '';
       onChange({
         ...body,
         formData: (body.formData || []).map((item) =>

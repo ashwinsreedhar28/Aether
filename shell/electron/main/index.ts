@@ -103,7 +103,7 @@ async function startViewerControlNode(): Promise<void> {
     viewerNode = createViewerNode({
       dispatch: (action, params) => executeViewerControl(mainWindow, action, params),
       secret,
-      coreUrl: getCoreUrl(),
+      coreUrl: getCoreUrl() ?? undefined,
       getRootDir: getViewerRootDir,
     })
     await viewerNode.start()

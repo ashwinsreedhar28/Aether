@@ -444,7 +444,7 @@ export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
 
       // Directory watching is best-effort; loading children should not fail if
       // the watcher cannot attach to this path.
-      window.electron.fs.watchDir(path).catch((err) => {
+      window.electron.fs.watchDir(path).catch((err: unknown) => {
         console.error('Failed to watch directory:', err);
       });
 

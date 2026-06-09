@@ -96,7 +96,6 @@ export function AppProvider({ children, windowId, tabId }: AppProviderProps) {
 /**
  * Hook to access viewer APIs from within an app
  */
-// eslint-disable-next-line react-refresh/only-export-components -- hook co-located with its provider by design
 export function useAppContext(): AppContextValue {
   const context = useContext(AppContext);
   if (!context) {

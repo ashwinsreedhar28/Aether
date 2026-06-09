@@ -34,7 +34,6 @@ export function CustomSoundEditor({ onSave }: CustomSoundEditorProps) {
     playCustomSound([params]);
   }, [params]);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleSave = useCallback(() => {
     if (!name.trim()) return;
 
@@ -57,7 +56,8 @@ export function CustomSoundEditor({ onSave }: CustomSoundEditorProps) {
     setEditingId(sound.id);
     setName(sound.name);
     if (sound.parameters && sound.parameters.length > 0) {
-      setParams(sound.parameters[0]);
+      const p = sound.parameters[0];
+      if (p) setParams(p);
     }
   }, []);
 

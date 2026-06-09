@@ -9,6 +9,12 @@ historical record.
 
 ## [Unreleased]
 
+### Fixed
+- Raven-opened apps now render instead of showing a blank window (salvaged from #201 staging).
+
+### Added
+- Voice mute button for the Raven assistant (VoiceMuteButton, wired into App.tsx).
+
 ### Changed
 - ADR (2026-06-09): Viewer × Aether capability-merge plan — scene server archived (supersedes the 2026-05-26 data-layer/presentation-layer ADR), Raven-only assistant, strict TS bar held, mesh SDK collapse; Lanes 1-7 defined. PR #201 is staging substrate, not merged.
 

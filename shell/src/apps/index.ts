@@ -74,11 +74,31 @@ export function getFileTypeMapping(): Record<string, string> {
   return mapping;
 }
 
+// Registry change listeners — let the Dock / launcher re-render when an app is
+// registered or removed at runtime (e.g. an app Aether just built, or a dev-HMR
+// re-glob). Build-time glob registration runs before any listener exists, so it
+// doesn't fire — only genuine runtime mutations notify.
+type RegistryListener = () => void;
+const registryListeners = new Set<RegistryListener>();
+
+function notifyRegistryChange(): void {
+  registryListeners.forEach((l) => l());
+}
+
 /**
- * Register an app dynamically (for external apps)
+ * Subscribe to runtime registry changes. Returns an unsubscribe function.
+ */
+export function onRegistryChange(listener: RegistryListener): () => void {
+  registryListeners.add(listener);
+  return () => registryListeners.delete(listener);
+}
+
+/**
+ * Register an app dynamically (for external / Aether-built apps)
  */
 export function registerApp(app: AppDefinition): void {
   appRegistry.set(app.id, app);
+  notifyRegistryChange();
 }
 
 /**
@@ -86,6 +106,7 @@ export function registerApp(app: AppDefinition): void {
  */
 export function unregisterApp(id: string): void {
   appRegistry.delete(id);
+  notifyRegistryChange();
 }
 
 // Re-export types

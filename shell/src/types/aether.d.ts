@@ -56,6 +56,41 @@ export interface MeshStatus {
   error: string | null
 }
 
+// ---- Spawn (the self-build loop's approval surface) ------------------------
+
+export type SpawnStatus = 'requested' | 'spawned' | 'closed' | 'dismissed' | 'failed'
+
+export interface SpawnView {
+  id: string
+  ts: string
+  requestedTs: string
+  draftName: string
+  draftPath: string
+  status: SpawnStatus
+  worktree?: string
+  branch?: string
+  step?: string
+  error?: string
+  ragBootstrap?: 'ok' | 'failed'
+  ragStep?: string
+  targetBranch: string
+  targetWorktree: string
+  preview?: string
+  cleanup?: string
+}
+
+export interface SpawnSnapshot {
+  spawns: SpawnView[]
+  running: string | null
+  runningStep: string | null
+  busy: boolean
+}
+
+export interface SpawnActionResult {
+  ok: boolean
+  error?: string
+}
+
 type Unsub = () => void
 
 export interface AetherBridge {
@@ -76,6 +111,13 @@ export interface AetherBridge {
     onStatusChanged: (cb: (s: RavenState) => void) => Unsub
     onTranscript: (cb: (e: TranscriptEntry) => void) => Unsub
     onToolCall: (cb: (e: ToolCallEntry) => void) => Unsub
+  }
+  spawn: {
+    list: () => Promise<SpawnSnapshot>
+    approve: (id: string) => Promise<SpawnActionResult>
+    dismiss: (id: string) => Promise<SpawnActionResult>
+    complete: (id: string) => Promise<SpawnActionResult>
+    onChanged: (cb: (snap: SpawnSnapshot) => void) => Unsub
   }
 }
 

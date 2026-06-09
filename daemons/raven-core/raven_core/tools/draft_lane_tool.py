@@ -138,6 +138,16 @@ def _compose_lane_prompt(
         lines.append("1. (no steps specified — Architect to fill before dispatch)")
     lines.extend([
         "",
+        # Fixed conditional guidance (like RECON-FIRST / PRECEDENT above): if this
+        # lane adds a UI app for the Viewer surface, this is the contract — so even
+        # a thin "build me an app" draft scaffolds correctly. Inert for non-app lanes.
+        "APP CONTRACT (only if this lane adds a Viewer app): create "
+        f"shell/src/apps/{slug}/index.ts exporting `app: AppDefinition` "
+        "(id, name, lucide icon, component via createLazyApp) plus a component reading "
+        "live data through window.aether.mesh.invoke('<node.surface>', {...}). "
+        "import.meta.glob auto-registers it and dev HMR picks it up live; mirror an "
+        "existing app such as shell/src/apps/gaps. Add any new shell-> edge to manifest.yaml.",
+        "",
         f"Smoke (Director): {smoke_text}",
         "",
         'Ship: run verify-build; on Director\'s "clean, proceed", run ship-it.',

@@ -3,6 +3,7 @@ import { Desktop } from './components/Desktop';
 import { Welcome } from './components/Welcome';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { CommandPalette } from './components/CommandPalette';
+import { SpawnApproval } from './components/SpawnApproval';
 import { DictationOverlay } from './components/DictationOverlay';
 import { useWorkspaceStore } from './stores/workspaceStore';
 import { useSettingsStore } from './stores/settingsStore';
@@ -95,6 +96,7 @@ function App() {
   return (
     <>
       {content}
+      <SpawnApproval />
       <DictationOverlay />
       <CommandPalette
         isVisible={showClaudePalette}

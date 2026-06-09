@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "viewer_desktop.close_window",
+  "title": "viewer_desktop.close_window",
+  "description": "Close a window by id. Params: { windowId: string } (from list_windows / open_app). Returns { ok, windowId }.",
+  "type": "object",
+  "required": ["windowId"],
+  "additionalProperties": true,
+  "properties": { "windowId": { "type": "string", "minLength": 1 } }
+}

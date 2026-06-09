@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "viewer_desktop.list_views",
+  "title": "viewer_desktop.list_views",
+  "description": "List the content Views this node has painted (and which is focused). No params. Returns { views, focused? }.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

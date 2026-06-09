@@ -16,10 +16,14 @@ import {
   isCoreHealthy,
   getCoreUrl,
   getMeshState,
+  getViewerDesktopSecret,
 } from './services/mesh'
+import { registerAllGenerators } from '@viewer/core'
+import { createViewerNode, type ViewerNode } from './services/viewerNode'
+import { executeViewerControl } from './services/viewerControl'
 import { registerFileHandlers } from './handlers/files'
 import { registerSceneOrderHandlers } from './handlers/sceneOrder'
-import { initViewerHost, attachViewerWindow, stopViewerHost } from './services/viewerHost'
+import { initViewerHost, attachViewerWindow, stopViewerHost, getViewerRootDir } from './services/viewerHost'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
@@ -77,6 +81,50 @@ let splashWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitInFlight = false
 let cleanedUp = false
+
+// The viewer_desktop control node: agent->renderer dispatch (open/close/focus
+// apps + views) hosted in this process. Created after the mesh is ready so its
+// identity secret + Core both exist. null until then / if the mesh fails.
+let viewerNode: ViewerNode | null = null
+
+// Bring up the viewer_desktop mesh node once the mesh is live. Registers the
+// shared @viewer/core generators (so run_generator resolves), then starts the
+// node — its surfaces dispatch through executeViewerControl into the renderer's
+// window.__viewerControl bridge. Never throws: a control-plane failure must not
+// take down the rest of the shell.
+async function startViewerControlNode(): Promise<void> {
+  try {
+    const secret = getViewerDesktopSecret()
+    if (!secret) {
+      console.warn('[aether] viewer_desktop: no secret (mesh not ready?) — control node disabled')
+      return
+    }
+    registerAllGenerators()
+    viewerNode = createViewerNode({
+      dispatch: (action, params) => executeViewerControl(mainWindow, action, params),
+      secret,
+      coreUrl: getCoreUrl(),
+      getRootDir: getViewerRootDir,
+    })
+    await viewerNode.start()
+    console.log('[aether] viewer_desktop control node registered')
+
+    // Optional headless self-test of the full round-trip: shell -> Core ->
+    // viewer_desktop.open_app -> executeViewerControl -> renderer opens the app.
+    // Gated by an env var (off by default); the delay lets the renderer mount
+    // its control bridge. Set AETHER_SELFTEST_OPENAPP=mesh to exercise it.
+    const selfTestApp = process.env.AETHER_SELFTEST_OPENAPP
+    if (selfTestApp) {
+      setTimeout(() => {
+        void meshInvoke('viewer_desktop.open_app', { appId: selfTestApp })
+          .then((r) => console.log('[aether] selftest open_app →', JSON.stringify(r)))
+          .catch((e) => console.error('[aether] selftest open_app failed:', e))
+      }, 5000)
+    }
+  } catch (err) {
+    console.error('[aether] viewer_desktop control node failed to start:', err)
+  }
+}
 
 // Renderer-ready signal. The splash holds until the main renderer signals
 // mount (or a 2.5s watchdog fires) — lifted from Pulse's main/index.ts
@@ -313,6 +361,17 @@ ipcMain.handle('shell:openExternal', async (_e, url: unknown) => {
 ipcMain.handle('mesh:invoke', async (_e, target: string, payload: Record<string, unknown>) => {
   return meshInvoke(target, payload)
 })
+
+// SEND half of view_event: the renderer reports a human interaction on a hosted
+// view (keyed by its windowId); the viewer_desktop node resolves it to the
+// opening agent and emits a fire-and-forget invocation back. A gesture must
+// never surface an error, so this is best-effort.
+ipcMain.handle(
+  'control:emit-view-event',
+  (_e, windowId: string, action: string, data: Record<string, unknown>) => {
+    viewerNode?.emitViewEventForWindow(windowId, action, data ?? {}).catch(() => {})
+  },
+)
 
 ipcMain.handle('mesh:status', async () => {
   const ms = getMeshState()
@@ -579,13 +638,15 @@ app.whenReady().then(() => {
   // apps — Mesh, eventually anything routed through manifest), then
   // voice (degrades gracefully — Voice pill goes red with a reason if
   // the daemon can't start; rest of the shell is unaffected).
-  startMesh().catch((err) => {
-    const message = (err as Error).message ?? String(err)
-    dialog.showErrorBox(
-      'Aether — mesh failed to start',
-      `The mesh substrate could not start. Mesh-dependent features will be unavailable until you restart.\n\n${message}`,
-    )
-  })
+  startMesh()
+    .then(() => startViewerControlNode())
+    .catch((err) => {
+      const message = (err as Error).message ?? String(err)
+      dialog.showErrorBox(
+        'Aether — mesh failed to start',
+        `The mesh substrate could not start. Mesh-dependent features will be unavailable until you restart.\n\n${message}`,
+      )
+    })
 
   // Voice is opt-in. ensureRunning resolves once the daemon is healthy
   // OR the bootstrap times out. First launch is ~30s on a clean checkout
@@ -697,6 +758,7 @@ async function stopAllChildren(): Promise<void> {
     Promise.resolve(sceneSubscriber.stop()),
     Promise.resolve(spawnService.stop()),
     Promise.resolve(stopViewerHost()),
+    viewerNode?.stop() ?? Promise.resolve(),
   ])
   for (const r of results) {
     if (r.status === 'rejected') {

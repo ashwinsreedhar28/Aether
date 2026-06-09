@@ -9,7 +9,11 @@ import { resolve } from 'node:path'
 // `src/apps/` (per CLAUDE.md §4) auto-resolve relative to the renderer root.
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // @viewer/core is ESM-only (its exports expose only an `import` condition);
+    // the main bundle is CJS, which can't require() it — so bundle it in rather
+    // than externalize. Its heavy transitive deps stay external and resolve from
+    // node_modules. Needed by the viewer_desktop node's generator surfaces.
+    plugins: [externalizeDepsPlugin({ exclude: ['@viewer/core'] })],
     build: {
       outDir: 'out/main',
       rollupOptions: {

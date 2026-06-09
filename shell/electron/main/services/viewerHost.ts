@@ -148,6 +148,13 @@ export function attachViewerWindow(win: BrowserWindow): void {
   }
 }
 
+// The open workspace root (or null). The viewer_desktop node reads this to stage
+// inline open_view sources under <root>/.viewer-tmp/ so the renderer's sandboxed
+// fs:readFile (root-only) can read them.
+export function getViewerRootDir(): string | null {
+  return rootDir
+}
+
 export function stopViewerHost(): void {
   if (fileWatcher) void fileWatcher.stop()
   cleanupTerminalSessions()

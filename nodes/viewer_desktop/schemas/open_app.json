@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "viewer_desktop.open_app",
+  "title": "viewer_desktop.open_app",
+  "description": "Open a registered Viewer app in a new window. Params: { appId: string (e.g. 'mesh','lanes','gaps','terminal','calculator'), title?: string }. Returns { ok, appId, windowId }.",
+  "type": "object",
+  "required": ["appId"],
+  "additionalProperties": true,
+  "properties": {
+    "appId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "title": { "type": "string", "maxLength": 256 }
+  }
+}

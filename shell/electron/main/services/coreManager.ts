@@ -167,6 +167,12 @@ export class CoreManager {
       // at manifest load so nodeManager can inject the same value into the
       // child's env. No ADMIN_TOKEN: it persists gaps locally, no broker endpoint.
       MESH_INTENTS_SECRET: this.secrets.intentsSecret,
+      // viewer_desktop is the agent->renderer control node, hosted IN the shell
+      // main process (not spawned) — index.ts creates its MeshNode directly with
+      // this.secrets.viewerDesktopSecret. Core still has to resolve
+      // env:MESH_VIEWER_DESKTOP_SECRET at manifest load to verify the node's
+      // signed envelopes, so the same value is handed to Core here.
+      MESH_VIEWER_DESKTOP_SECRET: this.secrets.viewerDesktopSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

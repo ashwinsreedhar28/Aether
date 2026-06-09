@@ -1,0 +1,507 @@
+#!/usr/bin/env node
+
+/**
+ * viewer-ctl - CLI tool for controlling a running Viewer instance
+ * Allows AI agents and users to open files, manage windows, and control the viewer.
+ */
+
+import http from 'http';
+import path from 'path';
+import fs from 'fs';
+
+const PORT = process.env.VIEWER_CONTROL_PORT || 7434;
+const BASE_URL = `http://127.0.0.1:${PORT}`;
+
+// Colors for terminal output
+const colors = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
+  cyan: '\x1b[36m',
+  magenta: '\x1b[35m',
+};
+
+// Check if --human flag is present (otherwise output JSON)
+const args = process.argv.slice(2);
+const humanMode = args.includes('--human');
+const filteredArgs = args.filter(a => a !== '--human');
+
+function log(message, color = '') {
+  if (humanMode) {
+    console.log(`${color}${message}${colors.reset}`);
+  }
+}
+
+function logError(message) {
+  if (humanMode) {
+    console.error(`${colors.red}Error: ${message}${colors.reset}`);
+  } else {
+    console.error(JSON.stringify({ ok: false, error: message }));
+  }
+}
+
+function logSuccess(message) {
+  if (humanMode) {
+    console.log(`${colors.green}✓ ${message}${colors.reset}`);
+  }
+}
+
+function output(data) {
+  if (humanMode) {
+    // Human-readable formatting handled per command
+    return;
+  }
+  console.log(JSON.stringify(data, null, 2));
+}
+
+/**
+ * Make HTTP request to control server
+ */
+function request(method, endpoint, body = null) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(endpoint, BASE_URL);
+    const options = {
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname + url.search,
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 5000,
+    };
+
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => (data += chunk));
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (res.statusCode >= 400) {
+            reject(new Error(parsed.error || `HTTP ${res.statusCode}`));
+          } else {
+            resolve(parsed);
+          }
+        } catch {
+          reject(new Error(`Invalid response: ${data}`));
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      if (err.code === 'ECONNREFUSED') {
+        reject(new Error('Viewer is not running. Start it with: viewer [path]'));
+      } else {
+        reject(err);
+      }
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+
+    if (body) {
+      req.write(JSON.stringify(body));
+    }
+    req.end();
+  });
+}
+
+/**
+ * Parse flags from args array
+ * Returns { flags: { key: value }, positional: [args] }
+ */
+const BOOLEAN_FLAGS = new Set(['tab', 'human']);
+
+function parseArgs(args) {
+  const flags = {};
+  const positional = [];
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith('--')) {
+      const key = args[i].slice(2);
+      if (BOOLEAN_FLAGS.has(key)) {
+        flags[key] = true;
+      } else if (i + 1 < args.length && !args[i + 1].startsWith('--')) {
+        flags[key] = args[i + 1];
+        i++;
+      } else {
+        flags[key] = true;
+      }
+    } else {
+      positional.push(args[i]);
+    }
+  }
+
+  return { flags, positional };
+}
+
+/**
+ * Resolve a file/dir path to absolute
+ */
+function resolvePath(p) {
+  if (p === '.') return process.cwd();
+  return path.resolve(p);
+}
+
+// Commands
+const commands = {
+  async open(args) {
+    const { flags, positional } = parseArgs(args);
+
+    // Open standalone app (no file)
+    if (flags.app) {
+      const data = await request('POST', '/open', { appId: flags.app, title: flags.title });
+      if (humanMode) {
+        logSuccess(`Opened ${flags.app}`);
+      } else {
+        output(data);
+      }
+      return;
+    }
+
+    if (positional.length === 0) {
+      logError('Usage: viewer-ctl open <path> [<path2> ...] [--app <app-id>] [--tab]');
+      process.exit(1);
+    }
+
+    // If --tab flag is set, find the focused window to add tabs to
+    let targetWindowId = flags.window || undefined;
+    if (flags.tab && !targetWindowId) {
+      try {
+        const state = await request('GET', '/state');
+        const activeWs = (state.workspaces || []).find(ws => ws.isActive);
+        if (activeWs && activeWs.windows.length > 0) {
+          const visible = activeWs.windows.filter(w => !w.isMinimized);
+          if (visible.length > 0) {
+            targetWindowId = visible.reduce((a, b) => b.zIndex > a.zIndex ? b : a).id;
+          }
+        }
+      } catch {
+        // Fall through — will open in new window
+      }
+    }
+
+    if (positional.length === 1) {
+      // Single file or directory
+      const resolved = resolvePath(positional[0]);
+      const stat = fs.statSync(resolved, { throwIfNoEntry: false });
+
+      if (!stat) {
+        logError(`Path not found: ${positional[0]}`);
+        process.exit(1);
+      }
+
+      if (stat.isDirectory()) {
+        const data = await request('POST', '/workspace/open', { path: resolved });
+        if (humanMode) {
+          logSuccess(`Opened workspace: ${resolved}`);
+        } else {
+          output(data);
+        }
+      } else {
+        const body = { path: resolved };
+        if (flags.app) body.appId = flags.app;
+        if (targetWindowId) body.windowId = targetWindowId;
+        const data = await request('POST', '/open', body);
+        if (humanMode) {
+          logSuccess(`Opened ${path.basename(resolved)}`);
+        } else {
+          output(data);
+        }
+      }
+    } else {
+      // Multiple files
+      const paths = positional.map(p => {
+        const resolved = resolvePath(p);
+        if (!fs.existsSync(resolved)) {
+          logError(`Path not found: ${p}`);
+          process.exit(1);
+        }
+        return resolved;
+      });
+
+      const body = { paths };
+      if (targetWindowId) body.windowId = targetWindowId;
+      const data = await request('POST', '/open', body);
+      if (humanMode) {
+        logSuccess(`Opened ${paths.length} files`);
+      } else {
+        output(data);
+      }
+    }
+  },
+
+  async list() {
+    const data = await request('GET', '/state');
+
+    if (humanMode) {
+      const workspaces = data.workspaces || [];
+      if (workspaces.length === 0) {
+        log('  No workspaces open', colors.dim);
+        return;
+      }
+      for (const ws of workspaces) {
+        const active = ws.isActive ? ` ${colors.green}(active)${colors.reset}` : '';
+        log(`\n  ${colors.bright}${ws.name}${colors.reset} ${colors.dim}${ws.rootDir}${colors.reset}${active}`);
+
+        for (const win of ws.windows) {
+          const minimized = win.isMinimized ? ' [minimized]' : '';
+          log(`    ${colors.cyan}${win.id}${colors.reset} "${win.title}"${minimized}`);
+
+          for (const tab of win.tabs || []) {
+            const active = tab.isActive ? colors.green + ' *' : '';
+            const dirty = tab.isDirty ? colors.yellow + ' [modified]' : '';
+            log(`      ${tab.id}  ${tab.title} ${colors.dim}(${tab.appId})${colors.reset}${active}${dirty}${colors.reset}`);
+          }
+        }
+      }
+      console.log();
+    } else {
+      output(data);
+    }
+  },
+
+  async apps() {
+    const data = await request('GET', '/apps');
+
+    if (humanMode) {
+      console.log();
+      log('  Available Apps', colors.bright);
+      console.log('  ────────────────────');
+      const apps = Array.isArray(data) ? data : (data.apps || []);
+      for (const app of apps) {
+        const types = app.fileTypes.length > 0 ? colors.dim + ` (${app.fileTypes.join(', ')})` : '';
+        log(`  ${colors.cyan}${app.id}${colors.reset}  ${app.name}${types}${colors.reset}`);
+      }
+      console.log();
+    } else {
+      output(data);
+    }
+  },
+
+  async close(args) {
+    const { flags } = parseArgs(args);
+
+    if (!flags.window && !flags.tab) {
+      logError('Usage: viewer-ctl close --window <id> [--tab <id>]');
+      process.exit(1);
+    }
+
+    const body = {};
+    if (flags.window) body.windowId = flags.window;
+    if (flags.tab) body.tabId = flags.tab;
+
+    const data = await request('POST', '/close', body);
+    if (humanMode) {
+      logSuccess(flags.tab ? `Closed tab ${flags.tab}` : `Closed window ${flags.window}`);
+    } else {
+      output(data);
+    }
+  },
+
+  async focus(args) {
+    const windowId = args[0];
+    if (!windowId) {
+      logError('Usage: viewer-ctl focus <window-id>');
+      process.exit(1);
+    }
+
+    const data = await request('POST', '/focus', { windowId });
+    if (humanMode) {
+      logSuccess(`Focused ${windowId}`);
+    } else {
+      output(data);
+    }
+  },
+
+  async workspace(args) {
+    const { positional } = parseArgs(args);
+    const action = positional[0];
+
+    if (!action) {
+      logError('Usage: viewer-ctl workspace <path|list>');
+      process.exit(1);
+    }
+
+    if (action === 'list') {
+      const data = await request('GET', '/workspace/list');
+      if (humanMode) {
+        const workspaces = Array.isArray(data) ? data : (data.workspaces || []);
+        console.log();
+        log('  Workspaces', colors.bright);
+        console.log('  ────────────────────');
+        for (const ws of workspaces) {
+          const active = ws.isActive ? colors.green + ' (active)' : '';
+          log(`  ${ws.name} ${colors.dim}${ws.rootDir}${colors.reset}${active}${colors.reset}`);
+        }
+        console.log();
+      } else {
+        output(data);
+      }
+    } else {
+      const resolved = resolvePath(action);
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+        logError(`Not a directory: ${action}`);
+        process.exit(1);
+      }
+
+      const data = await request('POST', '/workspace/open', { path: resolved });
+      if (humanMode) {
+        logSuccess(`Opened workspace: ${resolved}`);
+      } else {
+        output(data);
+      }
+    }
+  },
+
+  async terminal(args) {
+    const { flags } = parseArgs(args);
+
+    if (flags.write) {
+      // Write to terminal session
+      const sessionId = flags.write;
+      const data = flags.data || args[args.indexOf('--data') + 1];
+      if (!data) {
+        logError('Usage: viewer-ctl terminal --write <session-id> --data <text>');
+        process.exit(1);
+      }
+      const result = await request('POST', '/terminal', { sessionId, data: data + '\n' });
+      if (humanMode) {
+        logSuccess(`Wrote to terminal ${sessionId}`);
+      } else {
+        output(result);
+      }
+    } else {
+      // Open new terminal
+      const body = {};
+      if (flags.cwd) body.cwd = resolvePath(flags.cwd);
+      if (flags.window) body.windowId = flags.window;
+
+      const result = await request('POST', '/terminal', body);
+      if (humanMode) {
+        logSuccess('Terminal opened');
+      } else {
+        output(result);
+      }
+    }
+  },
+
+  async layout(args) {
+    const preset = args[0];
+    const valid = ['focus', 'split', 'thirds', 'quarters', 'tile'];
+    if (!preset || !valid.includes(preset)) {
+      logError(`Usage: viewer-ctl layout <${valid.join('|')}>`);
+      process.exit(1);
+    }
+
+    const data = await request('POST', '/layout', { preset });
+    if (humanMode) {
+      logSuccess(`Layout applied: ${preset}`);
+    } else {
+      output(data);
+    }
+  },
+
+  async status() {
+    try {
+      const data = await request('GET', '/health');
+      if (humanMode) {
+        console.log();
+        log('  Viewer Status', colors.bright);
+        console.log('  ────────────────────');
+        log(`  Status:       ${colors.green}running${colors.reset}`);
+        log(`  Port:         ${data.port}`);
+        log(`  PID:          ${data.pid}`);
+        log(`  Bridge Ready: ${data.bridgeReady ? colors.green + 'yes' : colors.yellow + 'no'}${colors.reset}`);
+        console.log();
+      } else {
+        output(data);
+      }
+    } catch (err) {
+      if (humanMode) {
+        console.log();
+        log('  Viewer Status', colors.bright);
+        console.log('  ────────────────────');
+        log(`  Status:  ${colors.dim}offline${colors.reset}`);
+        console.log();
+      } else {
+        output({ ok: false, running: false, error: err.message });
+      }
+      process.exit(1);
+    }
+  },
+
+  help() {
+    console.log(`
+${colors.bright}viewer-ctl${colors.reset} - Control a running Viewer instance
+
+${colors.bright}Usage:${colors.reset}
+  viewer-ctl <command> [options] [--human]
+
+${colors.bright}Commands:${colors.reset}
+  open <path> [...]        Open file(s) in new window(s) (auto-detects app)
+  open --tab <path> [...]  Open file(s) as tab(s) in the focused window
+  open --app <app-id>      Open standalone app (settings, terminal, etc.)
+  list                     List workspaces, windows, and tabs
+  apps                     List available apps and file types
+  close --window <id>      Close a window
+  close --tab <id>         Close a tab (requires --window too)
+  focus <window-id>        Focus a window
+  workspace <path>         Open or switch to workspace
+  workspace list           List open workspaces
+  terminal [--cwd <dir>]   Open a new terminal
+  terminal --write <sid> --data <text>  Write to terminal session
+  layout <preset>          Apply layout (focus|split|thirds|quarters|tile)
+  status                   Check if viewer is running
+  help                     Show this help
+
+${colors.bright}Flags:${colors.reset}
+  --human                  Human-readable output (default is JSON)
+
+${colors.bright}Examples:${colors.reset}
+  viewer-ctl open README.md
+  viewer-ctl open src/App.tsx src/main.ts
+  viewer-ctl open --app settings
+  viewer-ctl open /tmp/diagram.mmd
+  viewer-ctl list
+  viewer-ctl layout split
+  viewer-ctl workspace /path/to/project
+  viewer-ctl terminal --cwd /tmp
+  viewer-ctl status
+
+${colors.bright}Agent Usage:${colors.reset}
+  # Show relevant docs
+  viewer-ctl open src/auth/login.ts docs/auth.md && viewer-ctl layout split
+
+  # Create and display a diagram
+  echo "graph TD; A-->B" > /tmp/overview.mmd && viewer-ctl open /tmp/overview.mmd
+
+  # Check what's open
+  viewer-ctl list
+`);
+  },
+};
+
+// Main
+async function main() {
+  const command = filteredArgs[0] || 'help';
+  const commandArgs = filteredArgs.slice(1);
+
+  if (commands[command]) {
+    await commands[command](commandArgs);
+  } else {
+    logError(`Unknown command: ${command}`);
+    commands.help();
+    process.exit(1);
+  }
+}
+
+main().catch((err) => {
+  logError(err.message);
+  process.exit(1);
+});

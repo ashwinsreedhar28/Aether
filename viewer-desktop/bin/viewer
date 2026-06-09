@@ -1,0 +1,42 @@
+#!/bin/bash
+# Viewer CLI - Launch viewer with a directory
+# Usage: viewer [path]
+#   viewer .              Open current directory
+#   viewer /path/to/dir   Open specific directory
+#   viewer                Open without a directory
+
+# Resolve symlinks to get the real script location
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+VIEWER_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Resolve the directory argument
+if [ -n "$1" ]; then
+  if [ "$1" = "." ]; then
+    DIR_ARG="$(pwd)"
+  elif [[ "$1" = /* ]]; then
+    # Absolute path
+    DIR_ARG="$1"
+  else
+    # Relative path - resolve it
+    DIR_ARG="$(cd "$1" 2>/dev/null && pwd)"
+    if [ -z "$DIR_ARG" ]; then
+      echo "Error: Directory '$1' does not exist"
+      exit 1
+    fi
+  fi
+
+  # Verify it's a directory
+  if [ ! -d "$DIR_ARG" ]; then
+    echo "Error: '$DIR_ARG' is not a directory"
+    exit 1
+  fi
+fi
+
+cd "$VIEWER_ROOT"
+./node_modules/.bin/electron-vite dev -- ${DIR_ARG:+"$DIR_ARG"}

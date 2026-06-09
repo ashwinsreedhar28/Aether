@@ -1,0 +1,12 @@
+#!/bin/sh
+# Pre-commit hook: block commits that don't typecheck or lint cleanly.
+# Wired via `core.hooksPath scripts/githooks` (set by the package.json "prepare" script).
+# Bypass with `git commit --no-verify` when you really need to.
+
+echo "[pre-commit] running typecheck + lint..."
+npm run check
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo "[pre-commit] check failed — fix the errors above or use 'git commit --no-verify' to bypass."
+fi
+exit "$status"

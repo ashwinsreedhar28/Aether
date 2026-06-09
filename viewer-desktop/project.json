@@ -1,0 +1,40 @@
+{
+  "name": "Viewer",
+  "status": "active",
+  "summary": "Core file navigation and windowing system for Personal OS - an Electron app that provides a desktop-like interface for browsing and editing files.",
+  "goals": [
+    "Provide intuitive file tree navigation",
+    "Multi-window system with tabs, drag-and-drop, and tiling",
+    "Support markdown preview, code editing, and image viewing",
+    "Real-time file watching and updates"
+  ],
+  "currentState": "Converted from browser app (React + Express) to standalone Electron app using electron-vite. IPC replaces REST API, file watching via chokidar in main process. Added a Cmd/Ctrl+Arrow fallback to keep window navigation working from text-input-focused apps like Terminal.",
+  "keyFiles": {
+    "main": "electron/main/index.ts",
+    "preload": "electron/preload/index.ts",
+    "renderer": "src/App.tsx",
+    "fileHandlers": "electron/main/ipc/fileHandlers.ts",
+    "stores": "src/stores/"
+  },
+  "architecture": {
+    "type": "electron-app",
+    "frontend": "react",
+    "buildTool": "electron-vite",
+    "stateManagement": "zustand",
+    "styling": "tailwindcss"
+  },
+  "configuration": {
+    "defaultRootDir": "~/Desktop/root",
+    "fileWatcherDepth": 3,
+    "treeMaxDepth": 5
+  },
+  "relatedProjects": [
+    "personal_os"
+  ],
+  "agentNotes": "File watcher depth limited to 3 to avoid EMFILE errors on directories with many files. Uses .cjs extension for main/preload due to package.json having type:module. Config persists to Electron userData (~Library/Application Support/viewer/).",
+  "metadata": {
+    "created": "2025-11-25",
+    "lastModified": "2025-11-26",
+    "tags": ["ui", "electron", "file-explorer", "windowing"]
+  }
+}

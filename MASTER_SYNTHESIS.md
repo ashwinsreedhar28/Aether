@@ -1,3 +1,5 @@
+> **HISTORICAL — 2026-06-10.** This is the briefing that drove the rebuild: it describes the four pre-absorption source repos under `_ingest/` as they were cloned, not the system Aether has since become. For the living architecture, read [docs/atlas/architecture.html](docs/atlas/architecture.html); for current operating law, [CLAUDE.md](CLAUDE.md).
+
 # Aether — Master Synthesis
 
 > Written under the working name **homeOS** through v0.3.x; references to "homeOS" inside this document have been retargeted to "Aether" by the rename PR. Filesystem paths like `~/Aether/` reflect the renamed project's intended layout (the actual workspace directory under Director's home is a separate rename decision Director may make later — GitHub auto-redirect keeps the existing repo URL alive in the meantime).

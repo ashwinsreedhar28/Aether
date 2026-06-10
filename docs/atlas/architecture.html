@@ -121,6 +121,8 @@
   .rung{margin-top:18px;border:1px dashed rgba(232,163,61,.5);border-radius:10px;padding:18px 20px;background:rgba(232,163,61,.03)}
   .rung .k{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--amber)}
   .rung h3{font-size:16px;margin:6px 0 4px}
+  .rung.live{border:1px solid rgba(53,199,154,.45);background:rgba(53,199,154,.03)}
+  .rung.live .k{color:var(--teal)}
 
   /* inflight banner */
   .inflight{margin-top:28px;border:1px solid var(--line2);border-left:2px solid var(--violet);border-radius:10px;
@@ -144,6 +146,7 @@
   .disc .verdict{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:99px;border:1px solid}
   .verdict.frozen{color:var(--gray);border-color:var(--line2)}
   .verdict.drift{color:var(--amber);border-color:rgba(232,163,61,.5)}
+  .verdict.pending{color:var(--violet);border-color:rgba(167,139,250,.5)}
   .disc .body{padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .disc .body .col span{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:5px}
   .disc .body .col p{font-size:13px;color:var(--mut)}
@@ -173,22 +176,22 @@
     <div class="kicker">Aether · the atlas</div>
     <h1>What exists, wired<br>the way the source<br>actually wires it.</h1>
     <p class="sub" style="margin-top:24px">One self-contained map of the running system — every box and arrow verified against code, every count carrying the file it was read from. The dated snapshots in <span class="mono">history/</span> are frozen; this page is kept current.</p>
-    <div class="date">2026 · 06 · 07 — drawn against v0.10.0 · branch <span style="color:var(--mut)">docs/atlas</span></div>
+    <div class="date">2026 · 06 · 10 — drawn against main <span style="color:var(--mut)">@ 9ad50de</span> (the viewer arc landed · release tag pending) · branch <span style="color:var(--mut)">docs/atlas-post-arc</span></div>
     <div class="stats">
-      <div class="stat"><b>19</b><span>mesh nodes</span></div>
-      <div class="stat"><b>69</b><span>signed edges</span></div>
-      <div class="stat"><b>40</b><span>node surfaces</span></div>
-      <div class="stat"><b>41</b><span>live voice fns</span></div>
-      <div class="stat"><b>4</b><span>cockpit views</span></div>
-      <div class="stat"><b>3</b><span>loopback ports</span></div>
+      <div class="stat"><b>20</b><span>mesh nodes</span></div>
+      <div class="stat"><b>80</b><span>signed edges</span></div>
+      <div class="stat"><b>50</b><span>node surfaces</span></div>
+      <div class="stat"><b>47</b><span>live voice fns</span></div>
+      <div class="stat"><b>23</b><span>registered apps</span></div>
+      <div class="stat"><b>2</b><span>loopback ports</span></div>
     </div>
-    <div class="cite">manifest.yaml · nodes[] + relationships[] parse · daemons/raven-core/raven_core/tools/ · shell/src/dashboard/Shell.tsx</div>
+    <div class="cite">manifest.yaml · nodes[] + relationships[] parse · daemons/raven-core/raven_core/tools/*.py FUNCTIONS · shell/src/apps/*/index.ts · coreManager.ts:30 + ravenDaemonManager.ts:50</div>
     <nav class="toc">
       <a href="#topology">01 · process topology</a>
       <a href="#mesh">02 · the mesh</a>
       <a href="#voice">03 · voice pipeline</a>
       <a href="#data">04 · data layer</a>
-      <a href="#cockpit">05 · the cockpit</a>
+      <a href="#viewer">05 · the viewer shell</a>
       <a href="#loop">06 · self-building loop</a>
       <a href="#ports">07 · ports & processes</a>
       <a href="#appendix">A · discrepancies</a>
@@ -200,11 +203,11 @@
 <section id="topology">
   <div class="wrap">
     <div class="kicker">01 · process topology</div>
-    <h2>Five processes the shell spawns and supervises</h2>
-    <p class="sub">The Electron main process is the conductor. On boot its daemon-managers spawn the Core broker, the voice stack, the mesh nodes, and the scene server — each a separate process on its own loopback port. Nothing binds beyond <span class="mono">127.0.0.1</span> except the scene server, which adds Tailscale for the headset.</p>
+    <h2>Eighteen children, and one node that never leaves the main process</h2>
+    <p class="sub">The Electron main process is the conductor. On boot its daemon-managers spawn the Core broker, the voice stack, and sixteen mesh nodes — each a separate process on loopback. The <span class="mono">viewer_desktop</span> node is the exception: it runs <i>inside</i> the main process, translating signed mesh calls into renderer window actions. Nothing binds beyond <span class="mono">127.0.0.1</span>; the scene server is no longer in the boot path at all.</p>
 
-    <svg viewBox="0 0 1020 640" role="img">
-      <title>Aether process topology — main process, Core broker, voice stack, mesh nodes, scene server</title>
+    <svg viewBox="0 0 1020 548" role="img">
+      <title>Aether process topology — main process, Core broker, voice stack, mesh nodes, in-process viewer_desktop, AVP-track reference</title>
       <defs>
         <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
           <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -218,26 +221,25 @@
       <text x="116" y="76" text-anchor="middle" class="sm">PyAudio</text>
       <rect x="190" y="44" width="120" height="40" rx="8" fill="var(--panel)" stroke="var(--line2)"/>
       <text x="250" y="62" text-anchor="middle" class="lbl">keyboard</text>
-      <text x="250" y="76" text-anchor="middle" class="sm">CLI · typed</text>
+      <text x="250" y="76" text-anchor="middle" class="sm">cmd-/ console</text>
       <rect x="324" y="44" width="120" height="40" rx="8" fill="var(--panel)" stroke="var(--line2)"/>
-      <text x="384" y="62" text-anchor="middle" class="lbl">glass</text>
-      <text x="384" y="76" text-anchor="middle" class="sm">cockpit 4 views</text>
+      <text x="384" y="62" text-anchor="middle" class="lbl">display</text>
+      <text x="384" y="76" text-anchor="middle" class="sm">workspaces▸windows</text>
 
       <!-- electron shell -->
       <rect x="56" y="116" width="388" height="96" rx="11" fill="rgba(110,168,255,.05)" stroke="var(--accent)" stroke-width="1.2"/>
-      <text x="72" y="140" class="ttl" style="fill:var(--accent)">Electron shell</text>
+      <text x="72" y="140" class="ttl" style="fill:var(--accent)">Electron shell — the Viewer</text>
       <text x="72" y="158" class="sm">main process · renderer · window.aether IPC bridge</text>
-      <rect x="72" y="170" width="170" height="30" rx="7" fill="var(--panel)" stroke="var(--line2)"/>
-      <text x="157" y="189" text-anchor="middle" class="sm" style="fill:var(--mut)">daemon-managers</text>
-      <rect x="256" y="170" width="172" height="30" rx="7" fill="var(--panel)" stroke="var(--line2)"/>
-      <text x="342" y="189" text-anchor="middle" class="sm" style="fill:var(--mut)">sceneSubscriber (WS)</text>
+      <rect x="72" y="170" width="160" height="30" rx="7" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="152" y="189" text-anchor="middle" class="sm" style="fill:var(--mut)">daemon-managers</text>
+      <rect x="244" y="170" width="184" height="30" rx="7" fill="var(--panel)" stroke="rgba(110,168,255,.4)"/>
+      <text x="336" y="189" text-anchor="middle" class="sm" style="fill:var(--accent)">viewer_desktop · in-proc</text>
 
-      <line x1="116" y1="84" x2="116" y2="116" stroke="var(--mut)" stroke-width="1.3" marker-end="url(#ah)"/>
       <line x1="250" y1="84" x2="250" y2="116" stroke="var(--mut)" stroke-width="1.3" marker-end="url(#ah)"/>
       <line x1="384" y1="116" x2="384" y2="84" stroke="var(--mut)" stroke-width="1.3" marker-end="url(#ah)"/>
 
       <!-- spawns label -->
-      <text x="250" y="236" text-anchor="middle" class="sm" style="fill:var(--dim)">spawn + supervise (loopback HTTP/WS)</text>
+      <text x="250" y="236" text-anchor="middle" class="sm" style="fill:var(--dim)">spawn + supervise (loopback HTTP)</text>
 
       <!-- voice stack column -->
       <rect x="56" y="252" width="220" height="56" rx="9" fill="var(--panel)" stroke="var(--accent)"/>
@@ -245,10 +247,14 @@
       <text x="166" y="292" text-anchor="middle" class="sm" style="fill:var(--teal)">:7433 · Node HTTP+WS supervisor</text>
       <line x1="166" y1="308" x2="166" y2="338" stroke="var(--mut)" stroke-width="1.3" marker-end="url(#ah)"/>
       <text x="226" y="328" class="sm">spawns child</text>
-      <rect x="56" y="342" width="220" height="60" rx="9" fill="var(--panel)" stroke="var(--violet)"/>
+      <rect x="56" y="342" width="220" height="72" rx="9" fill="var(--panel)" stroke="var(--violet)"/>
       <text x="166" y="364" text-anchor="middle" class="ttl" style="fill:var(--violet)">raven-core</text>
       <text x="166" y="381" text-anchor="middle" class="sm">Gemini 2.5 Live · the brain</text>
-      <text x="166" y="394" text-anchor="middle" class="sm" style="fill:var(--violet)">mesh node “raven” · outbound only</text>
+      <text x="166" y="396" text-anchor="middle" class="sm" style="fill:var(--violet)">mesh node “raven” · outbound only</text>
+      <text x="60" y="436" class="sm" style="fill:var(--violet)">↻ resumes after Gemini’s 1008 kill</text>
+      <text x="74" y="450" class="sm">(cached session-resumption handle)</text>
+      <text x="60" y="470" class="sm" style="fill:var(--violet)">✂ barge-in: talking over Raven cuts</text>
+      <text x="74" y="484" class="sm">playback and interrupts the reply</text>
 
       <!-- core broker column -->
       <rect x="400" y="252" width="220" height="56" rx="9" fill="var(--panel)" stroke="var(--accent)" stroke-width="1.2"/>
@@ -257,56 +263,57 @@
       <line x1="510" y1="308" x2="510" y2="338" stroke="var(--mut)" stroke-width="1.3" marker-end="url(#ah)"/>
       <text x="568" y="328" class="sm">dispatch</text>
 
+      <!-- core -> viewer_desktop (in-proc) -->
+      <path d="M 430 252 C 410 228, 380 212, 344 202" fill="none" stroke="var(--accent)" stroke-width="1.3" marker-end="url(#ah)"/>
+      <text x="442" y="240" class="sm" style="fill:var(--accent)">window control</text>
+
       <!-- mesh nodes block -->
       <rect x="356" y="342" width="308" height="118" rx="10" fill="rgba(255,255,255,.012)" stroke="var(--line2)"/>
-      <text x="372" y="364" class="sm" style="fill:var(--accent)">19 MESH NODES · one process each</text>
+      <text x="372" y="364" class="sm" style="fill:var(--accent)">16 OF 20 MESH NODES SPAWNED · one process each</text>
       <rect x="372" y="376" width="276" height="30" rx="7" fill="var(--panel)" stroke="rgba(110,168,255,.4)"/>
-      <text x="510" y="395" text-anchor="middle" class="sm" style="fill:var(--accent)">14 TypeScript · nodes/&lt;id&gt;/dist/index.js</text>
+      <text x="510" y="395" text-anchor="middle" class="sm" style="fill:var(--accent)">13 TypeScript · nodes/&lt;id&gt;/dist/index.js</text>
       <rect x="372" y="412" width="276" height="30" rx="7" fill="var(--panel)" stroke="rgba(232,163,61,.4)"/>
       <text x="510" y="431" text-anchor="middle" class="sm" style="fill:var(--amber)">3 Python · calendar · reminders · vision (venv)</text>
+      <text x="356" y="482" class="sm" style="fill:var(--dim)">remaining four: shell + raven are clients · viewer_desktop lives in</text>
+      <text x="356" y="496" class="sm" style="fill:var(--dim)">Electron main · visualizer parked for the AVP track (#220)</text>
 
       <!-- raven-core -> core (mesh.invoke) -->
       <path d="M276 372 C 330 372, 340 290, 400 282" fill="none" stroke="var(--violet)" stroke-width="1.4" marker-end="url(#ah)"/>
-      <text x="300" y="318" class="sm" style="fill:var(--violet)">mesh.invoke</text>
+      <text x="296" y="318" class="sm" style="fill:var(--violet)">mesh.invoke · 46</text>
       <!-- shell -> core (mesh.invoke) -->
       <path d="M444 178 C 600 178, 620 230, 600 250" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-dasharray="1 0" marker-end="url(#ah)"/>
-      <text x="556" y="206" class="sm" style="fill:var(--accent)">shell edges</text>
+      <text x="556" y="206" class="sm" style="fill:var(--accent)">renderer edges · 21</text>
 
-      <!-- scene server column -->
-      <rect x="744" y="252" width="220" height="56" rx="9" fill="var(--panel)" stroke="var(--coral)"/>
-      <text x="854" y="274" text-anchor="middle" class="ttl" style="fill:var(--coral)">RAVEN_AVP scene</text>
-      <text x="854" y="292" text-anchor="middle" class="sm">:5180 · FastAPI · authoritative SceneDoc</text>
-      <text x="854" y="232" text-anchor="middle" class="sm" style="fill:var(--dim)">submodule · AVP track</text>
-
-      <!-- visualizer -> scene (HTTP POST) -->
-      <path d="M648 420 C 760 420, 840 340, 854 308" fill="none" stroke="var(--coral)" stroke-width="1.4" marker-end="url(#ah)"/>
-      <text x="700" y="392" class="sm" style="fill:var(--coral)">visualizer ─ POST panel</text>
-      <!-- scene -> shell (WS stream) -->
-      <path d="M790 252 C 600 150, 470 196, 430 196" fill="none" stroke="var(--coral)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah)"/>
-      <text x="556" y="150" class="sm" style="fill:var(--coral)">WS /scene/stream → renderer</text>
+      <!-- AVP-track reference (no arrows — not in the boot path) -->
+      <text x="854" y="236" text-anchor="middle" class="sm" style="fill:var(--dim)">out of the boot path · reference only</text>
+      <rect x="744" y="252" width="220" height="150" rx="9" fill="none" stroke="var(--gray)" stroke-dasharray="5 4"/>
+      <text x="854" y="278" text-anchor="middle" class="ttl" style="fill:var(--gray)">AVP track</text>
+      <text x="760" y="302" class="sm">RAVEN_AVP scene server —</text>
+      <text x="760" y="316" class="sm">retired in place (merge ADR §5):</text>
+      <text x="760" y="330" class="sm">no spawn, no :5180, code kept,</text>
+      <text x="760" y="344" class="sm">so revival is a boot change.</text>
+      <text x="760" y="368" class="sm">visualizer node parked with it</text>
+      <text x="760" y="382" class="sm">(despawned on desktop, #220)</text>
 
       <!-- voice path mic -> raven-core -->
       <path d="M96 84 C 40 160, 40 250, 90 342" fill="none" stroke="var(--violet)" stroke-width="1.4" marker-end="url(#ah)"/>
       <text x="20" y="220" class="sm" style="fill:var(--violet)" transform="rotate(-90 20 220)">audio in/out</text>
 
       <!-- bottom note -->
-      <text x="744" y="372" class="sm" style="fill:var(--dim)">Not a mesh node —</text>
-      <text x="744" y="388" class="sm" style="fill:var(--dim)">external HTTP infra,</text>
-      <text x="744" y="404" class="sm" style="fill:var(--dim)">consumed like a DB.</text>
-      <text x="744" y="428" class="sm" style="fill:var(--dim)">Vite dev :5173 (dev</text>
-      <text x="744" y="444" class="sm" style="fill:var(--dim)">renderer HMR only).</text>
+      <text x="744" y="440" class="sm" style="fill:var(--dim)">Vite dev :5173 (dev</text>
+      <text x="744" y="456" class="sm" style="fill:var(--dim)">renderer HMR only).</text>
     </svg>
 
     <div class="legend">
       <span><i style="border-color:var(--accent)"></i>shell mesh edge (signed)</span>
       <span><i style="border-color:var(--violet)"></i>voice / raven-core</span>
-      <span><i style="border-color:var(--coral);border-top-style:dashed"></i>scene server (HTTP + WS)</span>
+      <span><b class="box" style="border-color:var(--gray);border-style:dashed"></b>AVP reference (not running)</span>
       <span><b class="box" style="border-color:var(--amber)"></b>Python process</span>
       <span><b class="box" style="border-color:var(--accent)"></b>TypeScript/Node process</span>
     </div>
-    <div class="cite">shell/electron/main/index.ts (boot) · services/{coreManager,ravenDaemonManager,sceneServerDaemonManager,nodeManager}.ts · daemons/README.md · core/README.md</div>
+    <div class="cite">shell/electron/main/index.ts (boot) · services/{coreManager,ravenDaemonManager,nodeManager,visionDaemonManager,calendarDaemonManager}.ts · services/viewerNode.ts (in-proc node) · raven_core/client.py:101 (resumption) · orchestrator.py (1008 reconnect · barge-in)</div>
 
-    <p style="margin-top:30px">The Python brain never touches the mesh directly through a privileged channel — it registers as the <span class="mono">raven</span> node and reaches every capability through <span class="mono">mesh.invoke()</span>, the same signed path the shell uses. Voice and shell are peers on the fabric, not a layered hierarchy.</p>
+    <p style="margin-top:30px">The Python brain never touches the mesh through a privileged channel — it registers as the <span class="mono">raven</span> node and reaches every capability through <span class="mono">mesh.invoke()</span>, the same signed path the shell uses. That now includes the desktop itself: when raven opens an app or tiles windows, the call crosses Core to <span class="mono">viewer_desktop</span> and lands in the renderer like any other audited hop. Voice and shell are peers on the fabric, not a layered hierarchy.</p>
   </div>
 </section>
 
@@ -315,7 +322,7 @@
   <div class="wrap">
     <div class="kicker">02 · the mesh — the spine</div>
     <h2>Authorization is graph membership, nothing else</h2>
-    <p class="sub"><span class="mono">manifest.yaml</span> declares 19 nodes and 69 directed edges. An edge present means the call is permitted; absent means denied. There is no policy field, no role table, no back channel — to grant a capability you add a line. Identity is a per-node HMAC secret referenced as <span class="mono">env:MESH_*_SECRET</span> and injected by the shell at boot.</p>
+    <p class="sub"><span class="mono">manifest.yaml</span> declares 20 nodes and 80 directed edges. An edge present means the call is permitted; absent means denied. There is no policy field, no role table, no back channel — to grant a capability you add a line. Identity is a per-node HMAC secret referenced as <span class="mono">env:MESH_*_SECRET</span> and injected by the shell at boot.</p>
 
     <div class="cats">
       <div class="cat sen">
@@ -325,31 +332,32 @@
         <div class="members">news_feeds · finance · weather<br>calendar · reminders · time<br>system_info · clipboard_history<br>macos_messages · macos_mail · vision<br>mesh_introspection · lanes · intents</div>
       </div>
       <div class="cat act">
-        <div class="n">1</div>
-        <h3>Actor</h3>
-        <p>Acts on the world. One surface today: a native macOS notification fired per invocation.</p>
-        <div class="members">host_notifications</div>
+        <div class="n">2</div>
+        <h3>Actors</h3>
+        <p>Act on the world. A native macOS notification per invocation — and the desktop itself: nine window-control surfaces driven over the mesh.</p>
+        <div class="members">host_notifications · viewer_desktop</div>
       </div>
       <div class="cat mix">
         <div class="n">4</div>
         <h3>Mixers</h3>
-        <p>Compose across the mesh. The shell &amp; raven are mesh clients; digest fans in; visualizer turns mesh data into scene panels.</p>
-        <div class="members">shell · raven<br>digest · visualizer</div>
+        <p>Compose across the mesh. The shell &amp; raven are mesh clients; digest fans in; visualizer is parked for the AVP track.</p>
+        <div class="members">shell · raven<br>digest · visualizer <span style="color:var(--dim)">(parked)</span></div>
       </div>
     </div>
-    <div class="cite">manifest.yaml · category field per node · 19 = 14 Sensor + 1 Actor + 4 Mixer</div>
+    <div class="cite">manifest.yaml · category field per node · 20 = 14 Sensor + 2 Actor + 4 Mixer</div>
 
     <h3 style="margin-top:54px">Node register</h3>
-    <p style="margin-top:6px">17 nodes have a directory under <span class="mono">nodes/</span>; <span class="mono">shell</span> (Electron main) and <span class="mono">raven</span> (the voice daemon) are the two mesh participants that live elsewhere — that is the 17-dir / 19-node gap.</p>
+    <p style="margin-top:6px">18 nodes have a directory under <span class="mono">nodes/</span>; <span class="mono">shell</span> (Electron main) and <span class="mono">raven</span> (the voice daemon) live elsewhere — that is the 18-dir / 20-node gap. Two wrinkles inside it: <span class="mono">viewer_desktop</span>'s directory holds only its nine surface schemas (the node code runs inside the Electron main process, <span class="mono">services/viewerNode.ts</span>), and <span class="mono">visualizer</span> keeps its directory and manifest entry but is not spawned on desktop.</p>
     <table>
       <thead><tr><th>Node</th><th>Cat</th><th>Lang</th><th>Surfaces</th></tr></thead>
       <tbody>
         <tr><td>shell</td><td><span class="tag mix">mixer</span></td><td><span class="tag ts">TS</span></td><td>— · client only (no inbound surface)</td></tr>
         <tr><td>raven</td><td><span class="tag mix">mixer</span></td><td><span class="tag py">py</span></td><td>— · outbound only (Gemini Live)</td></tr>
+        <tr><td>viewer_desktop</td><td><span class="tag act">actor</span></td><td><span class="tag ts">TS</span></td><td>open_app · list_apps · open_view · list_views · list_windows · focus_window · close_window · apply_layout · notify <span style="color:var(--dim)">(in-proc, Electron main)</span></td></tr>
         <tr><td>news_feeds</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>recent · search · breaking · search_by_entity</td></tr>
         <tr><td>finance</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>quote · market_summary · history · movers · sectors · earnings · market_overview</td></tr>
         <tr><td>weather</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>current · forecast</td></tr>
-        <tr><td>calendar</td><td><span class="tag sen">sensor</span></td><td><span class="tag py">py</span></td><td>today · upcoming · next_event</td></tr>
+        <tr><td>calendar</td><td><span class="tag sen">sensor</span></td><td><span class="tag py">py</span></td><td>today · upcoming · next_event · get_week</td></tr>
         <tr><td>reminders</td><td><span class="tag sen">sensor</span></td><td><span class="tag py">py</span></td><td>due_today · overdue · upcoming</td></tr>
         <tr><td>system_info</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>battery · disk · network · active_app · processes</td></tr>
         <tr><td>time</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>now</td></tr>
@@ -362,24 +370,24 @@
         <tr><td>intents</td><td><span class="tag sen">sensor</span></td><td><span class="tag ts">TS</span></td><td>record · list · close · <span style="color:var(--dim)">(the gap ledger)</span></td></tr>
         <tr><td>host_notifications</td><td><span class="tag act">actor</span></td><td><span class="tag ts">TS</span></td><td>notify</td></tr>
         <tr><td>digest</td><td><span class="tag mix">mixer</span></td><td><span class="tag ts">TS</span></td><td>morning · evening</td></tr>
-        <tr><td>visualizer</td><td><span class="tag mix">mixer</span></td><td><span class="tag ts">TS</span></td><td>render · <span style="color:var(--dim)">(mesh in → scene-server HTTP out)</span></td></tr>
+        <tr><td>visualizer</td><td><span class="tag mix">mixer</span></td><td><span class="tag ts">TS</span></td><td>render · <span style="color:var(--dim)">(parked — not spawned on desktop, held for AVP)</span></td></tr>
       </tbody>
     </table>
-    <div class="cite">manifest.yaml · nodes[].surfaces (40 total) · language by file extension scan of nodes/&lt;id&gt;/src</div>
+    <div class="cite">manifest.yaml · nodes[].surfaces (50 total) · language by file extension scan of nodes/&lt;id&gt;/src · viewerNode.ts (viewer_desktop host)</div>
 
     <h3 style="margin-top:54px">Edge fan-out · who can invoke</h3>
-    <p style="margin-top:6px">Only 5 of the 19 nodes originate edges. The voice brain is the overwhelming consumer; the shell renderer is second; <span class="mono">digest</span> and <span class="mono">visualizer</span> fan into other nodes to compose.</p>
+    <p style="margin-top:6px">Only 5 of the 20 nodes originate edges. The voice brain is the overwhelming consumer — its biggest single grant is now the desktop (all nine <span class="mono">viewer_desktop</span> surfaces); the shell renderer is second; <span class="mono">digest</span> and <span class="mono">visualizer</span> fan into other nodes to compose.</p>
     <table>
       <thead><tr><th>Source</th><th>Out-edges</th><th>Reaches</th></tr></thead>
       <tbody>
-        <tr><td>raven</td><td>37</td><td>nearly every sensor + the loop surfaces (intents) + notify + visualize</td></tr>
-        <tr><td>shell</td><td>19</td><td>renderer-fired reads: news, finance, weather, system_info, notify, …</td></tr>
-        <tr><td>digest</td><td>7</td><td>fans into news / weather / calendar / finance / … to compose briefings</td></tr>
-        <tr><td>visualizer</td><td>5</td><td>pulls mesh data (e.g. mesh_introspection, finance) to build panels</td></tr>
+        <tr><td>raven</td><td>46</td><td>nearly every sensor + the loop surfaces (intents) + notify + all nine viewer_desktop window surfaces</td></tr>
+        <tr><td>shell</td><td>21</td><td>renderer-fired reads (news, finance, digest, introspection, lanes, gaps) + notify + two viewer_desktop surfaces + the reserved visualizer.render</td></tr>
+        <tr><td>digest</td><td>7</td><td>fans into news / finance / weather / notify to compose briefings</td></tr>
+        <tr><td>visualizer</td><td>5</td><td>read edges kept while parked (introspection, lanes, intents, calendar); its render surface has only the reserved shell edge — the raven edge was removed, a retirement comment marks the spot (manifest.yaml:742)</td></tr>
         <tr><td>lanes</td><td>1</td><td>a single composing edge</td></tr>
       </tbody>
     </table>
-    <div class="cite">manifest.yaml · relationships[] parse · 37+19+7+5+1 = 69</div>
+    <div class="cite">manifest.yaml · relationships[] parse · 46+21+7+5+1 = 80</div>
   </div>
 </section>
 
@@ -387,39 +395,39 @@
 <section id="voice">
   <div class="wrap">
     <div class="kicker">03 · the voice pipeline</div>
-    <h2>Mic → Gemini Live → a tool → the mesh → spoken + a panel</h2>
-    <p class="sub">The brain is Gemini 2.5 native-audio Live. It hears continuously, decides when to call a function, and the orchestrator routes that call. Most tools cross the mesh; a few are raven-local. Answers come back as speech; visual ones also POST a panel that surfaces in the cockpit.</p>
+    <h2>Mic → Gemini Live → a tool → the mesh → spoken + the desktop moves</h2>
+    <p class="sub">The brain is Gemini 2.5 native-audio Live. It hears continuously, decides when to call a function, and the orchestrator routes that call. Most tools cross the mesh; a few are raven-local. Answers come back as speech; desktop-control calls land as real window actions in the Viewer.</p>
 
     <ul class="flow">
-      <li data-n="1" style="--dot:var(--violet)"><h3>Hear</h3><p>Audio streams in over PyAudio to <code>raven-core</code>'s Gemini Live session. Typed CLI input rides the same brain — one model for spoken and typed.</p></li>
-      <li data-n="2" style="--dot:var(--violet)"><h3>Decide</h3><p>Gemini emits a <code>function_call</code>. The orchestrator's <code>handle_function_call_async</code> dispatches by name across the discovered tool modules.</p></li>
-      <li data-n="3" style="--dot:var(--accent)"><h3>Invoke</h3><p>For mesh tools, the handler calls <code>mesh.invoke('node.surface')</code> → a signed envelope to Core <code>:8000</code> → the edge graph permits → the node runs and returns. Raven-local tools (memory, navigate, draft_lane) skip the mesh.</p></li>
-      <li data-n="4" style="--dot:var(--teal)"><h3>Speak</h3><p>The result is fed back into Gemini, which narrates one line. Side-effect tools (<code>notify</code>, <code>report_gap</code>, <code>draft_lane</code>) return a tiny ack, never content to read aloud.</p></li>
-      <li data-n="5" style="--dot:var(--coral)"><h3>Show</h3><p><code>visualize</code> routes through the <code>visualizer</code> node, which POSTs a panel to the scene server. The shell's WS subscriber pushes it to the renderer and it lands in the Scene view.</p></li>
+      <li data-n="1" style="--dot:var(--violet)"><h3>Hear</h3><p>Audio streams in over PyAudio to <code>raven-core</code>'s Gemini Live session. Typed input from the cmd-/ Aether Console rides the same brain — one model for spoken and typed. An echo gate runs an energy detector during playback, so talking over Raven cuts its audio and interrupts the reply (barge-in).</p></li>
+      <li data-n="2" style="--dot:var(--violet)"><h3>Decide</h3><p>Gemini emits a <code>function_call</code>. The orchestrator's <code>handle_function_call_async</code> dispatches by name across the discovered tool modules. If Gemini's server kills the socket (the known post-tool-response 1008), the reconnect loop resumes the session from the cached resumption handle instead of dying.</p></li>
+      <li data-n="3" style="--dot:var(--accent)"><h3>Invoke</h3><p>For mesh tools, the handler calls <code>mesh.invoke('node.surface')</code> → a signed envelope to Core <code>:8000</code> → the edge graph permits → the node runs and returns. Raven-local tools (memory, draft_lane) skip the mesh.</p></li>
+      <li data-n="4" style="--dot:var(--teal)"><h3>Speak</h3><p>The result is fed back into Gemini, which narrates one line. Side-effect tools (<code>notify</code>, <code>report_gap</code>, <code>draft_lane</code>, <code>request_spawn</code>) return a tiny ack, never content to read aloud.</p></li>
+      <li data-n="5" style="--dot:var(--coral)"><h3>Act on the desktop</h3><p><code>open_app</code> and <code>arrange_windows</code> route through the <code>viewer_desktop</code> node — in-process in Electron main — which drives the renderer's control bridge: a real app window opens, or the layout tiles/splits on command. <code>open_app</code> fuzzy-matches spoken names against the live registry and answers a miss with <code>did_you_mean</code>.</p></li>
     </ul>
-    <div class="cite">daemons/raven-core/raven_core/orchestrator.py · tools/__init__.py (auto-discovery) · mesh_client.py · docs/scene-protocol.md</div>
+    <div class="cite">daemons/raven-core/raven_core/orchestrator.py · tools/__init__.py (auto-discovery) · mesh_client.py · tools/viewer_tool.py · shell/electron/main/services/{viewerNode,viewerControl}.ts</div>
 
-    <h3 style="margin-top:54px">The tool catalog · 41 live functions</h3>
-    <p style="margin-top:6px">Tool modules are auto-discovered at import: every <span class="mono">*.py</span> in <span class="mono">tools/</span> exporting <span class="mono">get_tools()</span> + a handler is registered, except three held in <span class="mono">_DISABLED_MODULES</span>. That leaves <b style="color:var(--txt)">19 live modules → 41 function declarations</b> Gemini can call.</p>
+    <h3 style="margin-top:54px">The tool catalog · 47 live functions</h3>
+    <p style="margin-top:6px">Tool modules are auto-discovered at import: every <span class="mono">*.py</span> in <span class="mono">tools/</span> exporting <span class="mono">get_tools()</span> + a handler is registered, except three held in <span class="mono">_DISABLED_MODULES</span>. 22 module files on disk; that leaves <b style="color:var(--txt)">19 live modules → 47 function declarations</b> Gemini can call.</p>
 
     <div class="tools">
       <div class="tgrp"><div class="h"><b>finance</b><span>7</span></div><div class="fns">finance_quote · finance_market_summary · finance_history · finance_movers · finance_sectors · finance_earnings · finance_market_overview</div></div>
+      <div class="tgrp"><div class="h"><b>desktop control · viewer</b><span>6</span></div><div class="fns">open_app · arrange_windows · list_apps · list_windows · focus_window · close_window</div></div>
       <div class="tgrp"><div class="h"><b>system_info</b><span>5</span></div><div class="fns">system_battery · system_disk · system_network · system_active_app · system_processes</div></div>
+      <div class="tgrp"><div class="h"><b>self-building loop</b><span>5</span></div><div class="fns">report_gap · review_gaps · close_gap · draft_lane · request_spawn</div></div>
       <div class="tgrp"><div class="h"><b>news</b><span>4</span></div><div class="fns">news_recent · news_search · news_breaking · news_search_by_entity</div></div>
-      <div class="tgrp"><div class="h"><b>calendar</b><span>3</span></div><div class="fns">calendar_today · calendar_next · calendar_upcoming</div></div>
+      <div class="tgrp"><div class="h"><b>calendar</b><span>4</span></div><div class="fns">calendar_today · calendar_next · calendar_upcoming · calendar_get_week</div></div>
       <div class="tgrp"><div class="h"><b>reminders</b><span>3</span></div><div class="fns">reminders_due_today · reminders_overdue · reminders_upcoming</div></div>
+      <div class="tgrp"><div class="h"><b>clipboard · messages · time</b><span>3</span></div><div class="fns">clipboard_recent · messages_recent · get_current_time</div></div>
       <div class="tgrp"><div class="h"><b>weather</b><span>2</span></div><div class="fns">weather_current · weather_forecast</div></div>
       <div class="tgrp"><div class="h"><b>mail</b><span>2</span></div><div class="fns">mail_recent · mail_open_latest</div></div>
-      <div class="tgrp"><div class="h"><b>clipboard · messages · time</b><span>3</span></div><div class="fns">clipboard_recent · messages_recent · get_current_time</div></div>
-      <div class="tgrp"><div class="h"><b>actors &amp; mixers</b><span>3</span></div><div class="fns">notify · visualize · digest_briefing</div></div>
-      <div class="tgrp"><div class="h"><b>self-building loop</b><span>4</span></div><div class="fns">report_gap · review_gaps · close_gap · draft_lane</div></div>
+      <div class="tgrp"><div class="h"><b>actors &amp; mixers</b><span>2</span></div><div class="fns">notify · digest_briefing</div></div>
       <div class="tgrp local"><div class="h"><b>memory · raven-local</b><span>4</span></div><div class="fns">remember_note · search_notes · list_notes · delete_note</div></div>
-      <div class="tgrp local"><div class="h"><b>navigate · raven-local</b><span>1</span></div><div class="fns">navigate · <span style="color:var(--dim)">(flips the cockpit view over IPC — no mesh edge)</span></div></div>
     </div>
-    <p style="margin-top:18px;font-family:var(--mono);font-size:12px;color:var(--dim)">disabled (declared, not loaded): <span style="color:var(--amber)">cerebras_tool</span> (call_cerebra) · <span style="color:var(--amber)">silence_tool</span> (no_response) · <span style="color:var(--amber)">system_tool</span> (open_url · open_app · set_visual_mode) — 5 functions held back.</p>
-    <div class="cite">daemons/raven-core/raven_core/tools/*.py · FUNCTIONS lists · _DISABLED_MODULES = {cerebras, silence, system} · 46 declared − 5 disabled = 41 live</div>
+    <p style="margin-top:18px;font-family:var(--mono);font-size:12px;color:var(--dim)">disabled (declared, not loaded): <span style="color:var(--amber)">cerebras_tool</span> (call_cerebra) · <span style="color:var(--amber)">silence_tool</span> (no_response) · <span style="color:var(--amber)">system_tool</span> (open_url · open_app · set_visual_mode) — 5 functions held back. <span style="color:var(--dim)">(system_tool's open_app name is now owned by the live viewer tool; re-enabling it as-is would collide.)</span> The Dashboard-era <span style="color:var(--coral)">visualize</span> + <span style="color:var(--coral)">navigate</span> were deleted outright, not disabled (Lane 3 ADR 2026-06-09).</p>
+    <div class="cite">daemons/raven-core/raven_core/tools/*.py · FUNCTIONS lists · _DISABLED_MODULES = {cerebras, silence, system} · 52 declared − 5 disabled = 47 live</div>
 
-    <p style="margin-top:30px;font-family:var(--mono);font-size:12px;color:var(--mut)">Brain: <span style="color:var(--violet)">models/gemini-2.5-flash-native-audio-preview-09-2025</span> <span class="cite" style="margin-top:0">daemons/raven-core/raven_core/config.py:72</span></p>
+    <p style="margin-top:30px;font-family:var(--mono);font-size:12px;color:var(--mut)">Brain: <span style="color:var(--violet)">models/gemini-2.5-flash-native-audio-preview-12-2025</span> <span class="cite" style="margin-top:0">daemons/raven-core/raven_core/config.py:72</span> · barge-in knobs <span style="color:var(--violet)">barge_in_enabled / barge_in_factor / barge_in_min_rms</span> <span class="cite" style="margin-top:0">config.py:108–117 · overridable in ~/.raven/config.json</span></p>
   </div>
 </section>
 
@@ -428,53 +436,57 @@
   <div class="wrap">
     <div class="kicker">04 · the data layer</div>
     <h2>Everything durable lives under one userData root</h2>
-    <p class="sub">No central database. Each node namespaces its own store under <span class="mono">$userData/data/&lt;node&gt;/</span>; the mesh runtime (pids, logs, the signed-envelope audit) sits under <span class="mono">$userData/mesh/</span>; the voice daemon and a little renderer UI state sit at the top. The shell hands each spawned node a writable root as <span class="mono">AETHER_DATA_DIR</span>.</p>
+    <p class="sub">No central database. Each node namespaces its own store under <span class="mono">$userData/data/&lt;node&gt;/</span>; the mesh runtime (pids, logs, the signed-envelope audit) sits under <span class="mono">$userData/mesh/</span>; the Viewer's persisted layout sits under <span class="mono">config/</span>; the voice daemon at the top. The shell hands each spawned node a writable root as <span class="mono">AETHER_DATA_DIR</span>.</p>
 
     <div class="tree">
 <span class="d">$userData/</span>  <span class="c"># Electron app.getPath('userData')</span>
+├── <span class="d">config/</span><span class="f">config.json</span>            <span class="c"># the Viewer's layout — workspaces ▸ windows ▸ tabs (+ sound config), debounced saves</span>
 ├── <span class="d">mesh/</span>                         <span class="c"># mesh runtime — meshRuntimeDir()</span>
 │   ├── <span class="f">core.pid</span> · <span class="f">core.log</span>
 │   ├── <span class="hot">audit.log</span>                 <span class="c"># every signed envelope, append-only</span>
 │   └── <span class="f">&lt;node&gt;.pid</span> · <span class="f">&lt;node&gt;.log</span>   <span class="c"># per-node runtime</span>
 ├── <span class="d">data/</span>                         <span class="c"># durable node state — nodeDataDir()</span>
 │   ├── <span class="d">intents/</span><span class="hot">gaps.jsonl</span>         <span class="c"># the gap ledger · append-only + fsync</span>
+│   ├── <span class="d">spawns/</span><span class="hot">requests.jsonl</span>      <span class="c"># the spawn-actor ledger · raven appends, shell watches</span>
+│   ├── <span class="d">architect/drafts/</span><span class="f">&lt;slug&gt;-&lt;ts&gt;.md</span>  <span class="c"># lane drafts · raven-local, no mesh hop</span>
 │   ├── <span class="d">macos_mail/</span><span class="f">mail.db</span>        <span class="c"># SQLite (WAL)</span>
 │   ├── <span class="d">news_feeds/</span><span class="f">news.db</span>
 │   ├── <span class="d">finance/</span><span class="f">history.db</span>        <span class="c"># + in-memory quote cache</span>
 │   ├── <span class="d">clipboard_history/</span><span class="f">clipboard.db</span>
-│   ├── <span class="d">macos_messages/</span><span class="f">messages.db</span>  <span class="c"># mirror of ~/Library/Messages/chat.db (read-only)</span>
-│   ├── <span class="d">architect/drafts/</span><span class="f">&lt;slug&gt;-&lt;ts&gt;.md</span>  <span class="c"># lane drafts · raven-local, no mesh hop</span>
-│   └── <span class="d">raven-avp/</span><span class="f">scene_state.json</span>  <span class="c"># scene-server persisted SceneDoc</span>
-├── <span class="d">raven/</span>                        <span class="c"># raven-daemon dir</span>
-│   ├── <span class="f">daemon.pid</span>
-│   └── <span class="d">transcripts/</span><span class="hot">session-&lt;ts&gt;-&lt;id&gt;.jsonl</span>  <span class="c"># survive restart</span>
-└── <span class="f">scene-order.json</span>              <span class="c"># user's drag-reordered panel sequence</span>
+│   └── <span class="d">macos_messages/</span><span class="f">messages.db</span>  <span class="c"># mirror of ~/Library/Messages/chat.db (read-only)</span>
+└── <span class="d">raven/</span>                        <span class="c"># raven-daemon dir</span>
+    ├── <span class="f">daemon.pid</span>
+    └── <span class="d">transcripts/</span><span class="hot">session-&lt;ts&gt;-&lt;id&gt;.jsonl</span>  <span class="c"># survive restart</span>
     </div>
-    <div class="cite">shell/electron/main/services/paths.ts · nodes/intents/src/index.ts (gaps.jsonl) · nodes/macos_mail · nodes/finance · daemons/raven-daemon/src/transcriptStore.ts · raven_core/tools/draft_lane_tool.py</div>
+    <p style="margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--dim)">One derived store lives repo-side instead: <span style="color:var(--mut)">daemons/aether-rag/.rag/index.db</span> — gitignored, rebuilt from the corpus globs; boot runs a freshness guard (staleRagIndex.ts).</p>
+    <div class="cite">shell/electron/main/services/paths.ts (incl. spawnsLedgerPath) · ipc/configHandlers.ts (config.json) · nodes/intents/src/index.ts (gaps.jsonl) · daemons/raven-daemon/src/transcriptStore.ts · raven_core/tools/{draft_lane,request_spawn}_tool.py · staleRagIndex.ts</div>
 
-    <p style="margin-top:28px">Two stores carry the system's self-knowledge: <span class="mono">gaps.jsonl</span> — the append-only log of what Aether was asked and could not do, the input to the self-building loop — and the <span class="mono">transcripts/</span> JSONL, what it heard and said, surfaced in the Chats view. The <span class="mono">audit.log</span> is the third: a complete record of every signed mesh hop.</p>
+    <p style="margin-top:28px">Three stores carry the system's self-knowledge: <span class="mono">gaps.jsonl</span> — the append-only log of what Aether was asked and could not do; the <span class="mono">transcripts/</span> JSONL — what it heard and said; and <span class="mono">audit.log</span> — every signed mesh hop. The spawn ledger is the fourth and newest: a record of what the system asked permission to build.</p>
   </div>
 </section>
 
-<!-- ════════════════════════════ 05 · COCKPIT ════════════════════════════ -->
-<section id="cockpit">
+<!-- ════════════════════════════ 05 · THE VIEWER SHELL ════════════════════════════ -->
+<section id="viewer">
   <div class="wrap">
-    <div class="kicker">05 · the cockpit</div>
-    <h2>Four instrument views, one command line</h2>
-    <p class="sub">The renderer is not a launcher of apps — the content apps were archived in Sprint 6. What remains is a cockpit: four views the voice can navigate between, a typed CLI sharing the voice brain, and a hot-mic indicator. Defined as a 4-member <span class="mono">View</span> union in <span class="mono">shell/src/dashboard/Shell.tsx</span>.</p>
+    <div class="kicker">05 · the viewer shell</div>
+    <h2>Workspaces ▸ windows ▸ tabs — every screen is an app</h2>
+    <p class="sub">The renderer is Viewer's window manager, adopted whole at the merge (ADR 2026-06-09 §1): one workspace store as the single layout authority, with every screen — viewers, terminal, browser, the old cockpit instruments — discovered through one app registry. The four-view cockpit this section used to describe is gone; its instruments are ordinary apps now.</p>
 
     <table>
-      <thead><tr><th>View</th><th>Component</th><th>What it instruments</th></tr></thead>
+      <thead><tr><th>Piece</th><th>Source</th><th>What it does</th></tr></thead>
       <tbody>
-        <tr><td>scene</td><td>SceneView.tsx</td><td>The ambient panel home — the scene-server feed, rendered via PanelRenderer. Stays <b style="color:var(--txt)">mounted</b> even when hidden so panels never tear down.</td></tr>
-        <tr><td>chats</td><td>ChatsView.tsx</td><td>Durable session transcripts — what was heard and said, from the raven-daemon JSONL.</td></tr>
-        <tr><td>mesh</td><td>MeshView.tsx</td><td>The live topology instrument — nodes by category (shape + hue), inspectable signed edges.</td></tr>
-        <tr><td>lanes</td><td>LanesView.tsx</td><td>Agent-visibility — active development lanes with PR state, polled from the lanes node.</td></tr>
+        <tr><td>workspace store</td><td>src/stores/workspaceStore.ts</td><td><b style="color:var(--txt)">The layout authority</b> (merge ADR §5): workspaces ▸ windows ▸ tabs, drag/resize/tiling, pre-tile state restore. Zustand; debounced <span class="mono">saveConfig</span> persists to <span class="mono">$userData/config/config.json</span>.</td></tr>
+        <tr><td>app registry</td><td>src/apps/index.ts</td><td>23 apps registered build-time via <span class="mono">import.meta.glob</span>; <span class="mono">registerApp()</span> + <span class="mono">onRegistryChange()</span> admit mesh-built apps at runtime (merge ADR §2) — the seam the self-build loop targets.</td></tr>
+        <tr><td>viewer_desktop</td><td>electron/main/services/viewerNode.ts</td><td>The desktop's mesh face: nine schema'd surfaces, hosted in-process, each translated through <span class="mono">executeViewerControl</span> into the renderer's <span class="mono">window.__viewerControl</span> bridge. Agents drive windows over signed mesh traffic — <span class="mono">arrange_windows</span> by voice rides <span class="mono">apply_layout</span> (tile / focus / split / thirds / quarters).</td></tr>
+        <tr><td>Aether Console</td><td>components/CommandPalette/CommandPalette.tsx</td><td>cmd-/ · the typed path to raven-core — one brain for spoken and typed (Raven-only assistant, merge ADR §6; label per viewerMenu.ts:253).</td></tr>
+        <tr><td>shell chrome</td><td>components/{Dock, FileExplorer, WorkspaceTabs, SpawnApproval, VoiceMuteButton}</td><td>Dock, file explorer with live watching, workspace tabs, the spawn-approval card (§06), and the hot-mic mute.</td></tr>
       </tbody>
     </table>
-    <div class="cite">shell/src/dashboard/Shell.tsx:13 (View union) + TABS · {Scene,Chats,Mesh,Lanes}View.tsx · Cli.tsx · VoiceIndicator.tsx · PanelRenderer.tsx</div>
 
-    <p style="margin-top:28px">Voice navigation closes the loop: <span class="mono">"go to the mesh"</span> fires the raven-local <span class="mono">navigate</span> tool, which flips the active view over IPC with zero new transport and no manifest edge — distinct from <span class="mono">"show me the mesh,"</span> which summons a panel.</p>
+    <p style="margin-top:24px;font-family:var(--mono);font-size:12px;color:var(--dim)">the 23: api-manager · audio-player · browser · calculator · dependency-graph · <span style="color:var(--teal)">gaps</span> · html-preview · image-viewer · json-viewer · kanban-board · keyboard-shortcuts · knowledge-graph · <span style="color:var(--teal)">lanes</span> · latex-viewer · markdown-viewer · mcp-inspector · mermaid-viewer · <span style="color:var(--teal)">mesh</span> · pdf-viewer · settings · sound-designer · terminal · text-viewer &nbsp;<span style="color:var(--mut)">(teal = the re-homed cockpit instruments)</span></p>
+    <div class="cite">shell/src/stores/workspaceStore.ts · src/apps/index.ts (glob + registerApp + onRegistryChange) · 23 ids from src/apps/*/index.ts · services/{viewerNode,viewerControl}.ts · components/CommandPalette/CommandPalette.tsx · viewerMenu.ts:253</div>
+
+    <p style="margin-top:28px">Voice control of the surface is ordinary mesh traffic now: <span class="mono">"open the terminal"</span> goes raven → Core → <span class="mono">viewer_desktop.open_app</span> → control bridge → a real PTY-backed terminal window, every hop signed and audited like any sensor read. The Dashboard-era <span class="mono">navigate</span> tool — which flipped instrument views over private IPC with no mesh edge — died with the cockpit (Lane 3 ADR 2026-06-09); nothing drives this surface outside the graph anymore.</p>
   </div>
 </section>
 
@@ -483,30 +495,30 @@
   <div class="wrap">
     <div class="kicker">06 · the self-building loop</div>
     <h2>It records what it can't do, then proposes the work</h2>
-    <p class="sub">The first floor is complete: six stages run on the system's own failures, each a live tool or node. The output of stage six is a house-format lane prompt on disk — the same shape this very document was built from. The seventh rung, where Aether spawns its own implementers, is in flight by design.</p>
+    <p class="sub">The first floor is complete: six stages run on the system's own failures, each a live tool or node. The output of stage six is a house-format lane prompt on disk — the same shape this very document was built from. The seventh rung — Aether asking to spawn its own implementer — is live too, behind a human gate.</p>
 
     <div class="loop">
       <div class="lc"><span class="n mono">01</span><h3>Notice</h3><p><span class="mono">report_gap</span> on any unfulfillable ask</p><span class="chip live">● live</span></div>
       <div class="lc"><span class="n mono">02</span><h3>Record</h3><p>intents node → <span class="mono">gaps.jsonl</span>, append-only + fsync</p><span class="chip live">● live</span></div>
-      <div class="lc"><span class="n mono">03</span><h3>See</h3><p>gaps panel — "N open, M closed"</p><span class="chip live">● live</span></div>
+      <div class="lc"><span class="n mono">03</span><h3>See</h3><p>gaps app — "N open, M closed"</p><span class="chip live">● live</span></div>
       <div class="lc"><span class="n mono">04</span><h3>Close</h3><p><span class="mono">close_gap</span> → lifecycle events</p><span class="chip live">● live</span></div>
       <div class="lc"><span class="n mono">05</span><h3>Propose</h3><p><span class="mono">review_gaps</span> → clustered lanes</p><span class="chip live">● live</span></div>
       <div class="lc"><span class="n mono">06</span><h3>Draft</h3><p><span class="mono">draft_lane</span> → spec on disk</p><span class="chip live">● live</span></div>
     </div>
     <p class="loopnote">↻ every closed gap feeds the next build &nbsp;·&nbsp; <b>merge authority never delegates</b> — proposals and specs from the machine, the gate stays human.</p>
 
-    <div class="rung">
-      <span class="k">Rung 2 · in flight</span>
+    <div class="rung live">
+      <span class="k">Rung 2 · live · human-gated</span>
       <h3>The spawn actor</h3>
-      <p>Aether launches its own Claude Code implementers from a drafted lane — spawn-approval UX, default-permission allowlists, kill switch, teardown. Design session pending; the merge gate is constitutional and is never on the table. <span class="tag flight" style="margin-left:4px">in-flight</span></p>
+      <p><span class="mono">request_spawn</span> (voice) appends to the spawn ledger; the shell's <span class="mono">SpawnService</span> watches the file and raises the approval card (<span class="mono">SpawnApproval</span>) — nothing spawns until a human presses Approve. The drafted lane is the slug contract (spawn v1.1 ADR): the spawned Claude Code implementer parses the draft rather than re-deriving it. The merge gate is constitutional and was never on the table. <span class="chip live" style="margin-left:4px">● live</span></p>
     </div>
 
     <div class="inflight">
-      <span class="k">just landed · #187 — second client still in flight</span>
-      <h3>aether-rag — a retrieval brain, now served over MCP</h3>
-      <p>The standalone RAG core under <span class="mono">daemons/aether-rag/</span> indexes Aether's own corpus (governance log, DECISIONS, CHANGELOG, CLAUDE.md, scene protocol, release notes, READMEs, manifest) with <span class="mono">fastembed</span> (<span class="mono">bge-small-en-v1.5</span>, ONNX, no torch) + <span class="mono">sqlite-vec</span>; index at <span class="mono">.rag/index.db</span>. As of <span class="mono">#187</span> it is wrapped as a <b style="color:var(--txt)">stdio MCP server</b> (<span class="mono">server.py</span>) exposing one read-only tool — <span class="mono">search_corpus(query, k, source_filter)</span> — registered project-scoped in a committed <span class="mono">.mcp.json</span>. This is Aether's first real adoption of MCP: an MCP server can serve <i>both</i> the voice brain and the spawned implementers, which a mesh node cannot. <b style="color:var(--txt)">Client one is live</b> — every Claude Code session in the repo inherits the corpus, and <span class="mono">CLAUDE.md §13.13 Precedent-First Implementers</span> now makes a <span class="mono">search_corpus</span> query the default discovery step before each build (this atlas's own drafts route through it). <b style="color:var(--txt)">Client two — the voice brain — is the half still in flight</b>: <span class="mono">raven</span> does not yet query the corpus. <span class="tag flight" style="margin-left:4px">voice client in-flight</span></p>
+      <span class="k">in flight — the corpus's second client</span>
+      <h3>aether-rag — a retrieval brain, served over MCP</h3>
+      <p>The standalone RAG core under <span class="mono">daemons/aether-rag/</span> indexes Aether's own corpus (governance log, DECISIONS, CHANGELOG, CLAUDE.md, scene protocol, release notes, READMEs, manifest) with <span class="mono">fastembed</span> (<span class="mono">bge-small-en-v1.5</span>, ONNX, no torch) + <span class="mono">sqlite-vec</span>; index at <span class="mono">.rag/index.db</span>, now freshness-guarded at boot (<span class="mono">staleRagIndex.ts</span>). It is a stdio MCP server (<span class="mono">server.py</span>) exposing one read-only tool — <span class="mono">search_corpus(query, k, source_filter)</span> — registered project-scoped in a committed <span class="mono">.mcp.json</span>. <b style="color:var(--txt)">Client one is live</b>: every Claude Code session in the repo inherits the corpus, and <span class="mono">CLAUDE.md §13.13 Precedent-First Implementers</span> makes a <span class="mono">search_corpus</span> query the default discovery step before each build. <b style="color:var(--txt)">Client two — the voice brain — is still in flight</b>: <span class="mono">raven</span> has no corpus tool in <span class="mono">tools/</span> and does not query the index. <span class="tag flight" style="margin-left:4px">voice client in-flight</span></p>
     </div>
-    <div class="cite">raven_core/tools/{report_gap,review_gaps,close_gap,draft_lane}_tool.py · nodes/intents · daemons/aether-rag/{server.py,README.md} · .mcp.json · CLAUDE.md §13.13 · CHANGELOG [Unreleased] (#187 RAG MCP)</div>
+    <div class="cite">raven_core/tools/{report_gap,review_gaps,close_gap,draft_lane,request_spawn}_tool.py · nodes/intents · services/{spawnService,spawnLedger,staleRagIndex}.ts · components/SpawnApproval · daemons/aether-rag/server.py · .mcp.json · CLAUDE.md §13.13</div>
   </div>
 </section>
 
@@ -520,14 +532,15 @@
       <tbody>
         <tr><td>8000</td><td>RAVEN_MESH Core</td><td><span class="tag py">py</span></td><td>coreManager.ts</td><td>signed-envelope broker + dispatch · <span class="mono">/v0/healthz</span></td></tr>
         <tr><td>7433</td><td>raven-daemon</td><td><span class="tag ts">TS</span></td><td>ravenDaemonManager.ts</td><td>voice HTTP+WS supervisor (loopback)</td></tr>
-        <tr><td><span style="color:var(--dim)">child</span></td><td>raven-core</td><td><span class="tag py">py</span></td><td>raven-daemon</td><td>Gemini Live brain + 41 voice fns</td></tr>
-        <tr><td>5180</td><td>RAVEN_AVP scene</td><td><span class="tag py">py</span></td><td>sceneServerDaemonManager.ts</td><td>FastAPI · authoritative SceneDoc + WS · submodule</td></tr>
+        <tr><td><span style="color:var(--dim)">child</span></td><td>raven-core</td><td><span class="tag py">py</span></td><td>raven-daemon</td><td>Gemini Live brain + 47 voice fns · session resumption + barge-in</td></tr>
         <tr><td>5173</td><td>Vite dev server</td><td><span class="tag ts">TS</span></td><td>electron-vite</td><td>renderer HMR · <b style="color:var(--txt)">dev only</b></td></tr>
-        <tr><td><span style="color:var(--dim)">n/a</span></td><td>14 TS mesh nodes</td><td><span class="tag ts">TS</span></td><td>nodeManager.ts</td><td>one process each · <span class="mono">dist/index.js</span></td></tr>
+        <tr><td><span style="color:var(--dim)">n/a</span></td><td>13 TS mesh nodes</td><td><span class="tag ts">TS</span></td><td>nodeManager.ts</td><td>one process each · <span class="mono">dist/index.js</span></td></tr>
         <tr><td><span style="color:var(--dim)">n/a</span></td><td>3 Python mesh nodes</td><td><span class="tag py">py</span></td><td>calendar / reminders / vision managers</td><td>venv-bootstrapped · AppleScript / camera</td></tr>
+        <tr><td><span style="color:var(--dim)">in-proc</span></td><td>viewer_desktop</td><td><span class="tag ts">TS</span></td><td>Electron main (viewerNode.ts)</td><td>the desktop's mesh node · no port, no child process</td></tr>
+        <tr><td><span style="color:var(--dim)">—</span></td><td><span style="color:var(--dim)">RAVEN_AVP scene server</span></td><td><span class="tag py">py</span></td><td><span style="color:var(--dim)">not spawned</span></td><td><span style="color:var(--dim)">retired in place for the AVP track (merge ADR §5) · was :5180</span></td></tr>
       </tbody>
     </table>
-    <div class="cite">grep ports across shell/electron/main · coreManager.ts:30 (8000) · ravenDaemonManager.ts:49 (7433) · sceneServerDaemonManager.ts:41 (5180) · docs/agent-platform-roadmap.md:157 (5173)</div>
+    <div class="cite">coreManager.ts:30 (8000) · ravenDaemonManager.ts:50 (7433) · viewerNode.ts (in-proc) · nodeManager.ts (spawn list — visualizer deliberately absent, #220)</div>
   </div>
 </section>
 
@@ -536,29 +549,53 @@
   <div class="wrap">
     <div class="kicker">appendix A · observed discrepancies</div>
     <h2>Where a doc and the code disagree</h2>
-    <p class="sub">Per the scene-protocol precedent, divergences are recorded here rather than silently "fixed" in prose. <span class="mono">drift</span> = a doc that has fallen behind the code and is worth a future correction; <span class="mono">frozen</span> = an explicitly historical statement, correct for its moment and preserved verbatim.</p>
+    <p class="sub">Per the scene-protocol precedent, divergences are recorded here rather than silently "fixed" in prose. <span class="mono">drift</span> = a doc that has fallen behind the code and is worth a future correction; <span class="mono">frozen</span> = an explicitly historical statement, correct for its moment and preserved verbatim; <span class="mono">pending</span> = a known open decision, recorded so the gap reads as deliberate.</p>
 
     <div class="disc">
       <div class="top"><b>daemons/README.md — "the only two tools currently registered"</b><span class="verdict drift">drift</span></div>
       <div class="body">
         <div class="col claim"><span>doc claims</span><p>raven-core registers only <span class="mono">time</span> + <span class="mono">memory</span>; cerebras/silence/system "remain vendored but commented out until the mesh-rebase PR."</p></div>
-        <div class="col"><span>source of truth</span><p><span class="mono">tools/__init__.py</span> auto-discovers every tool module at import. <b style="color:var(--txt)">19 live modules → 41 functions</b>; only 3 modules are held in <span class="mono">_DISABLED_MODULES</span>. The README is frozen at the mesh-rebase era.</p></div>
+        <div class="col"><span>source of truth</span><p><span class="mono">tools/__init__.py</span> auto-discovers every tool module at import. <b style="color:var(--txt)">19 live modules → 47 functions</b>; only 3 modules are held in <span class="mono">_DISABLED_MODULES</span>. The README is frozen at the mesh-rebase era.</p></div>
       </div>
     </div>
 
     <div class="disc">
-      <div class="top"><b>README.md §Architecture — "src/apps/ content apps"</b><span class="verdict drift">drift</span></div>
+      <div class="top"><b>README.md — "~25 apps" vs the registry's 23</b><span class="verdict drift">drift</span></div>
       <div class="body">
-        <div class="col claim"><span>doc claims</span><p>repo-layout block lists <span class="mono">src/apps/</span> "Content apps (welcome, news, finance, markdown, voice, mesh-devtools)."</p></div>
-        <div class="col"><span>source of truth</span><p><span class="mono">shell/src</span> has no <span class="mono">apps/</span> directory — content apps were archived in Sprint 6. The surface today is the 4 instrument views under <span class="mono">shell/src/dashboard/</span>.</p></div>
+        <div class="col claim"><span>doc claims</span><p>The post-arc README says "<b style="color:var(--txt)">~25 apps</b> discovered through one registry" in three places (front matter, the diagram, the repo-layout block).</p></div>
+        <div class="col"><span>source of truth</span><p><span class="mono">src/apps/*/index.ts</span> registers exactly <b style="color:var(--txt)">23</b> app ids at build time. The tilde absorbs the gap, and <span class="mono">registerApp()</span> can grow the number at runtime — recorded so the next recount knows 23 was the exact figure on this date.</p></div>
+      </div>
+    </div>
+
+    <div class="disc">
+      <div class="top"><b>merge ADR §4 — "eight surface schemas" on viewer_desktop</b><span class="verdict frozen">frozen</span></div>
+      <div class="body">
+        <div class="col claim"><span>doc states</span><p>The 2026-06-09 Viewer × Aether merge ADR describes <span class="mono">viewer_desktop</span> as "a schema'd Actor node with HMAC identity … <b style="color:var(--txt)">eight surface schemas</b>."</p></div>
+        <div class="col"><span>source of truth</span><p>The manifest and <span class="mono">nodes/viewer_desktop/schemas/</span> both count <b style="color:var(--txt)">nine</b> — <span class="mono">apply_layout</span> landed after ratification with the <span class="mono">arrange_windows</span> voice tool. The ADR was correct at its moment; DECISIONS.md is append-only, so the sentence stays.</p></div>
+      </div>
+    </div>
+
+    <div class="disc">
+      <div class="top"><b>viewerNode.ts header — "five shared viewer surfaces" + a ":7434 ControlServer"</b><span class="verdict drift">drift</span></div>
+      <div class="body">
+        <div class="col claim"><span>doc claims</span><p>The file's header comment says the node "exposes the five shared viewer surfaces" and that it is "the intended replacement for the :7434 ControlServer … Wave 4 decides its retirement."</p></div>
+        <div class="col"><span>source of truth</span><p>The node registers <b style="color:var(--txt)">nine</b> handlers, and nothing in the shell binds :7434 — the only ControlServer mentions left are comments (here and <span class="mono">viewerControl.ts:5</span>). The comment is frozen at Viewer-staging "Wave" language; this recount tripped over it.</p></div>
+      </div>
+    </div>
+
+    <div class="disc">
+      <div class="top"><b>CHANGELOG §[0.10.0] — a version with no git tag</b><span class="verdict pending">pending</span></div>
+      <div class="body">
+        <div class="col claim"><span>doc states</span><p>CHANGELOG.md carries a rolled section <span class="mono">[0.10.0] - 2026-06-04</span>, and the previous edition of this very map said "drawn against v0.10.0."</p></div>
+        <div class="col"><span>source of truth</span><p><span class="mono">git tag</span> ends at <b style="color:var(--txt)">v0.9.4</b> — no v0.10.0 tag was ever pushed; the version exists in the changelog, not in git. The roadmap session's pending tag decision (v0.10.0 vs v0.11.0 for the viewer arc) resolves it; this map re-snapshots into <span class="mono">history/</span> at that cut, per the atlas convention.</p></div>
       </div>
     </div>
 
     <div class="disc">
       <div class="top"><b>"Voice tools" — the count that means two things</b><span class="verdict frozen">terminology</span></div>
       <div class="body">
-        <div class="col claim"><span>the snapshots say</span><p>sprint-review (06-03): "37 voice functions." progress-ledger / rag-sketch (06-04): "20 voice tools." README: "~20 voice tools."</p></div>
-        <div class="col"><span>source of truth</span><p>Two distinct units, both honest: <b style="color:var(--txt)">19 live tool <i>modules</i></b> (≈20) vs <b style="color:var(--txt)">41 live <i>function declarations</i></b>. Functions grew 37→41 since 06-03. The snapshots are frozen and count different things; this map states both.</p></div>
+        <div class="col claim"><span>the snapshots say</span><p>sprint-review (06-03): "37 voice functions." progress-ledger / rag-sketch (06-04): "20 voice tools."</p></div>
+        <div class="col"><span>source of truth</span><p>Two distinct units, both honest: <b style="color:var(--txt)">19 live tool <i>modules</i></b> (≈20) vs <b style="color:var(--txt)">47 live <i>function declarations</i></b>. Functions have grown 37 → 41 → 47 across editions of this map. The snapshots are frozen and count different things; this map states both.</p></div>
       </div>
     </div>
 
@@ -566,7 +603,7 @@
       <div class="top"><b>scene-protocol.md — server self-IDs "v1.0," wire models ~v1.7</b><span class="verdict frozen">cross-ref</span></div>
       <div class="body">
         <div class="col claim"><span>doc states</span><p>The FastAPI app self-identifies as <span class="mono">RAVEN_AVP v1.0</span>; the contract doc's version is <span class="mono">v1</span>.</p></div>
-        <div class="col"><span>source of truth</span><p>Per that doc's own Appendix A, the wire models have grown to ~v1.7 internally. The scene server is a submodule on the AVP track; this is tracked there, not re-resolved in the atlas.</p></div>
+        <div class="col"><span>source of truth</span><p>Per that doc's own Appendix A, the wire models grew to ~v1.7 internally. Doubly historical now: the scene server itself is retired in place for the AVP track (merge ADR §5), so the divergence is tracked there, not re-resolved here.</p></div>
       </div>
     </div>
 
@@ -574,14 +611,14 @@
       <div class="top"><b>core/README.md §Required env — only 2 node secrets</b><span class="verdict frozen">frozen</span></div>
       <div class="body">
         <div class="col claim"><span>doc states</span><p>"For Aether week-1 those are" — lists only <span class="mono">MESH_SHELL_SECRET</span> + <span class="mono">MESH_HOST_NOTIFICATIONS_SECRET</span>.</p></div>
-        <div class="col"><span>source of truth</span><p>All 19 nodes now carry an <span class="mono">env:MESH_*_SECRET</span> reference in <span class="mono">manifest.yaml</span>. The phrase is explicitly "week-1," so this is a preserved historical statement, not drift.</p></div>
+        <div class="col"><span>source of truth</span><p>All 20 nodes now carry an <span class="mono">env:MESH_*_SECRET</span> reference in <span class="mono">manifest.yaml</span>. The phrase is explicitly "week-1," so this is a preserved historical statement, not drift.</p></div>
       </div>
     </div>
   </div>
 </section>
 
 <footer>
-  <p>AETHER · the atlas · drawn 2026-06-07 against v0.10.0 · every count cites its source<br>
+  <p>AETHER · the atlas · drawn 2026-06-10 against post-merge main (9ad50de) · every count cites its source<br>
   This page is the <b>living</b> map — kept current; the dated files in <b>history/</b> are point-in-time snapshots, never updated.</p>
 </footer>
 

@@ -58,6 +58,16 @@ historical record.
 - Voice mute button for the Raven assistant (VoiceMuteButton, wired into App.tsx).
 
 ### Changed
+- The atlas living map (`docs/atlas/architecture.html`) redrawn against
+  post-merge main (#253): every stat recounted from source (20 nodes / 80
+  edges / 50 surfaces / 47 voice fns / 23 apps), §05 rewritten as the Viewer
+  shell (workspace store as layout authority, app registry, `viewer_desktop`,
+  `arrange_windows`), the scene server moved out of the topology into an
+  AVP-track reference, raven annotated with resumption + barge-in, the spawn
+  actor marked live, and Appendix A refreshed (new entries: the ADR's
+  eight-vs-nine viewer surfaces, the tagless CHANGELOG `[0.10.0]`, the stale
+  `viewerNode.ts` header). `MASTER_SYNTHESIS.md` gains its historical banner
+  (the INTEGRATION-NOTES treatment).
 - App icon v4 (#248): star-field letter-A constellation tile replaces the
   Concept-C aurora icon, tile fill pinned to the shell Desktop background
   token `--holo-bg` (#0a0a0f). Source of truth

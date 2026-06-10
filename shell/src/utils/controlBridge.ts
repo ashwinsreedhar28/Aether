@@ -117,14 +117,34 @@ const handlers: Record<string, ActionHandler> = {
     return { opened: results, errors };
   },
 
-  'open-app': (params: Record<string, unknown>) => {
+  'open-app': async (params: Record<string, unknown>) => {
     const appId = params.appId as string;
     const title = (params.title as string) || appId;
     const store = useWorkspaceStore.getState();
 
     const apps = getApps();
     const appDef = apps.find(a => a.id === appId);
-    const defaultSize = appDef?.defaultSize || { width: 600, height: 500 };
+    // Unknown id: return the registry instead of silently creating a
+    // tabless blank window. The error payload flows back through the
+    // viewer_desktop node to the calling agent, which can resolve the
+    // right id from `available` and retry without a round-trip to the
+    // user.
+    if (!appDef) {
+      return { error: `unknown app id '${appId}'`, available: apps.map(a => a.id) };
+    }
+    // Terminal is not a plain registry app: its tab's filePath must be a
+    // live PTY sessionId (the Terminal component attaches to it), so it
+    // has to go through openTerminal — the same path the manual launcher
+    // uses. Opening it like a generic app yields a dead, shell-less
+    // window.
+    if (appId === 'terminal') {
+      const result = await store.openTerminal(undefined, params.cwd as string | undefined);
+      if (!result) {
+        return { error: 'terminal create failed (no active workspace or PTY spawn error)' };
+      }
+      return { windowId: result.windowId, appId };
+    }
+    const defaultSize = appDef.defaultSize || { width: 600, height: 500 };
 
     const windowId = store.openWindow({
       title,

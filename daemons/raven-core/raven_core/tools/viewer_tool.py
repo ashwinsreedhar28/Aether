@@ -24,21 +24,99 @@ FUNCTIONS = [
     "list_windows",
     "focus_window",
     "close_window",
+    "arrange_windows",
 ]
 
-# Built-in Aether apps the model can open by id without first calling list_apps.
-BUILTIN_APPS = ("mesh", "lanes", "gaps", "terminal", "calculator", "settings")
+# App-id HINTS seeded into the open_app declaration — common spoken targets,
+# NOT the full registry (the shell auto-discovers ~25 apps and the set grows;
+# a hardcoded mirror here goes stale, which is exactly how 'browser' became
+# invisible to the model). Correctness does not depend on this list:
+# _open_app fuzzy-resolves unknown ids against the live registry, and the
+# error path returns the real id list for in-turn recovery.
+APP_HINTS = (
+    "browser",
+    "terminal",
+    "mesh",
+    "lanes",
+    "gaps",
+    "calculator",
+    "settings",
+    "kanban-board",
+    "markdown-editor",
+    "text-editor",
+)
+
+# Mirrors LAYOUT_PRESETS in shell/electron/main/services/viewerNode.ts.
+LAYOUT_PRESETS = ("tile", "focus", "split", "thirds", "quarters")
+
+
+def _normalize_app_id(s: str) -> str:
+    """Lowercase and strip separators so 'Markdown Editor' ≈ 'markdown-editor'."""
+    return "".join(c for c in s.lower() if c.isalnum())
+
+
+def _fuzzy_match_app(requested: str, available: list[str]) -> list[str]:
+    """Resolve a spoken/guessed app id against the live registry ids.
+
+    Exact normalized match wins outright; otherwise substring containment
+    either way (so 'kanban' finds 'kanban-board' and 'editor of markdown'
+    still lands). Returns ALL candidates — the caller decides whether one
+    match is unambiguous enough to retry with.
+    """
+    want = _normalize_app_id(requested)
+    if not want:
+        return []
+    exact = [a for a in available if _normalize_app_id(a) == want]
+    if exact:
+        return exact
+    return [
+        a
+        for a in available
+        if want in _normalize_app_id(a) or _normalize_app_id(a) in want
+    ]
 
 
 async def _open_app(app_id: str, title: str) -> dict[str, Any]:
     app_id = (app_id or "").strip()
     if not app_id:
         return {"error": "bad_app_id", "detail": "app_id is required"}
-    payload: dict[str, Any] = {"appId": app_id}
-    if title:
-        payload["title"] = title
+
+    async def attempt(target_id: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {"appId": target_id}
+        if title:
+            payload["title"] = title
+        return await mesh_invoke("viewer_desktop.open_app", payload)
+
     try:
-        response = await mesh_invoke("viewer_desktop.open_app", payload)
+        response = await attempt(app_id)
+        # Unknown id: the viewer node returns ok:false with the live
+        # registry ids. Fuzzy-resolve and retry once before giving up —
+        # the model says 'kanban', the registry says 'kanban-board'.
+        if not response.get("ok", False) and isinstance(
+            response.get("available"), list
+        ):
+            available = [a for a in response["available"] if isinstance(a, str)]
+            candidates = _fuzzy_match_app(app_id, available)
+            if len(candidates) == 1 and candidates[0] != app_id:
+                resolved = candidates[0]
+                response = await attempt(resolved)
+                if response.get("ok", False):
+                    return {
+                        "ok": True,
+                        "app_id": resolved,
+                        "resolved_from": app_id,
+                        "window_id": response.get("windowId"),
+                    }
+            return {
+                "ok": False,
+                "error": "unknown_app",
+                "requested": app_id,
+                # Multiple candidates: the model picks one and re-calls.
+                # None: it gets the full registry, so it can answer
+                # 'what CAN I open' truthfully instead of guessing.
+                "did_you_mean": candidates or None,
+                "available_apps": available,
+            }
     except MeshUnavailable as e:
         return {"error": "viewer unavailable", "detail": str(e)}
     return {
@@ -46,6 +124,22 @@ async def _open_app(app_id: str, title: str) -> dict[str, Any]:
         "app_id": app_id,
         "window_id": response.get("windowId"),
     }
+
+
+async def _arrange_windows(preset: str) -> dict[str, Any]:
+    preset = (preset or "").strip().lower()
+    if preset not in LAYOUT_PRESETS:
+        return {
+            "error": "bad_preset",
+            "detail": f"preset must be one of {', '.join(LAYOUT_PRESETS)}",
+        }
+    try:
+        response = await mesh_invoke(
+            "viewer_desktop.apply_layout", {"preset": preset}
+        )
+    except MeshUnavailable as e:
+        return {"error": "viewer unavailable", "detail": str(e)}
+    return {"ok": bool(response.get("ok", False)), "preset": preset}
 
 
 async def _list_apps() -> dict[str, Any]:
@@ -101,23 +195,31 @@ async def _close_window(window_id: str) -> dict[str, Any]:
 
 def get_tools() -> list[types.Tool]:
     """Return Gemini function declarations for the viewer control tools."""
-    builtins = ", ".join(f"'{a}'" for a in BUILTIN_APPS)
+    hints = ", ".join(f"'{a}'" for a in APP_HINTS)
     open_app = types.FunctionDeclaration(
         name="open_app",
         description=(
             "Open an app in a new window on the Viewer desktop. Use when the "
             "user asks to open, show, launch, or pull up an app or view (e.g. "
-            "'open the mesh', 'show me my lanes', 'pull up a terminal', 'open "
-            f"the gaps'). Built-in apps: {builtins}. Call list_apps first if "
-            "unsure of the id. Returns the new window_id (use it to focus/close "
-            "later). A short spoken ack is enough — there is no content to read."
+            "'open the browser', 'pull up a terminal', 'show me my lanes'). "
+            f"Common app ids: {hints} — but this is NOT the full set: more "
+            "apps exist, and unknown ids are fuzzy-matched against the live "
+            "registry automatically. So when the user names ANY app, CALL "
+            "THIS TOOL — never claim an app doesn't exist without trying; if "
+            "it truly doesn't, the result lists what IS available (use "
+            "did_you_mean / available_apps to recover or answer). Returns the "
+            "new window_id (use it to focus/close later). A short spoken ack "
+            "is enough — there is no content to read."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
             properties={
                 "app_id": types.Schema(
                     type=types.Type.STRING,
-                    description="App id to open, e.g. 'mesh', 'lanes', 'gaps', 'terminal'.",
+                    description=(
+                        "App id to open, e.g. 'browser', 'terminal', 'mesh'. "
+                        "A close guess is fine — it is fuzzy-resolved."
+                    ),
                 ),
                 "title": types.Schema(
                     type=types.Type.STRING,
@@ -125,6 +227,29 @@ def get_tools() -> list[types.Tool]:
                 ),
             },
             required=["app_id"],
+        ),
+    )
+    arrange_windows = types.FunctionDeclaration(
+        name="arrange_windows",
+        description=(
+            "Arrange the open windows on the Viewer desktop with a layout "
+            "preset. Use when the user asks to tile, arrange, organize, "
+            "split, or clean up their windows ('tile the windows', 'arrange "
+            "everything', 'split these two', 'clean up my desktop' → 'tile'). "
+            "Presets: 'tile' (auto-grid every window — the default ask), "
+            "'focus' (one large centered window), 'split' (two side by side), "
+            "'thirds' (three columns), 'quarters' (2x2 grid). A short spoken "
+            "ack is enough."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "preset": types.Schema(
+                    type=types.Type.STRING,
+                    description="One of: 'tile', 'focus', 'split', 'thirds', 'quarters'.",
+                ),
+            },
+            required=["preset"],
         ),
     )
     list_apps = types.FunctionDeclaration(
@@ -188,6 +313,7 @@ def get_tools() -> list[types.Tool]:
                 list_windows,
                 focus_window,
                 close_window,
+                arrange_windows,
             ]
         )
     ]
@@ -205,4 +331,6 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
         return await _focus_window(window_id=str(args.get("window_id", "")))
     if name == "close_window":
         return await _close_window(window_id=str(args.get("window_id", "")))
+    if name == "arrange_windows":
+        return await _arrange_windows(preset=str(args.get("preset", "")))
     return None

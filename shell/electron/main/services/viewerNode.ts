@@ -28,6 +28,11 @@ const execFileP = promisify(execFile)
 export const VIEWER_NODE_ID = 'viewer_desktop'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
 
+/** Layout presets the renderer's 'apply-layout' control action accepts
+ *  (controlBridge.ts): 'tile' auto-grids all windows; the rest map to
+ *  workspaceStore.applyLayoutPreset. */
+const LAYOUT_PRESETS = ['tile', 'focus', 'split', 'thirds', 'quarters'] as const
+
 /**
  * Maps a shared content {@link ViewType} to the desktop app that hosts it (the
  * app mounts the Wave-1 ContentHost with the matching renderer) plus a file
@@ -151,6 +156,7 @@ export interface ViewerNode {
     list_windows: (env: Envelope) => Promise<Record<string, unknown>>
     close_window: (env: Envelope) => Promise<Record<string, unknown>>
     focus_window: (env: Envelope) => Promise<Record<string, unknown>>
+    apply_layout: (env: Envelope) => Promise<Record<string, unknown>>
     notify: (env: Envelope) => Promise<void>
   }
   /**
@@ -400,19 +406,48 @@ export function createViewerNode(deps: ViewerNodeDeps): ViewerNode {
   // "open my apps" surface. Aether's voice/console path to "open the mesh app",
   // "open a terminal", etc. Dispatches the renderer's open-app control action.
   async function openApp(env: Envelope): Promise<Record<string, unknown>> {
-    const payload = env.payload as { appId?: string; title?: string }
+    const payload = env.payload as { appId?: string; title?: string; cwd?: string }
     if (typeof payload.appId !== 'string' || payload.appId.length === 0) {
       throw new MeshDeny('viewer_bad_payload', { have: { appId: typeof payload.appId } })
     }
-    const result = (await dispatch('open-app', { appId: payload.appId, title: payload.title })) as {
+    const result = (await dispatch('open-app', {
+      appId: payload.appId,
+      title: payload.title,
+      cwd: payload.cwd,
+    })) as {
       windowId?: string
       appId?: string
       error?: string
+      available?: string[]
     }
     if (!result || typeof result.windowId !== 'string') {
-      throw new MeshDeny('viewer_open_failed', { appId: payload.appId, detail: result?.error ?? 'no windowId' })
+      // Structured failure, not a MeshDeny: a deny reaches the calling
+      // agent as an opaque "mesh error" (raven's tool layer reports the
+      // viewer as unavailable, and the voice model tells the user it
+      // can't open apps at all). Returning ok:false with the renderer's
+      // `available` registry list lets the agent resolve the right id
+      // and retry in the same turn.
+      return {
+        ok: false,
+        appId: payload.appId,
+        error: result?.error ?? 'open failed (no windowId)',
+        ...(Array.isArray(result?.available) ? { available: result.available } : {}),
+      }
     }
     return { ok: true, appId: payload.appId, windowId: result.windowId }
+  }
+
+  // Arrange the visible windows with one of the renderer's layout presets
+  // (controlBridge 'apply-layout' → workspaceStore tile/preset actions).
+  // The list mirrors the renderer's; an unknown preset is a payload
+  // error, not a dispatch.
+  async function applyLayout(env: Envelope): Promise<Record<string, unknown>> {
+    const preset = (env.payload as { preset?: string }).preset
+    if (typeof preset !== 'string' || !LAYOUT_PRESETS.includes(preset as (typeof LAYOUT_PRESETS)[number])) {
+      throw new MeshDeny('viewer_bad_payload', { have: { preset }, allowed: [...LAYOUT_PRESETS] })
+    }
+    await dispatch('apply-layout', { preset })
+    return { ok: true, preset }
   }
 
   // Discovery half of open_app: reflect the renderer's app registry so an agent
@@ -491,6 +526,7 @@ export function createViewerNode(deps: ViewerNodeDeps): ViewerNode {
     n.on('list_windows', listWindows)
     n.on('close_window', closeWindow)
     n.on('focus_window', focusWindow)
+    n.on('apply_layout', applyLayout)
     n.on('notify', notifyHandler)
     await n.start()
     node = n
@@ -517,6 +553,7 @@ export function createViewerNode(deps: ViewerNodeDeps): ViewerNode {
       list_windows: listWindows,
       close_window: closeWindow,
       focus_window: focusWindow,
+      apply_layout: applyLayout,
       notify: notifyHandler,
     },
     emitViewEvent,

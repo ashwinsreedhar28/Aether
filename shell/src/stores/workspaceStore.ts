@@ -70,8 +70,11 @@ export interface WorkspaceStore {
   updateTab: (windowId: string, tabId: string, updates: Partial<Pick<TabState, 'title' | 'filePath'>>) => void;
   setTabSuspended: (windowId: string, tabId: string, isSuspended: boolean) => void;
 
-  // Terminal actions
-  openTerminal: (windowId?: string, cwd?: string) => Promise<void>;
+  // Terminal actions. Returns the hosting window + PTY session ids so
+  // programmatic callers (the viewer_desktop mesh node driving voice
+  // commands) can hand back a windowId for later focus/close; null when
+  // no workspace is active or the PTY spawn failed.
+  openTerminal: (windowId?: string, cwd?: string) => Promise<{ windowId: string; sessionId: string } | null>;
 
   // File system actions for active workspace
   setExpandedDirs: (dirs: Set<string>) => void;
@@ -1182,10 +1185,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   // Terminal actions
   openTerminal: async (windowId?: string, cwd?: string) => {
     const { activeWorkspaceId, workspaces, addTab, focusWindow, openWindow } = get();
-    if (!activeWorkspaceId) return;
+    if (!activeWorkspaceId) return null;
 
     const workspace = workspaces.find(w => w.id === activeWorkspaceId);
-    if (!workspace) return;
+    if (!workspace) return null;
 
     try {
       const result = await window.electron.terminal.create(cwd);
@@ -1205,26 +1208,28 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       if (windowId) {
         addTab(windowId, result.sessionId, 'terminal', terminalTitle);
         focusWindow(windowId);
-      } else {
-        openWindow({
-          title: terminalTitle,
-          tabs: [{
-            id: `tab-${++tabIdCounter}`,
-            title: terminalTitle,
-            filePath: result.sessionId,
-            appId: 'terminal',
-            isDirty: false,
-            isActive: true,
-          }],
-          activeTabId: `tab-${tabIdCounter}`,
-          position: { x: 100, y: 100 },
-          size: { width: 800, height: 500 },
-          isMinimized: false,
-          isMaximized: false,
-        });
+        return { windowId, sessionId: result.sessionId };
       }
+      const newWindowId = openWindow({
+        title: terminalTitle,
+        tabs: [{
+          id: `tab-${++tabIdCounter}`,
+          title: terminalTitle,
+          filePath: result.sessionId,
+          appId: 'terminal',
+          isDirty: false,
+          isActive: true,
+        }],
+        activeTabId: `tab-${tabIdCounter}`,
+        position: { x: 100, y: 100 },
+        size: { width: 800, height: 500 },
+        isMinimized: false,
+        isMaximized: false,
+      });
+      return { windowId: newWindowId, sessionId: result.sessionId };
     } catch (err) {
       console.error('Failed to create terminal:', err);
+      return null;
     }
   },
 

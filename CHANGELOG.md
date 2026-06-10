@@ -10,6 +10,11 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Barge-in: interrupt Raven mid-reply by talking over it. The echo gate now
+  runs an energy detector during playback — sustained mic energy well above
+  the speaker-echo baseline cuts local playback and streams the speech to the
+  API, whose VAD interrupts generation. Config knobs `barge_in_enabled` /
+  `barge_in_factor` / `barge_in_min_rms` in `~/.raven/config.json`.
 - `scripts/lane-done.sh` post-merge ritual script; §7-lite micro-lane tier banked in CLAUDE.md.
 
 ### Fixed

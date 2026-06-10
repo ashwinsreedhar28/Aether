@@ -10,6 +10,3 @@
 [submodule "_ingest/VIEWER"]
 	path = _ingest/VIEWER
 	url = https://github.com/R-A-V-E-N-delegate/viewer.git
-[submodule "daemons/raven-avp-server"]
-	path = daemons/raven-avp-server
-	url = https://github.com/R-A-V-E-N-delegate/RAVEN_AVP.git

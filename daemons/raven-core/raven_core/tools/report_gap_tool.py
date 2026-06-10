@@ -6,7 +6,7 @@ with a one-line description. The implementation invokes ``intents.record``
 through ``mesh_client.mesh_invoke`` rather than persisting anything itself;
 the edge ``raven → intents.record`` in manifest.yaml authorises the hop.
 
-Like notify/visualize this is a SIDE-EFFECT tool: the return is a tiny
+Like notify this is a SIDE-EFFECT tool: the return is a tiny
 ack signal (the new gap's id), NOT content to read aloud. raven records
 the gap and, in the same breath, declines naturally to the user — the
 decline stays brief and conversational; the recording is invisible to it.

@@ -1,0 +1,41 @@
+{
+  "_comment": "Shared cross-language fixture for the sprint-board generator. The vitest suite (src/generators/sprint-board.test.ts) runs `build(input)` and the pytest suite (python/generators/test_sprint_board.py) runs `sprint_board_build(input)`. BOTH must emit `expectedView` exactly. One file, two readers — the TS and Python generators cannot drift. source.value is compact JSON with fixed key order so the serialized strings are byte-identical across languages.",
+  "input": {
+    "id": "sb-test",
+    "title": "Test Board",
+    "name": "Mini",
+    "description": "two cols",
+    "columns": [
+      {
+        "id": "todo",
+        "title": "To Do",
+        "color": "#111",
+        "cards": [
+          {
+            "id": "c1",
+            "title": "First",
+            "description": "d",
+            "tags": ["x"],
+            "priority": "P1",
+            "dueDate": "2026-01-01"
+          }
+        ]
+      },
+      {
+        "id": "doing",
+        "title": "Doing",
+        "cards": [{ "id": "c2", "title": "Second" }]
+      }
+    ]
+  },
+  "expectedView": {
+    "id": "sb-test",
+    "type": "kanban",
+    "title": "Test Board",
+    "source": {
+      "kind": "inline",
+      "value": "{\"name\":\"Mini\",\"description\":\"two cols\",\"columns\":[{\"id\":\"todo\",\"title\":\"To Do\",\"color\":\"#111\",\"cards\":[{\"id\":\"c1\",\"title\":\"First\",\"description\":\"d\",\"tags\":[\"x\"],\"priority\":\"P1\",\"dueDate\":\"2026-01-01\"}]},{\"id\":\"doing\",\"title\":\"Doing\",\"cards\":[{\"id\":\"c2\",\"title\":\"Second\"}]}]}"
+    },
+    "layout": { "w": 1.4, "h": 1.0, "hint": "wide" }
+  }
+}

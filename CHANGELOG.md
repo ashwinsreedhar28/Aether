@@ -9,8 +9,78 @@ historical record.
 
 ## [Unreleased]
 
+### Added
+- `scripts/lane-done.sh` post-merge ritual script; §7-lite micro-lane tier banked in CLAUDE.md.
+
+### Fixed
+- Voice daemon survives the Gemini native-audio models' known server-side
+  websocket kill (1008 "Requested entity was not found" after a tool
+  response): raven-core now enables session resumption and reconnects with
+  the cached handle, resuming the conversation instead of dying mid-session.
+- Lanes app no longer crash-loops on open: the re-homed surface still typed
+  `agent` as a string and rendered it as a React child, but the lanes node has
+  served `agent: { active, count } | null` since #143 — React throws on object
+  children. Interface now matches the served payload; rows render behind the
+  same `!loading && !error` guard as MeshApp.
+- Raven-opened apps now render instead of showing a blank window (salvaged from #201 staging).
+
+### Added
+- Voice mute button for the Raven assistant (VoiceMuteButton, wired into App.tsx).
+
 ### Changed
+- Lane 6 (ADR 2026-06-09 §9): CI and auto-review now fire on PRs targeting
+  `integration/*` trunk branches, not just `main`; auto-review skips
+  fork-originated PRs explicitly (trunk-repo branches only — the #204 OIDC
+  401 becomes a deliberate skip). Gate per ADR §8: build, lint, strict
+  typecheck.
 - ADR (2026-06-09): Viewer × Aether capability-merge plan — scene server archived (supersedes the 2026-05-26 data-layer/presentation-layer ADR), Raven-only assistant, strict TS bar held, mesh SDK collapse; Lanes 1-7 defined. PR #201 is staging substrate, not merged.
+- Lane 2 (ADR 2026-06-09 §3): the cmd-/ AI-menu label "Command Palette" →
+  "Aether Console" (Director's ruling). Display string only — the
+  `menu:open-command-palette` channel and `CmdOrCtrl+/` accelerator are unchanged.
+
+### Removed
+- Ruling 2026-06-09 (#220): the shell no longer auto-spawns the visualizer
+  node on desktop — with the scene server archived, its panel-POST half is
+  dead on this surface (Viewer's workspace store is the layout authority).
+  The node code, manifest entry, and reserved `shell → visualizer.render`
+  edge all stay for the AVP track.
+- Lane 3 (ADR 2026-06-09 §5, scene server archived): the RAVEN_AVP scene server
+  — the `daemons/raven-avp-server` submodule (preserved upstream and at the
+  gitlink in git history; see `_archive/README.md`) and all shell wiring:
+  `sceneServerDaemonManager`, `sceneSubscriber`, the `scene:post-panel` /
+  `scene:get-order` / `scene:set-order` IPC + the `sceneOrder` handlers, the
+  preload `scene` namespace and Scene types, the scene-server path helpers
+  in `paths.ts`, and the scene-server-scoped `frame-src http://127.0.0.1:5180`
+  CSP grant in `index.html` (governance-log 2026-05-26). Viewer's workspace
+  store is the layout authority.
+- Lane 3 (folds the ADR's Lane 7): the dangling Leap Motion remnants — the
+  preload `leap:` IPC namespace (its main-process handlers were already gone),
+  the `browser-mock` stub, `LeapInputSettings` + defaults in `settingsStore`,
+  and the crosshair/overlay CSS block.
+- Lane 3 (folds #210, per today's `raven → visualizer.render` DECISIONS
+  entry): the Dashboard-era `visualize` and `navigate` raven voice tools
+  (modules deleted, not `_DISABLED_MODULES`-disabled) and the
+  `raven → visualizer.render` manifest edge. The `shell → visualizer.render`
+  edge and the visualizer node are unchanged.
+- Lane 2 (ADR 2026-06-09 §3, mesh-SDK collapse): the entire `viewer-desktop/`
+  staging tree (261 files) — the original, untouched Viewer Electron app vendored
+  side-by-side in PR #201 for the architects to diff, including its vendored
+  `MeshNode` SDK (`electron/main/services/mesh-sdk/`). Its capabilities were
+  already absorbed into `shell/`, which runs entirely on the canonical
+  `@aether/mesh-node-sdk` (`core/node_sdk_ts`). The tree was never a pnpm-workspace
+  member (CI's `pnpm -r` never built/typechecked/linted it) and the live shell
+  referenced it only in one comment (now reworded). Net: one mesh SDK across the
+  repo, one less duplicate of every absorbed capability.
+- Lane 1 (ADR 2026-06-09 §6, Raven-only): the dormant Claude Agent SDK
+  command-palette runtime — the `claude:` preload IPC surface
+  (`query`/`abort`/`getAuthStatus`/`onStream`), its `ClaudeStreamMessage` type,
+  and the matching `browser-mock` stub. cmd-/ remains the Raven console; the
+  palette UI is unchanged, only de-Claude-branded (`menu:open-claude-palette` →
+  `menu:open-command-palette`; menu label "Claude Command Palette" → "Command
+  Palette"). `mcp-inspector` is re-homed onto app-local MCP types with zero
+  dependency on the removed SDK / preload Claude types (`ClaudeSettings` →
+  `McpSettings`). The `@anthropic-ai/claude-agent-sdk` dependency, `claudeService`,
+  and the `claude:*` main-process handlers were already absent from the shell.
 
 ### Added
 - Spawn actor v1.1 — armed with the corpus, honest lifecycle. Five changes to

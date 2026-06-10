@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "viewer_desktop.notify",
+  "title": "viewer_desktop.notify",
+  "description": "Show a transient desktop notification. Params: { text: string, level?: 'info'|'warn'|'error' }.",
+  "type": "object",
+  "required": ["text"],
+  "additionalProperties": true,
+  "properties": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "level": { "type": "string", "enum": ["info", "warn", "error"] }
+  }
+}

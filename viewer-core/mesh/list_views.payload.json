@@ -1,0 +1,9 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://viewer.local/schemas/mesh/list_views.payload.json",
+  "title": "list_views payload",
+  "description": "Payload for the viewer node `list_views` surface. Takes no arguments.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

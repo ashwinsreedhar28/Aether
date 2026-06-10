@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://viewer.local/schemas/mesh/run_generator.payload.json",
+  "title": "run_generator payload",
+  "description": "Payload for the viewer node `run_generator` surface. The host resolves `slug` in the shared @viewer/core generator registry, runs it with `params` to produce a View[], then opens every emitted View (desktop window / spatial HTML panel). This is the declarative-authoring symmetry of the spatial `POST /generators/{slug}/run` HTTP route — same generator code, same View contract, driven over the mesh.",
+  "type": "object",
+  "required": ["slug"],
+  "additionalProperties": false,
+  "properties": {
+    "slug": {
+      "type": "string",
+      "description": "Registered generator slug (e.g. 'sprint_board', 'workspace', 'knowledge-graph')."
+    },
+    "params": {
+      "type": "object",
+      "description": "Generator-specific parameters. Omitted/empty yields the generator's populated default demo."
+    }
+  }
+}

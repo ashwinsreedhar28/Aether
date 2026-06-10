@@ -8,6 +8,96 @@ are preserved verbatim as historical record.
 
 ---
 
+## [2026-06-09] ADR: visualizer node despawned on desktop — code, manifest entry, and reserved shell edge held for the AVP track (issue #220)
+
+**Status:** accepted
+**Decided by:** Architect (issue #220 spec, 2026-06-09), answering the follow-up
+ruling forecast by the same-day `raven → visualizer.render` ADR below; applied
+by Implementer.
+**Context:** The visualizer Mixer reads mesh state (`mesh_introspection.topology`,
+`lanes.status`, `intents.list`, calendar surfaces) and POSTs composed scene
+panels to the RAVEN_AVP scene server. The 2026-06-09 Viewer × Aether merge ADR
+(§5; #203) archived the scene server — Viewer's workspace store is the layout
+authority on desktop — so the node's panel-POST half is dead on this surface,
+and the same-day Lane 3 ADR left the node's disposition as "a follow-up ruling
+for the visualizer's own lane." This is that ruling.
+**Decision:** The shell stops auto-spawning the visualizer on desktop (the
+`spawnVisualizer` call and method leave `nodeManager.ts`). The node code
+(`nodes/visualizer`), its manifest entry, and the reserved
+`shell → visualizer.render` edge all stay for the AVP track. Revival there is
+re-adding a spawn call from git history, not rebuilding the node.
+**Consequences:** Desktop boots without a visualizer child — no spawn line, no
+panel-POSTs — and the Mesh app shows the node absent/stopped, which is honest:
+it genuinely isn't running. Core still resolves `env:MESH_VISUALIZER_SECRET`
+at manifest load (the manifest entry stays), so the secret remains in Core's
+env with no child to receive it. The visualizer package keeps building and
+typechecking in CI (`pnpm -r`), so the AVP track inherits working code rather
+than bit-rot.
+**Alternatives considered:** (a) Delete the node outright (the Lane 3 shape for
+the Dashboard voice tools) — rejected: the AVP track needs it; unlike those
+tools it has a named future consumer. (b) Retarget the node to compose Viewer
+apps — rejected: Viewer's workspace store is the layout authority, and a mesh
+node composing desktop layout would recreate the bridge on a surface that no
+longer wants one.
+
+## [2026-06-09] ADR: `raven → visualizer.render` edge removed with the Dashboard-era voice tools (Lane 3, folds #210)
+
+**Status:** accepted
+**Decided by:** Director (Lane 3 spec, folding PR #210's proposal and answering its open question) under the jointly-ratified 2026-06-09 Viewer × Aether merge ADR (§5 scene server archived, §6 Raven-only assistant); applied by Implementer.
+**Context:** The Sprint 6.5 `visualize` voice tool summoned Dashboard panels by
+invoking `visualizer.render` over the mesh — the `raven → visualizer.render`
+edge in manifest.yaml authorised that hop — and its sibling `navigate` flipped
+the Dashboard's instrument views (no mesh hop). The 2026-06-09 merge ADR
+retired the Dashboard/scene-server surface in favour of Viewer's workspace
+store (§5), leaving both tools and the edge as dead surface. PR #210 (Colton)
+proposed disabling the tools via `_DISABLED_MODULES` and removing the edge,
+asking whether the source files should be deleted outright; the Lane 3 spec
+folded #210 in and answered: remove.
+**Decision:** Delete `visualize_tool.py` and `navigate_tool.py` from
+`daemons/raven-core/raven_core/tools/` (full removal, not a
+`_DISABLED_MODULES` entry — git history preserves the source) and remove the
+`raven → visualizer.render` edge from manifest.yaml, leaving a retirement
+comment at the edge's former position. The `shell → visualizer.render` edge,
+the visualizer node definition, and its read edges
+(`mesh_introspection.topology`, `lanes.status`, `intents.list`,
+`calendar.today`, `calendar.upcoming`) are unchanged.
+**Consequences:** raven no longer exposes `visualize`/`navigate`, and the mesh
+contract reflects the Viewer-only surface. The visualizer node now has no
+caller of its render surface except the shell edge (effectively a reserved
+edge); whether the node re-targets Viewer apps or retires is a follow-up
+ruling for the visualizer's own lane, not decided here. Reviving voice-driven
+visualization means restoring the tool from git history and re-adding the edge
+through a new ADR.
+**Alternatives considered:** (a) Disable via `_DISABLED_MODULES`, keeping the
+modules on disk (#210's original shape) — rejected by the lane spec: the
+Dashboard the tools drove is gone, and dead surface should not ship in the
+tree when git history preserves it. (b) Keep the `raven` edge dormant for a
+future Viewer-rendered visualize tool — rejected: an unconsumed edge misstates
+the wire contract, and re-adding one is a small ADR'd change when that tool
+exists.
+
+## [2026-06-09] ADR: trunk-branch-only merge gate — CI + auto-review cover `integration/*`, fork PRs skipped by design
+
+**Status:** Accepted.
+
+**Decided by:** Director (lane spec, Lane 6 of the 2026-06-09 Viewer × Aether merge ADR), implemented by Implementer.
+
+**Context:** The 2026-06-09 Viewer × Aether merge ADR (§9) recorded CI fork-blindness — the auto-review action cannot obtain an OIDC token on fork-originated PRs (`ACTIONS_ID_TOKEN_REQUEST_URL` unavailable) and 401s before running, which is how PR #204 shipped unreviewed — and left an "or": fix the workflow for forks, or route external-contributor work through trunk-repo branches. Separately, the reconciliation lanes target `integration/viewer`, but `ci.yml` triggered only on PRs/pushes to `main`, so Lanes 1–5 merged into the integration trunk with no build/lint/typecheck gate at all.
+
+**Decision:** Resolve the "or" as trunk-branch-only enforcement. (a) `ci.yml` and `claude-auto-review.yml` trigger on PRs targeting `main` *and* `integration/**`; `ci.yml` also runs on pushes to both, so a merged PR re-validates the trunk it landed on. (b) `claude-auto-review.yml` gains `if: github.event.pull_request.head.repo.full_name == github.repository` — fork-originated PRs skip auto-review explicitly rather than failing with a 401; external collaborators (Colton is one) push branches to the trunk repo instead. The PR gate per merge-ADR §8 is build, lint, strict typecheck (`strict` + `noUncheckedIndexedAccess`, enforced by the existing `pnpm -r typecheck` against unloosened tsconfigs).
+
+**Consequences:**
+- PRs into `integration/*` now clear the same mechanical bar as PRs into `main`; an integration trunk can no longer silently accumulate non-building commits.
+- Fork PRs get neither auto-review nor (by policy) merge consideration — contribution path is a trunk-repo branch. If outside contributors ever matter, a future ADR must revisit the fork path (e.g. `pull_request_target` with hardening) rather than un-skip this guard.
+- Marking the `checks` job *required* on `integration/*` is GitHub branch-protection state, not a `.github/` file — a Director console/`gh api` action, recorded here as the intended end state.
+
+**Alternatives considered:**
+- *Fix the workflow for forks* (`pull_request_target` + explicit checkout of the PR head): rejected — runs untrusted code with secrets-bearing context; the hardening cost buys nothing while all contributors are collaborators.
+- *Leave auto-review unfiltered and tolerate the 401:* rejected — a red check that means "policy" reads as "breakage" and trains everyone to ignore red.
+- *CI on every branch push (no filter):* rejected — burns minutes on WIP feature branches; the PR event already covers them where it matters.
+
+---
+
 ## [2026-06-07] ADR: the draft is the slug contract (spawn v1.1 — parse, don't re-derive)
 
 **Status:** accepted

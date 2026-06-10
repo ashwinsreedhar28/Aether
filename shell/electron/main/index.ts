@@ -16,14 +16,16 @@ import {
   isCoreHealthy,
   getCoreUrl,
   getMeshState,
+  getViewerDesktopSecret,
 } from './services/mesh'
+import { registerAllGenerators } from '@viewer/core'
+import { createViewerNode, type ViewerNode } from './services/viewerNode'
+import { executeViewerControl } from './services/viewerControl'
 import { registerFileHandlers } from './handlers/files'
-import { registerSceneOrderHandlers } from './handlers/sceneOrder'
+import { initViewerHost, attachViewerWindow, stopViewerHost, getViewerRootDir } from './services/viewerHost'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
-import { SceneServerDaemonManager } from './services/sceneServerDaemonManager'
-import { SceneSubscriber } from './services/sceneSubscriber'
 import { SpawnService } from './services/spawnService'
 import { REPO_ROOT, spawnsLedgerPath } from './services/paths'
 import { markQuitting } from './services/appLifecycle'
@@ -76,6 +78,55 @@ let splashWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitInFlight = false
 let cleanedUp = false
+
+// User-toggled voice mute. When true, the mic is stopped AND the ambient
+// auto-listen is suppressed (otherwise ensureAmbientListening would re-engage
+// it on the next status push). Drives the VoiceMuteButton in the renderer.
+let voiceMuted = false
+
+// The viewer_desktop control node: agent->renderer dispatch (open/close/focus
+// apps + views) hosted in this process. Created after the mesh is ready so its
+// identity secret + Core both exist. null until then / if the mesh fails.
+let viewerNode: ViewerNode | null = null
+
+// Bring up the viewer_desktop mesh node once the mesh is live. Registers the
+// shared @viewer/core generators (so run_generator resolves), then starts the
+// node — its surfaces dispatch through executeViewerControl into the renderer's
+// window.__viewerControl bridge. Never throws: a control-plane failure must not
+// take down the rest of the shell.
+async function startViewerControlNode(): Promise<void> {
+  try {
+    const secret = getViewerDesktopSecret()
+    if (!secret) {
+      console.warn('[aether] viewer_desktop: no secret (mesh not ready?) — control node disabled')
+      return
+    }
+    registerAllGenerators()
+    viewerNode = createViewerNode({
+      dispatch: (action, params) => executeViewerControl(mainWindow, action, params),
+      secret,
+      coreUrl: getCoreUrl() ?? undefined,
+      getRootDir: getViewerRootDir,
+    })
+    await viewerNode.start()
+    console.log('[aether] viewer_desktop control node registered')
+
+    // Optional headless self-test of the full round-trip: shell -> Core ->
+    // viewer_desktop.open_app -> executeViewerControl -> renderer opens the app.
+    // Gated by an env var (off by default); the delay lets the renderer mount
+    // its control bridge. Set AETHER_SELFTEST_OPENAPP=mesh to exercise it.
+    const selfTestApp = process.env.AETHER_SELFTEST_OPENAPP
+    if (selfTestApp) {
+      setTimeout(() => {
+        void meshInvoke('viewer_desktop.open_app', { appId: selfTestApp })
+          .then((r) => console.log('[aether] selftest open_app →', JSON.stringify(r)))
+          .catch((e) => console.error('[aether] selftest open_app failed:', e))
+      }, 5000)
+    }
+  } catch (err) {
+    console.error('[aether] viewer_desktop control node failed to start:', err)
+  }
+}
 
 // Renderer-ready signal. The splash holds until the main renderer signals
 // mount (or a 2.5s watchdog fires) — lifted from Pulse's main/index.ts
@@ -147,7 +198,9 @@ function createMain(): BrowserWindow {
       preload: PRELOAD_PATH,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // The absorbed Viewer browser app hosts pages in a <webview>.
+      webviewTag: true
     }
   })
 
@@ -159,6 +212,10 @@ function createMain(): BrowserWindow {
     }
     return { action: 'deny' }
   })
+
+  // Per-window Viewer glue: ⌘/ + ⌘-arrow shortcuts, application menu, file
+  // watcher start, initial-folder handoff.
+  attachViewerWindow(win)
 
   void win.loadURL(getMainURL())
   return win
@@ -307,6 +364,17 @@ ipcMain.handle('mesh:invoke', async (_e, target: string, payload: Record<string,
   return meshInvoke(target, payload)
 })
 
+// SEND half of view_event: the renderer reports a human interaction on a hosted
+// view (keyed by its windowId); the viewer_desktop node resolves it to the
+// opening agent and emits a fire-and-forget invocation back. A gesture must
+// never surface an error, so this is best-effort.
+ipcMain.handle(
+  'control:emit-view-event',
+  (_e, windowId: string, action: string, data: Record<string, unknown>) => {
+    viewerNode?.emitViewEventForWindow(windowId, action, data ?? {}).catch(() => {})
+  },
+)
+
 ipcMain.handle('mesh:status', async () => {
   const ms = getMeshState()
   return {
@@ -329,12 +397,6 @@ const raven = getRavenDaemonManager()
 const vision = new VisionDaemonManager()
 const calendar = new CalendarDaemonManager()
 
-// Scene server (RAVEN_AVP) — external FastAPI daemon on :5180, NOT a mesh
-// node. Holds visualization state and broadcasts deltas over WS. The shell
-// supervises its lifecycle but does not consume it yet (subscriber + UI
-// land in Sprint 6.3). Boot does not block on it (Sprint 6.2 Q3).
-const sceneServer = new SceneServerDaemonManager()
-
 // Reminders node — migrated to registerNode factory pattern (proof-of-concept).
 // Repo root is three levels up from compiled location at out/main/index.js.
 const repoRoot = resolve(__dirname, '..', '..', '..')
@@ -354,6 +416,28 @@ ipcMain.handle('voice:status', () => {
 })
 ipcMain.handle('voice:start', () => raven.listenStart())
 ipcMain.handle('voice:stop', () => raven.listenStop())
+// Mute toggle. true → stop the mic + suppress ambient re-engage; false → clear
+// the mute and re-engage listening immediately. Broadcasts voice:muted-changed
+// so every renderer (the mute button + the ⌘/ console) stays in sync.
+ipcMain.handle('voice:muted', () => voiceMuted)
+ipcMain.handle('voice:set-muted', async (_e, muted: unknown) => {
+  const next = Boolean(muted)
+  if (next === voiceMuted) return { muted: voiceMuted }
+  voiceMuted = next
+  broadcastToRenderers('voice:muted-changed', voiceMuted)
+  try {
+    if (voiceMuted) {
+      await raven.listenStop()
+    } else {
+      // Clear the cooldown so unmute re-engages the mic right away.
+      ambientLastStart = 0
+      await ensureAmbientListening()
+    }
+  } catch (err) {
+    console.error('[aether] voice set-muted failed:', err)
+  }
+  return { muted: voiceMuted }
+})
 ipcMain.handle('voice:send-text', async (_e, text: unknown) => {
   // Default CLI input routes here — typed and spoken commands hit one brain.
   // Normalize the daemon's throw (e.g. 409 no_session) into a renderer-shaped
@@ -436,6 +520,8 @@ let ambientLastStart = 0
 // (ravenManager.ts:69), so re-firing on reconnect is safe.
 async function ensureAmbientListening(state?: { status?: string }): Promise<void> {
   if (!AMBIENT_VOICE) return
+  // Muted by the user — do not re-engage the mic until they unmute.
+  if (voiceMuted) return
   if (raven.getAvailability().kind !== 'available') return
   // On a status push, only re-engage when the session has actually dropped.
   // 'running'/'starting' mean listening is already (re)engaging; re-firing
@@ -480,19 +566,6 @@ vision.on('availability', (a) => broadcastToRenderers('vision:availability-chang
 calendar.on('availability', (a) => broadcastToRenderers('calendar:availability-changed', a))
 reminders.on('availability', (a) => broadcastToRenderers('reminders:availability-changed', a))
 
-// Scene subscriber — main owns the WS to the scene server; it forwards
-// snapshots + deltas to the renderer over the 'scene:event' push channel.
-// The renderer never opens a socket. start() is idempotent and does not block
-// boot: if the scene server isn't up yet (Sprint 6.2 Q3), the subscriber
-// retries with backoff until it's reachable, and reconnects if the daemon
-// manager restarts it mid-session.
-const sceneSubscriber = new SceneSubscriber()
-sceneSubscriber.on('scene-event', (ev) => broadcastToRenderers('scene:event', ev))
-sceneSubscriber.on('connection-changed', (connected: boolean) =>
-  console.log('[aether] scene subscriber connection:', connected ? 'up' : 'down'),
-)
-sceneSubscriber.start()
-
 // Spawn actor — watches the append-only spawn ledger (written by raven's
 // request_spawn tool), raises the approval card via the 'spawn:changed' push,
 // and runs the §13.12 worktree recipe + Terminal launch on the Director's
@@ -515,28 +588,6 @@ ipcMain.handle('spawn:approve', (_e, id: unknown) => spawnService.approve(String
 ipcMain.handle('spawn:dismiss', (_e, id: unknown) => spawnService.dismiss(String(id)))
 ipcMain.handle('spawn:complete', (_e, id: unknown) => spawnService.complete(String(id)))
 
-// Scene panel POST — the renderer asks main to POST a panel to the scene
-// server; main does the HTTP call so the renderer never touches :5180
-// directly. NOTE: panel.style values MUST be strings — the scene server's AVP
-// client decodes style as [String: String] (governance-log 2026-05-26). This
-// proxy does not validate that; callers (the CLI in 6.3b) own the contract.
-ipcMain.handle('scene:post-panel', async (_e, panel: Record<string, unknown>) => {
-  try {
-    const resp = await fetch('http://127.0.0.1:5180/scene/panel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(panel),
-      signal: AbortSignal.timeout(5000),
-    })
-    if (!resp.ok) {
-      return { ok: false, status: resp.status, error: await resp.text() }
-    }
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: String(err) }
-  }
-})
-
 app.whenReady().then(() => {
   // macOS dev mode: set Dock icon explicitly. In packaged builds the .icns
   // from electron-builder handles this, but `pnpm dev` shows the generic
@@ -550,7 +601,10 @@ app.whenReady().then(() => {
   // voice) are OFF this critical path; their respective status surfaces
   // (Mesh Dev Tools pill, Voice pill) flip when each becomes healthy.
   registerFileHandlers()
-  registerSceneOrderHandlers()
+  // Viewer host: workspace root-dir state + fs/terminal/config/browser IPC for
+  // the absorbed renderer. Registered before the window loads so the renderer's
+  // mount-time IPC calls resolve. Per-window glue is in attachViewerWindow().
+  initViewerHost(() => mainWindow)
   splashWindow = createSplash()
   mainWindow = createMain()
   createTray()
@@ -568,13 +622,15 @@ app.whenReady().then(() => {
   // apps — Mesh, eventually anything routed through manifest), then
   // voice (degrades gracefully — Voice pill goes red with a reason if
   // the daemon can't start; rest of the shell is unaffected).
-  startMesh().catch((err) => {
-    const message = (err as Error).message ?? String(err)
-    dialog.showErrorBox(
-      'Aether — mesh failed to start',
-      `The mesh substrate could not start. Mesh-dependent features will be unavailable until you restart.\n\n${message}`,
-    )
-  })
+  startMesh()
+    .then(() => startViewerControlNode())
+    .catch((err) => {
+      const message = (err as Error).message ?? String(err)
+      dialog.showErrorBox(
+        'Aether — mesh failed to start',
+        `The mesh substrate could not start. Mesh-dependent features will be unavailable until you restart.\n\n${message}`,
+      )
+    })
 
   // Voice is opt-in. ensureRunning resolves once the daemon is healthy
   // OR the bootstrap times out. First launch is ~30s on a clean checkout
@@ -645,23 +701,6 @@ app.whenReady().then(() => {
       console.error('[aether] reminders ensureRunning threw:', err)
       void 0
     })
-
-  // Scene server (RAVEN_AVP) — external HTTP infrastructure, independent of
-  // the mesh. ensureRunning bootstraps a venv on first run (~30s) then polls
-  // GET /scene until healthy; on failure it schedules a backed-off restart.
-  // Fired async so boot stays off this path (Sprint 6.2 Q3).
-  void sceneServer
-    .ensureRunning()
-    .then(() => {
-      if (sceneServer.isRunning()) {
-        console.log('[aether] scene server healthy on :5180')
-      } else {
-        console.warn('[aether] scene server not yet healthy; will retry')
-      }
-    })
-    .catch((err) => {
-      console.error('[aether] scene server ensureRunning threw:', err)
-    })
 })
 
 // Clean shutdown. before-quit fires on user-initiated quits AND on
@@ -682,9 +721,9 @@ async function stopAllChildren(): Promise<void> {
     vision.stop(),
     calendar.stop(),
     reminders.stop(),
-    sceneServer.stop(),
-    Promise.resolve(sceneSubscriber.stop()),
     Promise.resolve(spawnService.stop()),
+    Promise.resolve(stopViewerHost()),
+    viewerNode?.stop() ?? Promise.resolve(),
   ])
   for (const r of results) {
     if (r.status === 'rejected') {

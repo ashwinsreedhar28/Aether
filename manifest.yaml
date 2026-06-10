@@ -424,11 +424,81 @@ nodes:
         invocation_mode: request_response
         schema: nodes/intents/schemas/close.json
 
+  - id: viewer_desktop
+    runtime: local-process
+    category: Actor
+    identity_secret: env:MESH_VIEWER_DESKTOP_SECRET
+    metadata:
+      description: |
+        The agent->renderer control node, hosted inside the shell main
+        process. Translates mesh invocations into renderer control actions
+        (executeViewerControl -> window.__viewerControl) so an agent — raven,
+        the self-build loop, another node — can open/close/focus apps and
+        content views in the Viewer surface. Outbound view_event (human
+        interaction) flows back to the opening agent via fire-and-forget.
+    surfaces:
+      - name: open_app
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/open_app.json
+      - name: list_apps
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/list_apps.json
+      - name: open_view
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/open_view.json
+      - name: list_views
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/list_views.json
+      - name: list_windows
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/list_windows.json
+      - name: focus_window
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/focus_window.json
+      - name: close_window
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/close_window.json
+      - name: notify
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/notify.json
+
 
 relationships:
   # The shell's renderer can fire native notifications via mesh.invoke().
   - from: shell
     to: host_notifications.notify
+
+  # viewer_desktop control node — agent->renderer dispatch. raven (voice/console)
+  # drives the full surface so it can open/close/focus apps + views by command.
+  - from: raven
+    to: viewer_desktop.open_app
+  - from: raven
+    to: viewer_desktop.list_apps
+  - from: raven
+    to: viewer_desktop.open_view
+  - from: raven
+    to: viewer_desktop.list_views
+  - from: raven
+    to: viewer_desktop.list_windows
+  - from: raven
+    to: viewer_desktop.focus_window
+  - from: raven
+    to: viewer_desktop.close_window
+  - from: raven
+    to: viewer_desktop.notify
+  # The shell itself (renderer apps / a headless round-trip) can open apps too.
+  - from: shell
+    to: viewer_desktop.open_app
+  - from: shell
+    to: viewer_desktop.list_apps
 
   # Voice tools dispatch desktop notifications via the host_notifications
   # node. Added when raven was rebased onto the mesh (v0.2.1).
@@ -663,13 +733,10 @@ relationships:
   # visualization (e.g. "show me the mesh").
   - from: shell
     to: visualizer.render
-  # Voice intent source (Sprint 6.5): the visualize voice tool routes
-  # "show me the mesh" through raven → visualizer.render({ intent: 'mesh' }),
-  # which composes + POSTs the topology panel the Dashboard renders. raven's
-  # first side-effect-with-ack tool — it summons a panel and speaks a brief
-  # acknowledgment rather than narrating the topology.
-  - from: raven
-    to: visualizer.render
+  # RETIRED (Lane 3, ADR 2026-06-09 §5/§6 — Dashboard dropped for the Viewer
+  # surface): the raven → visualizer.render edge that the Sprint 6.5 visualize
+  # voice tool used. The tool (and its navigate sibling) is removed from
+  # raven-core in the same lane; the shell-driven edge above is unchanged.
 
   # Lanes sensor (Sprint 6.5b): the visualizer reads lane activity through the
   # mesh and composes the dashboard.lanes backdrop + the viz-lanes overlay —

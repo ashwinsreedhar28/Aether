@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "viewer_desktop.list_windows",
+  "title": "viewer_desktop.list_windows",
+  "description": "List every open window across workspaces (id, title, appId, filePath, z-order). No params. Returns { ok, windows, count }.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "viewer_desktop.list_apps",
+  "title": "viewer_desktop.list_apps",
+  "description": "List the registered Viewer apps (id, name, icon). No params. Returns { ok, apps }.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

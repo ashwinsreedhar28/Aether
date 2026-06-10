@@ -1,106 +1,463 @@
-@import 'tailwindcss';
-@import './theme/holographic.css';
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@import "katex/dist/katex.min.css";
 
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  background: var(--holo-bg);
-  color: var(--holo-text);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    system-ui,
-    sans-serif;
+@font-face {
+  font-family: 'DepartureMono';
+  src: url('/fonts/DepartureMono-Regular.woff2') format('woff2'),
+    url('/fonts/DepartureMono-Regular.woff') format('woff'),
+    url('/fonts/DepartureMono-Regular.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Holographic theme colors - these are defaults, can be overridden by JS */
+  --holo-bg: #0a0a0f;
+  --holo-panel: rgba(20, 20, 30, 0.8);
+  --holo-border: rgba(100, 150, 255, 0.2);
+  --holo-glow: rgba(100, 150, 255, 0.4);
+  --holo-accent: #4a9eff;
+  --holo-accent-rgb: 100, 150, 255;
+  --holo-text: #e0e0e0;
+  --holo-muted: #888888;
+  --holo-window-opacity: 0.95;
+  --font-size-multiplier: 1;
+}
+
+body {
+  margin: 0;
+  background: var(--holo-bg);
+  color: var(--holo-text);
   overflow: hidden;
 }
 
-/* Holographic card hover glow. The class is reused across content apps
- * (news today, more later). Tailwind 4 arbitrary-value syntax with CSS
- * variables inside box-shadow is finicky; a plain CSS rule reads cleaner.
- */
-.holo-card {
-  transition: box-shadow 0.2s ease;
-}
-.holo-card:hover {
-  box-shadow: 0 0 20px var(--holo-glow);
+#root {
+  width: 100vw;
+  height: 100vh;
 }
 
-/* Nav button hover-text. Inactive buttons brighten on hover; active stays
- * accent-coloured. Same reason as .holo-card — Tailwind hover utilities
- * don't compose cleanly with CSS variables in colour values. */
-.holo-nav-btn[data-active='false']:hover {
-  color: var(--holo-text);
+/* Holographic panel base */
+.holo-panel {
+  background: var(--holo-panel);
+  border: 1px solid var(--holo-border);
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 10px rgba(var(--holo-accent-rgb), 0.08);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* Re-summon attention pulse. Applied to a Scene card when a summon refreshes
- * a panel that's already on screen (SceneView bumps a per-id nonce; the card
- * re-triggers this by remove/reflow/re-add). A single accent swell on the
- * box-shadow — reads as the border lighting up, then fading. §15 restraint:
- * one ease-out swell, no bounce, no flash. box-shadow (not border-color) so it
- * never fights the card's inline borderColor. */
-@keyframes resummon-pulse {
-  0% {
-    box-shadow:
-      0 0 0 1px rgba(var(--holo-accent-rgb), 0),
-      0 0 0 0 rgba(var(--holo-accent-rgb), 0);
+/* Subtle hover effect on windows */
+.holo-panel:hover:not(.window-focused) {
+  border-color: rgba(var(--holo-accent-rgb), 0.3);
+  box-shadow: 0 0 15px rgba(var(--holo-accent-rgb), 0.12);
+}
+
+/* Strong focused window state */
+.holo-panel.window-focused {
+  border-color: rgba(var(--holo-accent-rgb), 0.6);
+  box-shadow:
+    0 0 25px rgba(var(--holo-accent-rgb), 0.3),
+    0 0 50px rgba(var(--holo-accent-rgb), 0.15),
+    inset 0 0 30px rgba(var(--holo-accent-rgb), 0.05);
+}
+
+/* Holographic glow on hover/focus */
+.holo-glow {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.holo-glow:hover,
+.holo-glow:focus {
+  border-color: var(--holo-glow);
+  box-shadow: 0 0 30px rgba(var(--holo-accent-rgb), 0.25);
+}
+
+/* Window animations */
+.window-enter {
+  animation: windowEnter 0.2s ease-out;
+}
+
+/* Tiling animation with smooth cubic-bezier easing */
+.window-tiling {
+  transition:
+    left 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes windowEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
   }
-  25% {
-    box-shadow:
-      0 0 0 1px rgba(var(--holo-accent-rgb), 0.9),
-      0 0 18px 0 var(--holo-glow);
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Holographic shimmer effect for focused windows during transitions */
+.window-tiling.window-focused::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(
+    45deg,
+    transparent 0%,
+    rgba(var(--holo-accent-rgb), 0.1) 25%,
+    rgba(var(--holo-accent-rgb), 0.2) 50%,
+    rgba(var(--holo-accent-rgb), 0.1) 75%,
+    transparent 100%
+  );
+  background-size: 200% 200%;
+  animation: holoShimmer 0.6s ease-out;
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@keyframes holoShimmer {
+  0% {
+    background-position: 200% 0%;
+    opacity: 1;
   }
   100% {
-    box-shadow:
-      0 0 0 1px rgba(var(--holo-accent-rgb), 0),
-      0 0 0 0 rgba(var(--holo-accent-rgb), 0);
-  }
-}
-.resummon-pulse {
-  animation: resummon-pulse 1.5s ease-out;
-}
-@media (prefers-reduced-motion: reduce) {
-  .resummon-pulse {
-    animation: none;
+    background-position: -200% 0%;
+    opacity: 0;
   }
 }
 
-/* Scene arrange (feat/scene-arrange). The six-dot grip in each card header is
- * the ONLY drag affordance — §15 restraint, no heavy drag chrome. It sits muted
- * until hovered, then brightens; the cursor signals grab / grabbing. Only the
- * grip is draggable, so the card body (links, iframes) stays interactive. */
-.scene-grip {
-  cursor: grab;
-  color: var(--holo-muted);
-  font-size: 12px;
-  line-height: 1;
-  padding: 0 2px;
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(20, 20, 30, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--holo-accent-rgb), 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--holo-accent-rgb), 0.5);
+}
+
+/* File tree styling */
+.file-tree-item {
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s ease;
   user-select: none;
-  transition: color 0.15s ease;
 }
-.scene-grip:hover {
-  color: var(--holo-text);
+
+.file-tree-item:hover {
+  background: rgba(var(--holo-accent-rgb), 0.1);
 }
-.scene-grip:active {
+
+.file-tree-item.selected {
+  background: rgba(var(--holo-accent-rgb), 0.2);
+}
+
+/* Root drop zone indicator */
+.root-drag-over {
+  background: rgba(var(--holo-accent-rgb), 0.05);
+}
+
+.root-drop-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--holo-accent);
+  z-index: 10;
+  animation: pulse-glow 1s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.7;
+    box-shadow: 0 0 8px var(--holo-accent);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 16px var(--holo-accent);
+  }
+}
+
+/* Selection */
+::selection {
+  background: rgba(var(--holo-accent-rgb), 0.3);
+}
+
+/* Window title bar */
+.window-title-bar {
+  cursor: grab;
+  user-select: none;
+}
+
+.window-title-bar:active {
   cursor: grabbing;
 }
 
-/* Insertion line shown in the gap between cards during a drag — a single 2px
- * accent rule with a soft glow that reads as "the panel lands here." Positioned
- * absolutely inside the relative card; pointer-events:none so it never steals
- * the dragover from the card beneath it. */
-.scene-drop-line {
+/* Resize handles */
+.resize-handle {
   position: absolute;
-  left: 0;
+  z-index: 10;
+}
+
+.resize-handle-n {
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 4px;
+  cursor: n-resize;
+}
+
+.resize-handle-s {
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  height: 4px;
+  cursor: s-resize;
+}
+
+.resize-handle-e {
   right: 0;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--holo-accent);
-  box-shadow: 0 0 6px var(--holo-glow);
-  pointer-events: none;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  cursor: e-resize;
+}
+
+.resize-handle-w {
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  cursor: w-resize;
+}
+
+.resize-handle-ne {
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  cursor: ne-resize;
+}
+
+.resize-handle-nw {
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  cursor: nw-resize;
+}
+
+.resize-handle-se {
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  cursor: se-resize;
+}
+
+.resize-handle-sw {
+  bottom: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  cursor: sw-resize;
+}
+
+/* Markdown prose customization for holographic theme */
+.prose {
+  color: var(--holo-text);
+  max-width: none;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  color: var(--holo-accent);
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose h1 {
+  font-size: 2em;
+  border-bottom: 1px solid var(--holo-border);
+  padding-bottom: 0.3em;
+}
+
+.prose h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid rgba(var(--holo-accent-rgb), 0.1);
+  padding-bottom: 0.3em;
+}
+
+.prose a {
+  color: var(--holo-accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(var(--holo-accent-rgb), 0.3);
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.prose a:hover {
+  color: var(--holo-accent);
+  filter: brightness(1.2);
+  border-bottom-color: var(--holo-accent);
+}
+
+.prose code {
+  background: rgba(var(--holo-accent-rgb), 0.1);
+  color: var(--holo-accent);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+}
+
+.prose pre {
+  background: rgba(10, 10, 20, 0.8);
+  border: 1px solid var(--holo-border);
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: auto;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.prose pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: var(--holo-text);
+  font-size: 0.9em;
+}
+
+.prose blockquote {
+  border-left: 3px solid var(--holo-accent);
+  background: rgba(var(--holo-accent-rgb), 0.05);
+  padding: 0.5em 1em;
+  margin: 1em 0;
+  font-style: italic;
+  color: var(--holo-text);
+  opacity: 0.9;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+
+.prose th {
+  background: rgba(var(--holo-accent-rgb), 0.15);
+  color: var(--holo-accent);
+  font-weight: 600;
+  padding: 0.5em;
+  border: 1px solid var(--holo-border);
+}
+
+.prose td {
+  padding: 0.5em;
+  border: 1px solid var(--holo-border);
+}
+
+.prose tr:nth-child(even) {
+  background: rgba(var(--holo-accent-rgb), 0.03);
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.5em;
+}
+
+.prose li {
+  margin: 0.3em 0;
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid var(--holo-border);
+  margin: 2em 0;
+}
+
+/* Task lists */
+.prose ul.contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.prose .task-list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.prose .task-list-item input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+  width: 1em;
+  height: 1em;
+  accent-color: var(--holo-accent);
+}
+
+/* KaTeX math styling */
+.katex {
+  font-size: 1.1em;
+}
+
+.katex-display {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.katex .mord {
+  color: var(--holo-text);
+}
+
+.katex .mbin,
+.katex .mrel {
+  color: var(--holo-accent);
+}
+
+/* Inline code in headings */
+.prose h1 code,
+.prose h2 code,
+.prose h3 code,
+.prose h4 code,
+.prose h5 code,
+.prose h6 code {
+  color: var(--holo-accent);
+  filter: brightness(1.2);
+  font-size: 0.85em;
 }

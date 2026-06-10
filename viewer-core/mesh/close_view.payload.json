@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://viewer.local/schemas/mesh/close_view.payload.json",
+  "title": "close_view payload",
+  "description": "Payload for the viewer node `close_view` surface. Addresses an open view by id.",
+  "type": "object",
+  "required": ["id"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Id of the view to close (matches View.id)."
+    }
+  }
+}

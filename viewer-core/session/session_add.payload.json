@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://viewer.local/schemas/session/session_add.payload.json",
+  "title": "session_add payload",
+  "description": "Payload for the viewer session `session_add` surface. Upserts one View into the session by id. The `view` field IS a View.",
+  "type": "object",
+  "required": ["view"],
+  "additionalProperties": false,
+  "properties": {
+    "view": { "$ref": "./view.schema.json" }
+  }
+}

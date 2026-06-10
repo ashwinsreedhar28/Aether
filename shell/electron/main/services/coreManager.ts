@@ -151,11 +151,11 @@ export class CoreManager {
       // /__introspection__ endpoint — that token is the same
       // this.secrets.adminToken already in Core's env above.
       MESH_MESH_INTROSPECTION_SECRET: this.secrets.meshIntrospectionSecret,
-      // Visualizer is a TypeScript Mixer node (spawned by nodeManager).
-      // Same env contract — Core resolves env:MESH_VISUALIZER_SECRET at
-      // manifest load so nodeManager can inject the same value into the
-      // child's env. No ADMIN_TOKEN: the visualizer reads mesh state via
-      // mesh.invoke(mesh_introspection.topology), not the broker endpoint.
+      // Visualizer is a TypeScript Mixer node — NOT auto-spawned on desktop
+      // (despawn ruling 2026-06-09, issue #220; see nodeManager.startAll).
+      // Its manifest entry stays for the AVP track, and Core resolves
+      // env:MESH_VISUALIZER_SECRET at manifest load, so the secret stays in
+      // Core's env even with no child to inject it into.
       MESH_VISUALIZER_SECRET: this.secrets.visualizerSecret,
       // Lanes is a TypeScript Sensor node (spawned by nodeManager). Same env
       // contract — Core resolves env:MESH_LANES_SECRET at manifest load so
@@ -167,6 +167,12 @@ export class CoreManager {
       // at manifest load so nodeManager can inject the same value into the
       // child's env. No ADMIN_TOKEN: it persists gaps locally, no broker endpoint.
       MESH_INTENTS_SECRET: this.secrets.intentsSecret,
+      // viewer_desktop is the agent->renderer control node, hosted IN the shell
+      // main process (not spawned) — index.ts creates its MeshNode directly with
+      // this.secrets.viewerDesktopSecret. Core still has to resolve
+      // env:MESH_VIEWER_DESKTOP_SECRET at manifest load to verify the node's
+      // signed envelopes, so the same value is handed to Core here.
+      MESH_VIEWER_DESKTOP_SECRET: this.secrets.viewerDesktopSecret,
     }
     const pythonBin = resolvePython3()
     this.logStream.write(`[coreManager] python3 → ${pythonBin}\n`)

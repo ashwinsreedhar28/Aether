@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "viewer_desktop.open_view",
+  "title": "viewer_desktop.open_view",
+  "description": "Open a file- or inline-backed content View in a window (text/markdown/json/mermaid/image/html/latex/kanban/knowledge-graph). Params: a View { id, type, source }. Returns { ok, id }.",
+  "type": "object",
+  "required": ["id", "type", "source"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "type": { "type": "string" },
+    "source": { "type": "object" }
+  }
+}

@@ -37,6 +37,13 @@ export interface MeshInvokeResult {
   durationMs: number
 }
 
+// The viewer_desktop control node is hosted in the shell main process (not
+// spawned), so index.ts needs its identity secret to construct the MeshNode.
+// Generated alongside every other secret in startMesh(); null before mesh boot.
+export function getViewerDesktopSecret(): string | null {
+  return secrets?.viewerDesktopSecret ?? null
+}
+
 // Boots in the background; throws on failure so the caller can surface a
 // dialog without quitting the shell. After v0.1.0, the shell stays usable
 // for non-mesh apps (Welcome / News / Markdown) even if mesh fails.

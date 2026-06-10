@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
+// Side-effect import: exposes the absorbed Viewer surface as window.electron
+// (fs/app/config/terminal/browser/control/...) alongside window.aether below.
+import './viewerApi'
 
 // The single bridge surface for the renderer. Every channel here is part of
 // the renderer/main contract and should be considered API. Pattern lifted
@@ -86,28 +89,6 @@ export interface VoiceStatus extends RavenState {
   sessionId?: string
   lastTranscript?: TranscriptEntry
   lastToolCall?: ToolCallEntry
-}
-
-// ---- Scene types (kept in sync with main/services/sceneSubscriber.ts) ------
-// Duplicated rather than imported so the preload (a sandbox-loaded script)
-// stays free of cross-package imports.
-
-export interface SceneEventSnapshot {
-  type: 'snapshot'
-  scene: { version: number; seq: number; panels: unknown[]; entities: unknown[] }
-}
-export interface SceneEventDelta {
-  type: 'delta'
-  seq: number
-  version: number
-  changes: unknown[]
-}
-export type SceneEvent = SceneEventSnapshot | SceneEventDelta
-
-export interface ScenePostResult {
-  ok: boolean
-  status?: number
-  error?: string
 }
 
 // ---- Spawn types (kept in sync with main/services/spawnService.ts) ----------
@@ -218,6 +199,12 @@ const voice = {
   status: (): Promise<VoiceStatus> => ipcRenderer.invoke('voice:status'),
   start: (): Promise<RavenState> => ipcRenderer.invoke('voice:start'),
   stop: (): Promise<RavenState> => ipcRenderer.invoke('voice:stop'),
+  // Mute toggle (mic off + ambient-listen suppressed). Synced across renderers.
+  muted: (): Promise<boolean> => ipcRenderer.invoke('voice:muted'),
+  setMuted: (muted: boolean): Promise<{ muted: boolean }> =>
+    ipcRenderer.invoke('voice:set-muted', muted),
+  onMutedChanged: (cb: (muted: boolean) => void): Unsubscribe =>
+    subscribe('voice:muted-changed', cb),
   // Route a typed turn to raven — the same brain a spoken turn reaches.
   // Resolves {ok:true} on accept, {error} on a cold mic / daemon-down.
   sendText: (text: string): Promise<{ ok: true } | { error: string }> =>
@@ -239,30 +226,6 @@ const voice = {
     subscribe('voice:transcript', cb),
   onToolCall: (cb: (entry: ToolCallEntry) => void): Unsubscribe =>
     subscribe('voice:tool-call', cb),
-}
-
-// Scene namespace — the renderer talks to the scene server only through main.
-// Main owns the WS (snapshots + deltas arrive via the 'scene:event' push) and
-// proxies panel POSTs over loopback HTTP. The renderer never opens a socket.
-const scene = {
-  // POST a panel to the scene server. Panel must be a fully-specified SceneDoc
-  // panel (id, kind, text/url/data, transform, size, style?).
-  // NOTE: panel.style values MUST be strings — the scene server's AVP client
-  // decodes style as [String: String]. Numbers/bools break the decode
-  // silently. See governance-log 2026-05-26.
-  postPanel: (panel: Record<string, unknown>): Promise<ScenePostResult> =>
-    ipcRenderer.invoke('scene:post-panel', panel),
-  // Subscribe to scene events (snapshot on connect, deltas on mutation).
-  // Returns an unsubscribe function.
-  onSceneEvent: (cb: (ev: SceneEvent) => void): Unsubscribe =>
-    subscribe('scene:event', cb),
-  // Read the user's saved Scene arrangement (drag-reordered panel-id sequence).
-  // An empty array means no saved order; the Scene falls back to server arrival
-  // order. Never throws — a missing/corrupt file resolves to { order: [] }.
-  getOrder: (): Promise<{ order: string[] }> => ipcRenderer.invoke('scene:get-order'),
-  // Persist a new arrangement: the full panel-id sequence in display order.
-  setOrder: (order: string[]): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('scene:set-order', order),
 }
 
 // Spawn namespace — the spawn actor's approval card + Spawns strip. The
@@ -293,7 +256,6 @@ const api = {
   files,
   mesh,
   voice,
-  scene,
   spawn,
   shell: shellApi,
 }

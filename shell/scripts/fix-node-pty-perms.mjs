@@ -11,34 +11,49 @@
 //
 // Runs as the shell package's postinstall. Idempotent, silent when there is
 // nothing to fix, and never fails the install (a missing node-pty just means
-// nothing to do — e.g. a CI job that only builds python).
-import { globSync } from 'node:fs';
-import { chmodSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+// nothing to do — e.g. a CI job that only builds python). No fs.globSync /
+// import.meta.dirname: CI runs Node 20.10, which has neither.
+import { chmodSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = resolve(import.meta.dirname, '..', '..');
-const patterns = [
-  // pnpm layout (the one this repo uses) and a plain-npm fallback.
-  'node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper',
-  'node_modules/node-pty/prebuilds/*/spawn-helper',
-];
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-let fixed = 0;
-for (const pattern of patterns) {
-  for (const file of globSync(pattern, { cwd: repoRoot })) {
-    const path = resolve(repoRoot, file);
-    try {
-      const mode = statSync(path).mode;
-      if ((mode & 0o111) === 0) {
-        chmodSync(path, mode | 0o755);
-        fixed++;
-        console.log(`[fix-node-pty-perms] +x ${file}`);
-      }
-    } catch {
-      // Raced or unreadable — the spawn itself will surface any real problem.
-    }
+/** List subdirectory entries, or [] when the parent doesn't exist. */
+function listDir(path) {
+  try {
+    return readdirSync(path);
+  } catch {
+    return [];
   }
 }
-if (fixed === 0) {
-  // Quiet success: bits already correct (or no node-pty present).
+
+/** node-pty package roots across pnpm and plain-npm layouts. */
+function nodePtyRoots() {
+  const roots = [];
+  const pnpmStore = join(repoRoot, 'node_modules', '.pnpm');
+  for (const entry of listDir(pnpmStore)) {
+    if (entry.startsWith('node-pty@')) {
+      roots.push(join(pnpmStore, entry, 'node_modules', 'node-pty'));
+    }
+  }
+  roots.push(join(repoRoot, 'node_modules', 'node-pty'));
+  return roots;
+}
+
+for (const root of nodePtyRoots()) {
+  const prebuilds = join(root, 'prebuilds');
+  for (const platform of listDir(prebuilds)) {
+    const helper = join(prebuilds, platform, 'spawn-helper');
+    try {
+      const mode = statSync(helper).mode;
+      if ((mode & 0o111) === 0) {
+        chmodSync(helper, mode | 0o755);
+        console.log(`[fix-node-pty-perms] +x ${helper}`);
+      }
+    } catch {
+      // No helper for this platform (Windows prebuilds), or raced —
+      // the spawn itself will surface any real problem.
+    }
+  }
 }

@@ -127,35 +127,6 @@ export function nodeDataDir(): string {
   return join(app.getPath('userData'), 'data')
 }
 
-// RAVEN_AVP scene server lives at <repo>/daemons/raven-avp-server/.
-// The submodule's server/main.py is the FastAPI entrypoint.
-export const SCENE_SERVER_DIR: string = join(
-  REPO_ROOT,
-  'daemons',
-  'raven-avp-server',
-  'server',
-)
-
-// State path for the scene server. Per Q2 of the Sprint 6.2 lane
-// spec: scene_state.json lives under userData to keep the submodule
-// clean across restarts.
-export function sceneServerDataDir(): string {
-  return join(app.getPath('userData'), 'data', 'raven-avp')
-}
-
-export function sceneServerStatePath(): string {
-  return join(sceneServerDataDir(), 'scene_state.json')
-}
-
-// Durable Scene-arrangement order: the user's drag-reordered panel-id sequence.
-// Lives at the top of userData as shell UI state — deliberately separate from
-// node data (nodeDataDir) and scene-server state (sceneServerStatePath), since
-// it belongs to the renderer's view, not to any node. Missing file = no saved
-// order, and the Scene renders in server arrival order (today's behavior).
-export function sceneOrderPath(): string {
-  return join(app.getPath('userData'), 'scene-order.json')
-}
-
 // Spawn actor ledger. Lives under the shared data root (nodeDataDir =
 // $userData/data = AETHER_DATA_DIR) so the raven request_spawn tool and the
 // shell's SpawnService resolve the SAME append-only requests.jsonl. A sibling of

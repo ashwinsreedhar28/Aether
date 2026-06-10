@@ -2,53 +2,12 @@ import { create } from 'zustand';
 
 export type ColorScheme = 'dark' | 'light';
 export type AccentColor = 'blue' | 'purple' | 'green' | 'orange' | 'pink' | 'cyan';
-export type LeapCrosshairStyle = 'ironman' | 'minimal' | 'dot';
-export type LeapHoverPrimaryHand = 'right' | 'left' | 'mostRecent';
-export type LeapScrollFallbackMode = 'auto' | 'always' | 'never';
-export type LeapScrollAxisMode = 'both' | 'vertical' | 'horizontal';
 
 export interface ThemeSettings {
   colorScheme: ColorScheme;
   accentColor: AccentColor;
   windowOpacity: number; // 0.5 to 1.0
   fontSize: 'small' | 'medium' | 'large';
-}
-
-export interface LeapInputSettings {
-  enabled: boolean;
-  endpoint: string;
-  reconnectMs: number;
-  confidenceThreshold: number;
-  staleHandMs: number;
-  hoverMoveHz: number;
-  hoverPrimaryHand: LeapHoverPrimaryHand;
-  hideNativeCursor: boolean;
-  smoothing: number;
-  deadzonePx: number;
-  edgePaddingPx: number;
-  xMinMm: number;
-  xMaxMm: number;
-  yMinMm: number;
-  yMaxMm: number;
-  invertX: boolean;
-  invertY: boolean;
-  cursorGainX: number;
-  cursorGainY: number;
-  pinchThreshold: number;
-  releaseThreshold: number;
-  dragActivationPx: number;
-  minPinchMsForClick: number;
-  scrollFallbackMode: LeapScrollFallbackMode;
-  scrollHoldDelayMs: number;
-  scrollActivationPx: number;
-  scrollAxisMode: LeapScrollAxisMode;
-  scrollSensitivity: number;
-  scrollSensitivityX: number;
-  scrollSensitivityY: number;
-  invertScrollX: boolean;
-  invertScrollY: boolean;
-  showCrosshairs: boolean;
-  crosshairStyle: LeapCrosshairStyle;
 }
 
 export interface DictationSettings {
@@ -60,7 +19,6 @@ export interface DictationSettings {
 }
 
 export interface InputSettings {
-  leap: LeapInputSettings;
   dictation: DictationSettings;
 }
 
@@ -76,7 +34,6 @@ export interface SettingsStore {
   saveSettings: () => Promise<void>;
   setDefaultProjectsFolder: (folder: string | null) => void;
   setTheme: (theme: Partial<ThemeSettings>) => void;
-  setLeapSettings: (settings: Partial<LeapInputSettings>) => void;
   setDictationSettings: (settings: Partial<DictationSettings>) => void;
   applyTheme: () => void;
 }
@@ -96,48 +53,10 @@ const DEFAULT_DICTATION: DictationSettings = {
   shortcut: 'CommandOrControl+Shift+D',
 };
 
-const DEFAULT_LEAP_INPUT: LeapInputSettings = {
-  enabled: true,
-  endpoint: 'ws://127.0.0.1:6437/v7.json',
-  reconnectMs: 3000,
-  confidenceThreshold: 0.2,
-  staleHandMs: 220,
-  hoverMoveHz: 30,
-  hoverPrimaryHand: 'right',
-  hideNativeCursor: true,
-  smoothing: 0.35,
-  deadzonePx: 0.8,
-  edgePaddingPx: 0,
-  xMinMm: -220,
-  xMaxMm: 220,
-  yMinMm: 90,
-  yMaxMm: 420,
-  invertX: false,
-  invertY: false,
-  cursorGainX: 1.0,
-  cursorGainY: 1.0,
-  pinchThreshold: 0.82,
-  releaseThreshold: 0.62,
-  dragActivationPx: 8,
-  minPinchMsForClick: 0,
-  scrollFallbackMode: 'auto',
-  scrollHoldDelayMs: 120,
-  scrollActivationPx: 14,
-  scrollAxisMode: 'vertical',
-  scrollSensitivity: 1.0,
-  scrollSensitivityX: 1.0,
-  scrollSensitivityY: 1.0,
-  invertScrollX: false,
-  invertScrollY: false,
-  showCrosshairs: true,
-  crosshairStyle: 'ironman',
-};
-
 const DEFAULT_SETTINGS: AppSettings = {
   defaultProjectsFolder: null,
   theme: DEFAULT_THEME,
   input: {
-    leap: DEFAULT_LEAP_INPUT,
     dictation: DEFAULT_DICTATION,
   },
 };
@@ -167,10 +86,6 @@ function mergeSettings(raw: Partial<AppSettings> | undefined): AppSettings {
       ...(raw?.theme ?? {}),
     },
     input: {
-      leap: {
-        ...DEFAULT_LEAP_INPUT,
-        ...(raw?.input?.leap ?? {}),
-      },
       dictation: {
         ...DEFAULT_DICTATION,
         ...(raw?.input?.dictation ?? {}),
@@ -253,22 +168,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       },
     }));
     get().applyTheme();
-    get().saveSettings();
-  },
-
-  setLeapSettings: (leapUpdates: Partial<LeapInputSettings>) => {
-    set(state => ({
-      settings: {
-        ...state.settings,
-        input: {
-          ...state.settings.input,
-          leap: {
-            ...state.settings.input.leap,
-            ...leapUpdates,
-          },
-        },
-      },
-    }));
     get().saveSettings();
   },
 

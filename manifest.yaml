@@ -733,13 +733,10 @@ relationships:
   # visualization (e.g. "show me the mesh").
   - from: shell
     to: visualizer.render
-  # Voice intent source (Sprint 6.5): the visualize voice tool routes
-  # "show me the mesh" through raven → visualizer.render({ intent: 'mesh' }),
-  # which composes + POSTs the topology panel the Dashboard renders. raven's
-  # first side-effect-with-ack tool — it summons a panel and speaks a brief
-  # acknowledgment rather than narrating the topology.
-  - from: raven
-    to: visualizer.render
+  # RETIRED (Lane 3, ADR 2026-06-09 §5/§6 — Dashboard dropped for the Viewer
+  # surface): the raven → visualizer.render edge that the Sprint 6.5 visualize
+  # voice tool used. The tool (and its navigate sibling) is removed from
+  # raven-core in the same lane; the shell-driven edge above is unchanged.
 
   # Lanes sensor (Sprint 6.5b): the visualizer reads lane activity through the
   # mesh and composes the dashboard.lanes backdrop + the viz-lanes overlay —

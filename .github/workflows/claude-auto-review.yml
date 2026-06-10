@@ -1,11 +1,21 @@
 name: Claude Auto Review
 
+# Same trunk-branch set as ci.yml: every PR that can reach a trunk
+# branch (main or an integration/* reconciliation trunk) gets the
+# mechanical review pass.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    branches: [main, 'integration/**']
 
 jobs:
   auto-review:
+    # Trunk-repo branches only (ADR 2026-06-09 §9, the #204 fork-PR gap):
+    # on fork-originated PRs the action cannot obtain an OIDC token
+    # (ACTIONS_ID_TOKEN_REQUEST_URL unavailable) and 401s before doing any
+    # work. Collaborators push branches to this repo instead; skipping the
+    # job here turns a confusing red 401 into an explicit policy.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read

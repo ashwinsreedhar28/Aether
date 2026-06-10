@@ -101,6 +101,21 @@ class Config:
     # Allowed apps for system control
     allowed_apps: list[str] = field(default_factory=list)
 
+    # Barge-in: interrupt Raven mid-reply by talking over it. While
+    # Raven is speaking the mic is normally muted (echo suppression);
+    # the detector in orchestrator.listen_audio re-opens the gate when
+    # sustained mic energy rises well above the speaker-echo baseline.
+    barge_in_enabled: bool = True
+    # How much louder than the echo baseline the mic must be before a
+    # chunk counts as user speech. Higher = fewer false interruptions,
+    # but the user has to speak up more.
+    barge_in_factor: float = 1.8
+    # Absolute RMS floor (int16 scale) a chunk must also clear — guards
+    # the first chunks of a reply, before the echo baseline has settled,
+    # and quiet replies whose baseline would otherwise be beatable by
+    # room noise.
+    barge_in_min_rms: int = 1000
+
     @classmethod
     def load(
         cls,
@@ -185,6 +200,12 @@ class Config:
                     config.audio_input_device = user_config["audio_input_device"]
                 if "audio_output_device" in user_config:
                     config.audio_output_device = user_config["audio_output_device"]
+                if "barge_in_enabled" in user_config:
+                    config.barge_in_enabled = bool(user_config["barge_in_enabled"])
+                if "barge_in_factor" in user_config:
+                    config.barge_in_factor = float(user_config["barge_in_factor"])
+                if "barge_in_min_rms" in user_config:
+                    config.barge_in_min_rms = int(user_config["barge_in_min_rms"])
 
                 print(f"[CONFIG] Loaded user config from {user_config_path}")
             except (json.JSONDecodeError, OSError) as e:

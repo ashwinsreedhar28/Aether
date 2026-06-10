@@ -26,4 +26,25 @@ it has no consumers after archive. To revive any content app:
 
 The current direction (post-Sprint-5.5) is that content apps are
 the wrong shape. Use the visualizer node + scene server pattern
-instead (Sprint 6.4+).
+instead (Sprint 6.4+). (Superseded in turn by the 2026-06-09
+Viewer × Aether merge ADR — the scene server is retired and
+Viewer's workspace store is the layout authority; see below.)
+
+## raven-avp-server (scene server) — retired, preserved in git history
+
+Retired in Lane 3 of the Viewer × Aether merge (ADR 2026-06-09 §5:
+ARCHIVE the AVP scene server; Viewer's workspace store is the layout
+authority). Unlike `shell-content-apps/`, the scene server was a git
+**submodule**, not in-repo code, so there is nothing to relocate into
+this directory. It is preserved as:
+
+- Upstream repo: <https://github.com/R-A-V-E-N-delegate/RAVEN_AVP>
+- Last pinned gitlink: commit `2a7833a` of that repo, recorded at
+  `daemons/raven-avp-server` up to Aether commit `ba1ca6c` (vendored
+  by PR #122, removed by the Lane 3 PR).
+
+To revive for the spatial-AVP track: re-add the submodule at the
+pinned commit, restore the shell wiring (daemon manager, scene
+subscriber, scene-order handlers, `scene:*` preload namespace) from
+git history at `ba1ca6c`, and re-derive the layout-authority split
+from the 2026-06-09 ADR.

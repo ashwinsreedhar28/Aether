@@ -282,7 +282,9 @@ export class NodeManager {
 
   private async spawnVisualizer(): Promise<void> {
     // visualizer Mixer — reads mesh_introspection.topology via the mesh and
-    // POSTs composed scene panels to the local RAVEN_AVP scene server. Unlike
+    // POSTs composed scene panels to the local RAVEN_AVP scene server. The
+    // scene server is retired (Lane 3, ADR 2026-06-09 §5), so the POST half is
+    // inert; the node's disposition is a follow-up ruling. Unlike
     // mesh_introspection it does NOT need ADMIN_TOKEN: it reads a mesh surface
     // (mesh-authed with its own secret), not the broker's admin endpoint.
     // AETHER_DATA_DIR is the writable root for the running marker, matching

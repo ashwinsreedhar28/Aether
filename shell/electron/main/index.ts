@@ -22,13 +22,10 @@ import { registerAllGenerators } from '@viewer/core'
 import { createViewerNode, type ViewerNode } from './services/viewerNode'
 import { executeViewerControl } from './services/viewerControl'
 import { registerFileHandlers } from './handlers/files'
-import { registerSceneOrderHandlers } from './handlers/sceneOrder'
 import { initViewerHost, attachViewerWindow, stopViewerHost, getViewerRootDir } from './services/viewerHost'
 import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
-import { SceneServerDaemonManager } from './services/sceneServerDaemonManager'
-import { SceneSubscriber } from './services/sceneSubscriber'
 import { SpawnService } from './services/spawnService'
 import { REPO_ROOT, spawnsLedgerPath } from './services/paths'
 import { markQuitting } from './services/appLifecycle'
@@ -400,12 +397,6 @@ const raven = getRavenDaemonManager()
 const vision = new VisionDaemonManager()
 const calendar = new CalendarDaemonManager()
 
-// Scene server (RAVEN_AVP) — external FastAPI daemon on :5180, NOT a mesh
-// node. Holds visualization state and broadcasts deltas over WS. The shell
-// supervises its lifecycle but does not consume it yet (subscriber + UI
-// land in Sprint 6.3). Boot does not block on it (Sprint 6.2 Q3).
-const sceneServer = new SceneServerDaemonManager()
-
 // Reminders node — migrated to registerNode factory pattern (proof-of-concept).
 // Repo root is three levels up from compiled location at out/main/index.js.
 const repoRoot = resolve(__dirname, '..', '..', '..')
@@ -575,19 +566,6 @@ vision.on('availability', (a) => broadcastToRenderers('vision:availability-chang
 calendar.on('availability', (a) => broadcastToRenderers('calendar:availability-changed', a))
 reminders.on('availability', (a) => broadcastToRenderers('reminders:availability-changed', a))
 
-// Scene subscriber — main owns the WS to the scene server; it forwards
-// snapshots + deltas to the renderer over the 'scene:event' push channel.
-// The renderer never opens a socket. start() is idempotent and does not block
-// boot: if the scene server isn't up yet (Sprint 6.2 Q3), the subscriber
-// retries with backoff until it's reachable, and reconnects if the daemon
-// manager restarts it mid-session.
-const sceneSubscriber = new SceneSubscriber()
-sceneSubscriber.on('scene-event', (ev) => broadcastToRenderers('scene:event', ev))
-sceneSubscriber.on('connection-changed', (connected: boolean) =>
-  console.log('[aether] scene subscriber connection:', connected ? 'up' : 'down'),
-)
-sceneSubscriber.start()
-
 // Spawn actor — watches the append-only spawn ledger (written by raven's
 // request_spawn tool), raises the approval card via the 'spawn:changed' push,
 // and runs the §13.12 worktree recipe + Terminal launch on the Director's
@@ -610,28 +588,6 @@ ipcMain.handle('spawn:approve', (_e, id: unknown) => spawnService.approve(String
 ipcMain.handle('spawn:dismiss', (_e, id: unknown) => spawnService.dismiss(String(id)))
 ipcMain.handle('spawn:complete', (_e, id: unknown) => spawnService.complete(String(id)))
 
-// Scene panel POST — the renderer asks main to POST a panel to the scene
-// server; main does the HTTP call so the renderer never touches :5180
-// directly. NOTE: panel.style values MUST be strings — the scene server's AVP
-// client decodes style as [String: String] (governance-log 2026-05-26). This
-// proxy does not validate that; callers (the CLI in 6.3b) own the contract.
-ipcMain.handle('scene:post-panel', async (_e, panel: Record<string, unknown>) => {
-  try {
-    const resp = await fetch('http://127.0.0.1:5180/scene/panel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(panel),
-      signal: AbortSignal.timeout(5000),
-    })
-    if (!resp.ok) {
-      return { ok: false, status: resp.status, error: await resp.text() }
-    }
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: String(err) }
-  }
-})
-
 app.whenReady().then(() => {
   // macOS dev mode: set Dock icon explicitly. In packaged builds the .icns
   // from electron-builder handles this, but `pnpm dev` shows the generic
@@ -645,7 +601,6 @@ app.whenReady().then(() => {
   // voice) are OFF this critical path; their respective status surfaces
   // (Mesh Dev Tools pill, Voice pill) flip when each becomes healthy.
   registerFileHandlers()
-  registerSceneOrderHandlers()
   // Viewer host: workspace root-dir state + fs/terminal/config/browser IPC for
   // the absorbed renderer. Registered before the window loads so the renderer's
   // mount-time IPC calls resolve. Per-window glue is in attachViewerWindow().
@@ -746,23 +701,6 @@ app.whenReady().then(() => {
       console.error('[aether] reminders ensureRunning threw:', err)
       void 0
     })
-
-  // Scene server (RAVEN_AVP) — external HTTP infrastructure, independent of
-  // the mesh. ensureRunning bootstraps a venv on first run (~30s) then polls
-  // GET /scene until healthy; on failure it schedules a backed-off restart.
-  // Fired async so boot stays off this path (Sprint 6.2 Q3).
-  void sceneServer
-    .ensureRunning()
-    .then(() => {
-      if (sceneServer.isRunning()) {
-        console.log('[aether] scene server healthy on :5180')
-      } else {
-        console.warn('[aether] scene server not yet healthy; will retry')
-      }
-    })
-    .catch((err) => {
-      console.error('[aether] scene server ensureRunning threw:', err)
-    })
 })
 
 // Clean shutdown. before-quit fires on user-initiated quits AND on
@@ -783,8 +721,6 @@ async function stopAllChildren(): Promise<void> {
     vision.stop(),
     calendar.stop(),
     reminders.stop(),
-    sceneServer.stop(),
-    Promise.resolve(sceneSubscriber.stop()),
     Promise.resolve(spawnService.stop()),
     Promise.resolve(stopViewerHost()),
     viewerNode?.stop() ?? Promise.resolve(),

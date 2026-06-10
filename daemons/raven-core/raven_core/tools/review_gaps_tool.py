@@ -9,7 +9,7 @@ through ``mesh_client.mesh_invoke``; the edge ``raven → intents.list`` in
 manifest.yaml authorises the hop (raven's read relationship to intents, added
 alongside its existing ``raven → intents.record`` write edge).
 
-UNLIKE report_gap and visualize — both SIDE-EFFECT tools that return a tiny
+UNLIKE report_gap — a SIDE-EFFECT tool that returns a tiny
 ack — this tool RETURNS CONTENT: the gap records, for raven to reason over.
 raven reads them, clusters related ones, and proposes 1–3 lanes. It does NOT
 build anything; proposing is the whole job, and building stays human-gated.
@@ -58,17 +58,15 @@ def get_tools() -> list[types.Tool]:
         description=(
             "Read back the OPEN capability-gap log — the things the user asked "
             "for that Aether still cannot do (already-closed gaps are excluded) "
-            "— so you can propose what to build next. UNLIKE report_gap and "
-            "visualize, this RETURNS the "
+            "— so you can propose what to build next. UNLIKE report_gap, "
+            "this RETURNS the "
             "gaps for you to reason over (cluster related ones and pitch "
             "concrete lanes); it is NOT a side-effect tool and its result is "
             "content, not an ack. Call it when the user asks a forward-looking "
             "build question — 'what should we build next', 'propose "
             "improvements', 'review your gaps and suggest something'. Then "
             "cluster the returned gaps into 1–3 short, concrete proposals and "
-            "speak them briefly. You PROPOSE only; you do not build anything. "
-            "Do NOT use this to merely SHOW the gap log on screen — that is "
-            "visualize({ intent: 'gaps' })."
+            "speak them briefly. You PROPOSE only; you do not build anything."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,

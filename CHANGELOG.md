@@ -27,6 +27,24 @@ historical record.
   `menu:open-command-palette` channel and `CmdOrCtrl+/` accelerator are unchanged.
 
 ### Removed
+- Lane 3 (ADR 2026-06-09 §5, scene server archived): the RAVEN_AVP scene server
+  — the `daemons/raven-avp-server` submodule (preserved upstream and at the
+  gitlink in git history; see `_archive/README.md`) and all shell wiring:
+  `sceneServerDaemonManager`, `sceneSubscriber`, the `scene:post-panel` /
+  `scene:get-order` / `scene:set-order` IPC + the `sceneOrder` handlers, the
+  preload `scene` namespace and Scene types, the scene-server path helpers
+  in `paths.ts`, and the scene-server-scoped `frame-src http://127.0.0.1:5180`
+  CSP grant in `index.html` (governance-log 2026-05-26). Viewer's workspace
+  store is the layout authority.
+- Lane 3 (folds the ADR's Lane 7): the dangling Leap Motion remnants — the
+  preload `leap:` IPC namespace (its main-process handlers were already gone),
+  the `browser-mock` stub, `LeapInputSettings` + defaults in `settingsStore`,
+  and the crosshair/overlay CSS block.
+- Lane 3 (folds #210, per today's `raven → visualizer.render` DECISIONS
+  entry): the Dashboard-era `visualize` and `navigate` raven voice tools
+  (modules deleted, not `_DISABLED_MODULES`-disabled) and the
+  `raven → visualizer.render` manifest edge. The `shell → visualizer.render`
+  edge and the visualizer node are unchanged.
 - Lane 2 (ADR 2026-06-09 §3, mesh-SDK collapse): the entire `viewer-desktop/`
   staging tree (261 files) — the original, untouched Viewer Electron app vendored
   side-by-side in PR #201 for the architects to diff, including its vendored

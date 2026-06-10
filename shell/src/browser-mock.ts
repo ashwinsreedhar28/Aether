@@ -75,20 +75,6 @@ if (isBrowser) {
     browser: {
       openExternal: () => Promise.resolve({ success: true }),
     },
-    leap: {
-      status: () => Promise.resolve({
-        running: false,
-        managed: false,
-        pid: null,
-        path: '/mock/Ultraleap-Tracking-WS',
-      }),
-      ensureService: () => Promise.resolve({
-        running: false,
-        managed: false,
-        pid: null,
-        path: '/mock/Ultraleap-Tracking-WS',
-      }),
-    },
     mcp: {
       loadSettings: () => Promise.resolve({}),
       listServers: () => Promise.resolve([]),

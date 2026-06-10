@@ -21,7 +21,7 @@
  * how to display the resolved data.
  *
  * These are the *pure-content* types shared across both shells. Platform-only
- * surfaces (terminal, browser, 3D scenes, leap settings) are deliberately NOT
+ * surfaces (terminal, browser, 3D scenes) are deliberately NOT
  * Views — they live in their own shell and never cross the boundary.
  */
 export type ViewType =

@@ -400,23 +400,6 @@ const electronAPI = {
       ipcRenderer.invoke('browser:openExternal', url),
   },
 
-  // Leap service operations
-  leap: {
-    status: (): Promise<{
-      running: boolean;
-      managed: boolean;
-      pid: number | null;
-      path: string;
-    }> => ipcRenderer.invoke('leap:status'),
-
-    ensureService: (enabled: boolean): Promise<{
-      running: boolean;
-      managed: boolean;
-      pid: number | null;
-      path: string;
-    }> => ipcRenderer.invoke('leap:ensureService', enabled),
-  },
-
   // MCP operations
   mcp: {
     // Load settings from ~/.claude/settings.json

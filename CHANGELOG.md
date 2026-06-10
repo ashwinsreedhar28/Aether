@@ -10,6 +10,11 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Voice desktop control got hands that work: new `arrange_windows` voice tool
+  (tile / focus / split / thirds / quarters, via the new
+  `viewer_desktop.apply_layout` mesh surface); `open_app` now fuzzy-resolves
+  spoken app names against the live registry and returns `did_you_mean` /
+  `available_apps` on a miss instead of an opaque failure.
 - Barge-in: interrupt Raven mid-reply by talking over it. The echo gate now
   runs an energy detector during playback — sustained mic energy well above
   the speaker-echo baseline cuts local playback and streams the speech to the
@@ -18,6 +23,20 @@ historical record.
 - `scripts/lane-done.sh` post-merge ritual script; §7-lite micro-lane tier banked in CLAUDE.md.
 
 ### Fixed
+- "Open the terminal" by voice now spawns a real PTY-backed terminal — the
+  `open-app` control action routes `terminal` through `openTerminal()` (the
+  manual launcher's path) instead of creating a dead window whose tab pointed
+  at no session. Unknown app ids return the registry instead of silently
+  creating a blank window.
+- Terminals spawn again after a fresh `pnpm install`: node-pty 1.1.0 ships
+  prebuilds whose `spawn-helper` loses its execute bit during pnpm
+  extraction, so every PTY spawn failed with `posix_spawnp failed` (dead
+  blank terminal windows, manual and voice alike). A shell postinstall
+  script restores the bit (`shell/scripts/fix-node-pty-perms.mjs`).
+- Raven no longer randomly claims it can't open apps: the system prompt
+  listed "opening an app" as a capability-gap example (contradicting
+  `open_app`) and never mentioned the viewer tools; it now carries a Desktop
+  control section and the gap example is corrected.
 - Voice daemon survives the Gemini native-audio models' known server-side
   websocket kill (1008 "Requested entity was not found" after a tool
   response): raven-core now enables session resumption and reconnects with

@@ -465,6 +465,10 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/viewer_desktop/schemas/close_window.json
+      - name: apply_layout
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/apply_layout.json
       - name: notify
         type: tool
         invocation_mode: request_response
@@ -492,6 +496,8 @@ relationships:
     to: viewer_desktop.focus_window
   - from: raven
     to: viewer_desktop.close_window
+  - from: raven
+    to: viewer_desktop.apply_layout
   - from: raven
     to: viewer_desktop.notify
   # The shell itself (renderer apps / a headless round-trip) can open apps too.

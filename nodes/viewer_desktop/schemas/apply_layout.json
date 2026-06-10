@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "viewer_desktop.apply_layout",
+  "title": "viewer_desktop.apply_layout",
+  "description": "Arrange the visible desktop windows with a layout preset. Params: { preset: 'tile' | 'focus' | 'split' | 'thirds' | 'quarters' }. 'tile' auto-grids all windows; the named presets map to the renderer's layout engine. Returns { ok, preset }.",
+  "type": "object",
+  "required": ["preset"],
+  "additionalProperties": true,
+  "properties": {
+    "preset": { "type": "string", "enum": ["tile", "focus", "split", "thirds", "quarters"] }
+  }
+}

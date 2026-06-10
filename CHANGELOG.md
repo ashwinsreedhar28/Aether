@@ -27,6 +27,11 @@ historical record.
   `menu:open-command-palette` channel and `CmdOrCtrl+/` accelerator are unchanged.
 
 ### Removed
+- Ruling 2026-06-09 (#220): the shell no longer auto-spawns the visualizer
+  node on desktop — with the scene server archived, its panel-POST half is
+  dead on this surface (Viewer's workspace store is the layout authority).
+  The node code, manifest entry, and reserved `shell → visualizer.render`
+  edge all stay for the AVP track.
 - Lane 3 (ADR 2026-06-09 §5, scene server archived): the RAVEN_AVP scene server
   — the `daemons/raven-avp-server` submodule (preserved upstream and at the
   gitlink in git history; see `_archive/README.md`) and all shell wiring:

@@ -4,17 +4,25 @@ import { useMeshSurface } from '../../hooks/useMeshSurface';
 // Re-homed Aether surface: dev lanes (nodes/lanes). Which git worktrees are
 // active vs idle — the surface Aether watches while it builds. Reads lanes.status.
 
+// Live CC session signal (nodes/lanes/src/types.ts AgentInfo). null/undefined →
+// detection unavailable (lsof missing), distinct from { active: false } meaning
+// "detected, none here".
+interface AgentInfo {
+  active: boolean;
+  count: number;
+}
+
 interface Lane {
   name: string;
   path: string;
   branch: string;
   is_main: boolean;
   dirty_count: number;
-  last_commit_msg?: string;
+  last_commit_msg?: string | null;
   last_activity_ms: number;
   state: 'active' | 'idle';
-  agent?: string | null;
-  pr?: { number?: number; title?: string; state?: string } | null;
+  agent?: AgentInfo | null;
+  pr?: { number: number; state: string; url: string } | null;
 }
 interface LanesPayload {
   lanes: Lane[];
@@ -60,7 +68,7 @@ export function LanesApp() {
         {!loading && !error && lanes.length === 0 && (
           <p className="text-sm text-[var(--holo-muted)] px-1">No worktrees.</p>
         )}
-        {lanes.map((l) => (
+        {!loading && !error && lanes.map((l) => (
           <div key={l.path} className="rounded-md border border-[var(--holo-border)] bg-[var(--holo-panel)]/40 px-3 py-2">
             <div className="flex items-center gap-2">
               <Circle
@@ -69,9 +77,12 @@ export function LanesApp() {
               />
               <span className="text-sm font-mono truncate">{l.branch}</span>
               {l.is_main && <span className="text-[10px] uppercase tracking-wider text-[var(--holo-muted)]">main</span>}
-              {l.agent && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--holo-accent)]/20 text-[var(--holo-accent)]">
-                  {l.agent}
+              {l.agent?.active && (
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--holo-accent)]/20 text-[var(--holo-accent)]"
+                  title={`${l.agent.count} live Claude Code session${l.agent.count === 1 ? '' : 's'} in this worktree`}
+                >
+                  AGENT{l.agent.count > 1 ? ` ×${l.agent.count}` : ''}
                 </span>
               )}
               {l.pr?.number != null && (

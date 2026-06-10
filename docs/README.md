@@ -48,12 +48,13 @@ How work gets built and shipped.
 
 ## Retrospectives
 
-Per-sprint retros. (Sprint 3 has no standalone retro; its lessons fold into the surrounding sprints.)
+Per-sprint retros, then per-arc retros under `retros/`. (Sprint 3 has no standalone retro; its lessons fold into the surrounding sprints.)
 
 - [sprint-1-retrospective.md](sprint-1-retrospective.md)
 - [sprint-2-retrospective.md](sprint-2-retrospective.md)
 - [sprint-4-retrospective.md](sprint-4-retrospective.md)
 - [sprint-5-retrospective.md](sprint-5-retrospective.md)
+- [retros/2026-06-viewer-arc.md](retros/2026-06-viewer-arc.md) — the Viewer × Aether capability merge
 
 ## Releases
 

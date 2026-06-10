@@ -333,3 +333,10 @@ A lane that arrives **without a supplied GitHub Issue opens its own** (using `.g
 ---
 
 *End of CLAUDE.md. If you reached this line and something above contradicts itself, or doesn't cover a situation you hit, raise it in the next PR's description under "Open questions for Architect." This file is meant to grow.*
+
+## §7 addendum — §7-lite (micro-lanes)
+Lanes designated "lite" in the spawn spec (≤4 files, or docs/config-only)
+may file the §7 template with one-line answers; "N/A" is legal for any
+heading. All eight headings must still be present (auto-review checks
+headings, not length). Architect designates the tier at spawn; default
+is full.

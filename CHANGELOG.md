@@ -10,6 +10,11 @@ historical record.
 ## [Unreleased]
 
 ### Fixed
+- Lanes app no longer crash-loops on open: the re-homed surface still typed
+  `agent` as a string and rendered it as a React child, but the lanes node has
+  served `agent: { active, count } | null` since #143 — React throws on object
+  children. Interface now matches the served payload; rows render behind the
+  same `!loading && !error` guard as MeshApp.
 - Raven-opened apps now render instead of showing a blank window (salvaged from #201 staging).
 
 ### Added

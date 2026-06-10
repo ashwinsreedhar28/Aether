@@ -1,187 +1,242 @@
 <p align="center">
-  <img src="shell/assets/aether-icon.svg" width="128" height="128" alt="Aether icon" />
+  <img src="assets/icon/aether-icon-1024.png" width="160" alt="Aether icon" />
 </p>
 
 # Aether
 
-**A voice-first personal-OS substrate.** A holographic Electron shell on top of a signed mesh, where voice is a first-class participant — and where the system has begun to help build itself, one human-gated step at a time.
+**A voice-driven personal OS for the desktop.** A real window manager, a voice
+brain that reaches into it, and a signed mesh underneath — built largely by the
+system's own pipeline, with a human pressing every merge.
 
 [![CI](https://github.com/ashwinsreedhar28/Aether/actions/workflows/ci.yml/badge.svg)](https://github.com/ashwinsreedhar28/Aether/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/tag/ashwinsreedhar28/Aether?label=release)](https://github.com/ashwinsreedhar28/Aether/tags)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> Built under the working name **homeOS** through v0.3.x; renamed to **Aether** with the v0.4.0 line. The GitHub repository still lives at `ashwinsreedhar28/Aether`; GitHub's auto-redirect keeps older `homeOS` clone URLs working.
+> Built under the working name **homeOS** through v0.3.x; renamed to **Aether**
+> with the v0.4.0 line. The GitHub repository still lives at
+> `ashwinsreedhar28/Aether`; GitHub's auto-redirect keeps older `homeOS` clone
+> URLs working.
 
 ## What this is
 
-Aether is a personal operating environment — a single shell where the user's data, voice, agents, and eventually physical-world peripherals all live as **nodes on a common signed mesh**. Currently pre-1.0, macOS-only, single-developer.
+Aether is a personal operating environment — one desktop where your windows,
+your data, your voice, and the agents that help build the system itself all
+meet on a common signed mesh. Currently pre-1.0, macOS-only, single-developer.
 
 Four things make it what it is today:
 
-- **A signed mesh.** Every cross-system interaction — voice asking a node for data, the shell triggering a node action, one node composing several others — travels as an HMAC-signed envelope that a single `manifest.yaml` edge graph authorizes. Edge present = permitted; edge absent = denied. One source of truth for what may talk to what.
-- **Voice as a first-class participant.** `raven` is a voice brain (a Python Gemini Live orchestrator under a supervised daemon) that is itself a mesh node. It doesn't sit beside the system — it reaches into it, invoking node surfaces over the same signed envelopes everything else uses.
-- **A scene cockpit.** Ask "show me the mesh" (or the lanes, the gaps, your agenda) and a `visualizer` node reads live mesh state and composes it into panels on a local scene server — an arrangeable, restart-persistent cockpit you direct by voice.
-- **A self-building loop — human-gated.** Aether notices its own missing capabilities (a *gap sensor* records them to a durable ledger), proposes concrete next builds when asked ("what should we build next"), and can draft a paste-ready lane prompt to disk. It **proposes only** — it never builds, spawns, or schedules. A human reads, approves, and ships. The loop is `gaps → proposals → drafts`, and the gate is always a person.
+- **A real window manager.** The shell is the absorbed Viewer renderer:
+  workspaces ▸ windows ▸ tabs, drag/resize/tiling, a dock, a file explorer —
+  and **~25 apps** discovered through one registry (terminal, browser,
+  markdown/text/JSON/PDF/LaTeX/image viewers, kanban, knowledge graph,
+  calculator, audio player, sound designer, and Aether's own surfaces —
+  Mesh, Lanes, Gaps — re-homed as ordinary apps). Its workspace store is the
+  sole layout authority: every window a human or an agent opens lands in the
+  same tree.
+- **Voice as a first-class participant.** `raven` is the system's one
+  assistant — a Python Gemini Live orchestrator (native-audio model, pinned)
+  under a supervised daemon. You can talk over it (**barge-in**), it survives
+  server-side session kills (**session resumption** + an in-process reconnect
+  loop), and it acts through **47 voice functions across 22 tool groups**:
+  reading your mail, messages, calendar, news, and finances; arranging
+  windows; opening apps and views; filing capability gaps. It drives the
+  desktop over the same signed mesh envelopes everything else uses — no
+  private back channel.
+- **A signed mesh.** Every cross-system interaction travels as an HMAC-signed
+  envelope that a single [`manifest.yaml`](manifest.yaml) edge graph
+  authorizes — currently **20 nodes and 80 authorized edges**, each node
+  classed as a **Sensor / Actor / Mixer / Planner**. Edge present = permitted;
+  edge absent = denied. The manifest is the single, auditable answer to "what
+  can talk to what."
+- **A self-building loop — human-gated.** Aether records its own missing
+  capabilities to a durable gap ledger, proposes concrete next builds when
+  asked, and drafts paste-ready lane prompts. The loop runs
+  `gaps → proposals → drafts → lanes`, and a human presses every merge. In the
+  last arc, a bug noticed by voice at midnight was root-caused, specced, built
+  by an agent, gated, and merged before sunrise.
 
-This repo is the **workspace half** — an Electron app on the developer's laptop. The eventual **home-substrate half** (an always-on box with peripherals as mesh nodes) shares the same codebase but deploys differently.
+This repo is the **workspace half** — an Electron app on the developer's
+laptop. The eventual **home-substrate half** (an always-on box with physical
+peripherals as mesh nodes) shares the same codebase but deploys differently.
 
-## Current state
+## How it's built
 
-Latest tagged release: **v0.9.4**. This branch prepares the **v0.10.0** cut — the *Architect* arc, where the self-building loop closed end-to-end.
+This is Aether's most distinctive fact: the system is substantially built by
+its own pipeline. Two humans (the Director and a collaborator) work with a
+**Claude Architect** (a design session that turns vision into lane specs and
+reviews every PR) and up to four parallel **Claude Code implementers** (one
+per git worktree, writing the code and opening the PRs).
 
-The build to here, by the capabilities that lit up:
+The process is law, not vibe:
 
-- **Mesh substrate alive** (`v0.1.0`): RAVEN_MESH Core runs as a managed daemon; HMAC-signed envelopes; edge-graph authorization; nodes spawn under a lifecycle-aware supervisor with clean SIGTERM teardown.
-- **Voice arrives, then meets the mesh** (`v0.2.0`–`v0.2.1`): `raven-daemon` supervises a Python Gemini Live orchestrator; raven registers as a mesh node and routes `notify(...)` through `host_notifications.notify` via `mesh.invoke` — the first end-to-end voice ↔ mesh round-trip.
-- **Real data over the mesh** (`v0.3.0`): the `news_feeds` node polls RSS into SQLite (WAL); a single `news_feeds.recent` surface feeds both the News app and the voice node — the first multi-consumer surface.
-- **Composers / multi-hop mesh** (`v0.4.0`): the `digest` node fans out to upstream data nodes in parallel (`Promise.allSettled`, per-upstream timeouts) to synthesize morning/evening briefings — proving the mesh-as-a-graph property (every prior node was a leaf).
-- **Identity inflection** (`v0.5.0`): renamed homeOS → Aether end to end (package scope `@aether/*`, bundle id `com.aether.app`, `window.aether` preload bridge, `AETHER_*` env vars), with a one-time idempotent userData migration that preserves prior state.
-- **Voice extensibility** (`v0.6.0`): the voice-tool substrate matured into a declarative five-piece pattern (declaration → mesh-routed dispatch → session context → tool-call history → persisted transcripts); the cost to add a voice tool dropped from days to hours.
-- **Substrate consolidation** (`v0.7.0`–`v0.8.0`): the `registerNode` factory became the canonical declarative shell-hook for spawning mesh nodes; ad-hoc per-node managers retired.
-- **Data breadth — macOS surfaces** (`v0.9.x`): TypeScript daemon nodes capture local macOS data (`clipboard_history`, `macos_messages`, `macos_mail`, `calendar`, `reminders`, `system_info`), plus a shared `@aether/macos-applescript` bridge primitive with full TCC permission-denied detection.
-- **The cockpit & the self-building loop** (`v0.10.0`, this release): the `visualizer` node + scene server give the mesh an arrangeable, restart-persistent cockpit (mesh / lanes / gaps / agenda overlays, inspectable edges, drag-to-reorder panels). The `intents` node turns a *gap sensor* into a durable, event-sourced ledger with `open`/`closed` lifecycle. raven gains `review_gaps` (propose next builds from the gap log) and `draft_lane` (write a house-format lane prompt to disk) — the first bricks of the Architect era. Mail learns to *open* the latest message via LaunchServices; the calendar answers "what's on my agenda" by voice and panel.
+- **Issue-is-contract.** No lane spawns without an ARCHITECT SPEC comment on
+  its GitHub Issue; implementers start from the issue and nothing else; every
+  PR closes its issue.
+- **Every merge is human-pressed.** Architect sign-off never auto-merges.
+  That is not a limitation of the system — it is the system.
+- **The record is the memory.** Decisions land in append-only ADRs, lessons in
+  a governance log, arcs in retrospectives — and a retrieval corpus over the
+  project's own documents is how implementers find precedent.
 
-See [CHANGELOG.md](CHANGELOG.md) for the full version history and [docs/releases/v0.10.0.md](docs/releases/v0.10.0.md) for this release's narrative.
+[CLAUDE.md](CLAUDE.md) is the full operating manual — the contributor law on
+roles, branching, self-review, and decision-recording — and
+[CONTRIBUTING.md](CONTRIBUTING.md) covers engaging from outside. The most
+recent arc retrospective ([docs/retros/2026-06-viewer-arc.md](docs/retros/2026-06-viewer-arc.md))
+shows the pipeline under real fire.
 
 ## Quickstart
 
-**Prerequisites:** macOS 13+, Node 22+, pnpm 9.15+, Python 3.10+. A Gemini API key is needed **only for voice** — the shell boots fine without one.
+**Prerequisites:** macOS 13+, Node 22+, pnpm 9.15+, Python 3.10+. A Gemini API
+key is needed **only for voice** — the shell boots fine without one.
 
 ```sh
 git clone --recursive https://github.com/ashwinsreedhar28/Aether.git
 cd Aether
 
-# Optional: record per-machine overrides (weather location, python path, …).
-# Voice needs GEMINI_API_KEY — add it here or export it in your shell.
-cp .env.local.example .env.local
-#   ... then add a line:  GEMINI_API_KEY=your-key-here
-
-pnpm install        # fetch dependencies
+pnpm install        # fetch dependencies (postinstall repairs node-pty's exec bit)
 pnpm -r build       # build every workspace package — REQUIRED, see note below
 
-cd shell && pnpm dev   # launch the Electron shell
+cd shell && pnpm dev   # launch the shell
 ```
 
 > **`pnpm install` alone is not enough.** The shell imports built workspace
-> packages (the core SDKs, the mesh nodes). `pnpm install` fetches dependencies
-> but does not build those packages — run `pnpm -r build` once so they exist on
-> disk. (`pnpm dev` does rebuild the workspace deps via its `predev` hook, but a
-> clean `pnpm -r build` is the honest full-stack build and surfaces cross-package
-> type errors up front.)
+> packages (the core SDKs, the mesh nodes, the View contract). Run
+> `pnpm -r build` once so they exist on disk. (`pnpm dev` does rebuild
+> workspace deps via its `predev` hook, but a clean `pnpm -r build` is the
+> honest full-stack build and surfaces cross-package type errors up front.)
 
-First boot takes ~30s for the Python venv bootstrap; later boots are near-instant. `.env.local` is gitignored and auto-loaded from the repo root by both the shell and `raven-core`; see [.env.local.example](.env.local.example) for every recognised variable.
+Per-machine configuration lives in a gitignored `.env.local` at the repo root,
+auto-loaded by both the shell and `raven-core`. Set variables by name — see
+[.env.local.example](.env.local.example) for the authoritative annotated list:
+
+```sh
+GEMINI_API_KEY=<your-gemini-api-key>   # voice only — everything else runs without it
+MESH_PYTHON=<path-to-python3>          # optional: skip the login-shell python3 lookup
+MESH_CORE_URL=<core-url>               # optional: only when running a node by hand
+HOMEOS_DATA_DIR=<writable-dir>         # optional: only when running a node by hand
+AETHER_WEATHER_LAT=<latitude>          # optional: weather location override
+AETHER_WEATHER_LON=<longitude>
+AETHER_WEATHER_LABEL=<place-name>
+```
+
+First boot takes ~30s for the Python venv bootstrap; later boots are
+near-instant. macOS will prompt for Calendar / Reminders / Automation access
+the first time the relevant nodes spawn.
 
 ## Architecture
 
 ```
-                          voice ───┐
-                                   ▼
-   ┌─────────────┐         ┌───────────────┐        ┌──────────────────┐
-   │   Electron  │  IPC    │  raven-core   │ signed │   manifest.yaml  │
-   │    shell    │◄───────►│ (Gemini Live) │ mesh   │   edge graph     │
-   │ (holographic│         │  voice brain  │◄──────►│  (authorization) │
-   │   theme)    │         └───────────────┘ invoke └────────┬─────────┘
-   └──────┬──────┘                                           │ permits
-          │ window.aether bridge                             ▼
-          │                                  ┌───────────────────────────┐
-          ▼                                  │   RAVEN_MESH Core (broker) │
-   scene cockpit ◄── HTTP POST ── visualizer │  signed envelopes, SSE     │
-   (panels: mesh /                  (Mixer)  └──────────────┬─────────────┘
-    lanes / gaps /                                          │ dispatch
-    agenda)                                                 ▼
-                              ┌──────────── mesh nodes (one process each) ──────────────┐
-                              │  news_feeds  finance  weather  digest(composer)         │
-                              │  clipboard_history  macos_mail  macos_messages          │
-                              │  calendar  reminders  system_info  time                 │
-                              │  host_notifications  mesh_introspection  vision         │
-                              │  lanes (agent sensor)   intents (gap ledger)            │
-                              │  visualizer (scene Mixer)                               │
-                              └─────────────────────────────────────────────────────────┘
+                you (voice · keyboard)
+                  │             │
+                  ▼             ▼
+  ┌─────────────────────┐  ┌────────────────────────────────────────────┐
+  │ raven — voice brain │  │ Electron shell — the Viewer                │
+  │ Gemini Live, native │  │ workspaces ▸ windows ▸ tabs · ~25 apps     │
+  │ audio · barge-in ·  │  │ (terminal, browser, editors, kanban,       │
+  │ session resumption  │  │  mesh, lanes, gaps, …)                     │
+  │ 47 fns / 22 groups  │  │ hosts viewer_desktop (Actor): open_app,    │
+  └──────────┬──────────┘  │ open_view, apply_layout, notify, …         │
+             │             └─────────────────────┬──────────────────────┘
+             │ mesh.invoke                       │ signed envelopes
+             ▼                                   ▼
+  ┌────────────────────────────────────────────────────┐
+  │        RAVEN_MESH Core — the broker                │      authorized by
+  │        HMAC-signed envelopes · SSE delivery        │◄──── manifest.yaml
+  └──────────────────────────┬─────────────────────────┘      20 nodes · 80 edges
+                             │ dispatch
+                             ▼
+  mesh nodes — one process each, classed Sensor / Actor / Mixer / Planner
+  news_feeds · finance · weather · digest · clipboard_history · macos_mail
+  macos_messages · calendar · reminders · system_info · time · vision
+  host_notifications · mesh_introspection · lanes · intents
 ```
+
+The mesh is the load-bearing primitive: there is no privileged back channel.
+When raven opens an app or tiles your windows, the request travels Core-signed
+to the `viewer_desktop` node hosted in the shell, which translates it into
+renderer control — and human interaction flows back to the opening agent as
+`view_event`s. Agents and humans drive the same desktop through the same door.
 
 Repo layout:
 
 ```
-shell/                    Electron shell (holographic theme, app discovery)
-├─ electron/main/         Process supervision, mesh + raven daemon managers
-├─ electron/preload/      window.aether bridge (mesh, files, voice)
-└─ src/apps/              Content apps (welcome, news, finance, markdown, voice, mesh-devtools)
+shell/                 The Viewer — Electron window manager + app registry (~25 apps)
+├─ electron/main/      Process supervision: mesh Core, node spawns, raven daemon
+├─ electron/preload/   window.aether bridge (mesh, files, voice)
+└─ src/apps/           The apps (terminal, browser, viewers, mesh, lanes, gaps, …)
 
-core/                     Vendored RAVEN_MESH (Python broker + SDKs)
-├─ core/                  Python broker (signed envelopes, SSE delivery)
-├─ macos_applescript/     AppleScript bridge primitive (used by macOS daemon nodes)
-├─ node_sdk/              Python SDK (used by raven-core)
-├─ node_sdk_ts/           TypeScript SDK (used by shell + nodes)
-└─ schemas/               Envelope + surface JSON Schemas
+viewer-core/           @viewer/core — the shared View contract (schema + renderers),
+                       written once for the desktop shell now and a spatial shell later
 
-nodes/                    Mesh nodes (one process each) — 17 dirs, 19 manifest nodes
-daemons/                  Detached supervised processes
-├─ raven-daemon/          Node HTTP+WS supervisor (port 7433, loopback-only)
-├─ raven-core/            Python Gemini Live orchestrator + ~20 voice tools
-└─ raven-avp-server/      Vendored RAVEN_AVP scene server (submodule; FastAPI, port 5180)
+core/                  Vendored RAVEN_MESH (Python broker + Python/TS SDKs + schemas)
+nodes/                 Mesh nodes, one process each
+daemons/
+├─ raven-daemon/       Voice supervisor (HTTP+WS on 127.0.0.1:7433)
+├─ raven-core/         Python Gemini Live orchestrator (47 voice functions)
+└─ aether-rag/         Retrieval over Aether's own written record
 
-manifest.yaml             Mesh topology: 19 nodes, 69 authorized edges
-_ingest/                  Reference repos (submodules, read-only — never imported at runtime)
+manifest.yaml          The mesh topology: 20 nodes, 80 authorized edges
+_ingest/               Reference repos (submodules, read-only — never imported at runtime)
 ```
 
-The mesh is the load-bearing primitive: there is no privileged back channel. Voice, shell, and composer nodes all reach each other only through signed envelopes the edge graph authorizes — so the manifest is the single, auditable answer to "what can talk to what."
+The scene-server/dashboard stack from earlier releases is retired in place for
+the **AVP track** (a future visionOS shell): the `visualizer` node and the
+renderer-facing wire contract ([docs/scene-protocol.md](docs/scene-protocol.md))
+are kept but no longer spawn on the desktop. The desktop's one layout authority
+is the Viewer workspace store.
 
-Rendering is a separate layer. The `visualizer` node composes panels and POSTs them to the **RAVEN_AVP scene server**, which holds the authoritative scene and broadcasts it to subscribers — the 2D macOS shell today, a 3D visionOS shell later. That client-facing wire contract (endpoints, panel shape, the snapshot/delta stream) is documented in [docs/scene-protocol.md](docs/scene-protocol.md) — new renderers are built against that doc, not against our source.
-
-For the full picture — process topology, the mesh node-by-node, the voice pipeline, the data layer, and a ports/processes reference, all verified against source — open **the Atlas**: [docs/atlas/architecture.html](docs/atlas/architecture.html) (a self-contained living map, re-snapshotted into `history/` at each release cut).
-
-## Governance
-
-Aether is built collaboratively with Claude Code under an explicit **four-role model**, and the merge gate is constitutional — no code reaches `main` without a human pressing the button.
-
-- **Director** (human, project owner) — sets vision, visually verifies, authorizes every merge and tag.
-- **Architect** (LLM design session) — turns vision into PR-ready lane specs; reviews PRs.
-- **Implementer** (Claude Code, one session per git worktree) — writes the code, opens the PR, self-reviews against a fixed template.
-- **Merge gate** (Director) — clicks merge only after Architect signs off. Architect sign-off never auto-merges; the human does.
-
-This isn't ceremony — it's the reason a single developer can move at this speed without the codebase drifting. See [CLAUDE.md](CLAUDE.md) for the full operating manual (branching, tagging, the self-review template, decision-recording, and accumulated gotchas) and [CONTRIBUTING.md](CONTRIBUTING.md) for how to engage from outside.
+For the full visual map — process topology, the mesh node-by-node, the voice
+pipeline, the data layer — open **the Atlas**:
+[docs/atlas/architecture.html](docs/atlas/architecture.html) (a self-contained
+living map, re-snapshotted at each release cut).
 
 ## Documentation
 
 | Doc | What's in it |
 |---|---|
 | [docs/](docs/README.md) | Documentation index — roadmaps, retrospectives, patterns, governance log |
-| [docs/atlas/](docs/atlas/README.md) | The Atlas — the living visual architecture map (`architecture.html`) + frozen historical snapshots |
-| [CLAUDE.md](CLAUDE.md) | The operating manual (roles, branching, tagging, prompt discipline) |
+| [CLAUDE.md](CLAUDE.md) | The operating manual — the contributor law (roles, branching, prompt discipline) |
+| [docs/retros/2026-06-viewer-arc.md](docs/retros/2026-06-viewer-arc.md) | The Viewer × Aether merge retrospective — the latest arc, start to finish |
 | [MASTER_SYNTHESIS.md](MASTER_SYNTHESIS.md) | The architecture briefing that drove the rebuild |
 | [DECISIONS.md](DECISIONS.md) | Append-only architecture decision records |
 | [CHANGELOG.md](CHANGELOG.md) | Per-PR change history (Keep a Changelog) |
-| [docs/scene-protocol.md](docs/scene-protocol.md) | Scene-server wire contract — the renderer-facing interface (AVP track) |
+| [docs/atlas/](docs/atlas/README.md) | The Atlas — living visual architecture map + frozen snapshots |
+| [docs/scene-protocol.md](docs/scene-protocol.md) | Scene-server wire contract (AVP track) |
 | [docs/releases/](docs/releases/v0.10.0.md) | Per-release narrative notes |
 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contribution, security, conduct |
 
-## Project context
+## Lineage
 
-This repo synthesizes patterns from four earlier projects, vendored as `_ingest/*` submodules for reference (read-only; never imported at runtime):
+Aether synthesizes patterns from four earlier projects, vendored as
+`_ingest/*` submodules for reference (read-only; never imported at runtime):
 
 - **Pulse** — Electron menu-bar app with multi-service engines (news, finance, …).
 - **RAVEN_MESH** — the mesh broker, now the spine of Aether.
 - **NEXUS** — agent-orchestration patterns and hard-won security lessons.
-- **VIEWER** — modular desktop with daemon-supervised voice.
+- **VIEWER** — the modular desktop whose renderer is now Aether's shell.
 
 See [MASTER_SYNTHESIS.md](MASTER_SYNTHESIS.md) for the architectural map.
 
 ## Status
 
-Pre-1.0, macOS-only, single-developer. Tags map to capability categories lighting up:
+Pre-1.0, macOS-only, single-developer. Built in arcs; tags map to capability
+categories lighting up:
 
 | Tag | Meaning |
 |-----------|-----------------------------------------------|
 | `v0.0.x`  | Shell, content apps, governance scaffolding   |
 | `v0.1.0`  | Mesh substrate alive                          |
-| `v0.2.0`–`v0.2.1` | Voice arrives, then meets the mesh    |
+| `v0.2.x`  | Voice arrives, then meets the mesh            |
 | `v0.3.0`  | Real data over the mesh                       |
 | `v0.4.0`  | Composers / multi-hop mesh                    |
 | `v0.5.0`  | Identity inflection (homeOS → Aether)         |
 | `v0.6.0`  | Voice extensibility (5-piece tool pattern)    |
-| `v0.7.0`–`v0.8.0` | Substrate consolidation (`registerNode` factory) |
+| `v0.7.0`–`v0.8.0` | Substrate consolidation               |
 | `v0.9.x`  | Data breadth (macOS surfaces) + process discipline |
-| `v0.10.0` | The cockpit & the self-building loop (this release) |
+| `v0.10.0` | The cockpit & the self-building loop          |
+| unreleased | **The Viewer merge** — one window manager, one assistant ([retro](docs/retros/2026-06-viewer-arc.md)) |
+
+See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 ## License
 

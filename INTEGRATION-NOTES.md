@@ -1,3 +1,12 @@
+> **ARC CLOSED — 2026-06-10.** The merge these notes staged is done: the arc was
+> promoted to `main` as #238 (merge commit, per-lane history preserved). The
+> proposals below were ruled on by ADR #203 and executed across six lanes plus a
+> hardening wave — Viewer's workspace store is the sole layout authority, the
+> scene-server/Leap/dashboard stack is retired in place for the AVP track, and
+> raven is the only assistant. This file is preserved as the historical record of
+> what was staged; for what actually happened and the law it minted, read the
+> retrospective: [docs/retros/2026-06-viewer-arc.md](docs/retros/2026-06-viewer-arc.md).
+
 # Integration notes — `integ/raven-frontend`
 
 This branch stages the **viewer-desktop** Electron frontend into Aether under `viewer-desktop/`, untouched and namespaced, so it never collides with Aether's own tree and the build is **not** expected to pass. Nothing here resolves a collision — where viewer and Aether both implement something, **both are present on purpose** for the architect to rule deliberately. Commits are scoped one-per-capability (see `git log aether/main..integ/raven-frontend`). The source repo (`coltonkirsten/viewer-desktop`) was left completely untouched.

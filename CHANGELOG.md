@@ -10,6 +10,12 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Post-arc docs refresh: README rewritten front-facing for the post-Viewer-merge
+  reality (window manager + ~25 apps, raven voice layer, signed S/A/M/P mesh,
+  the human-gated self-building loop, build-process story); the viewer-arc
+  retrospective landed verbatim at `docs/retros/2026-06-viewer-arc.md`;
+  INTEGRATION-NOTES.md gained a closed-arc banner; `docs/claude-reference.md`
+  § anchors audited post-arc (all resolve, none dead).
 - Voice desktop control got hands that work: new `arrange_windows` voice tool
   (tile / focus / split / thirds / quarters, via the new
   `viewer_desktop.apply_layout` mesh surface); `open_app` now fuzzy-resolves

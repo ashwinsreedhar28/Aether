@@ -17,7 +17,9 @@ from collections import deque
 from typing import Any
 
 import pyaudio
+from google.genai import errors as genai_errors
 from google.genai import types
+from websockets.exceptions import ConnectionClosed
 
 from .audio import AudioInput, AudioOutput, FORMAT, CHANNELS, SEND_SAMPLE_RATE, RECEIVE_SAMPLE_RATE, CHUNK_SIZE
 from .audio_devices import validate_input_device, validate_output_device
@@ -29,6 +31,25 @@ from .session_context import get_session_context
 from .tools import handle_function_call, update_session_context
 from .tools.system_tool import set_visual_mode_callback
 from .vision import CameraCapture, ScreenCapture
+
+# Live-session drops the reconnect loop in run() treats as recoverable.
+# The native-audio preview models have a known, unfixed server-side bug
+# (google-gemini/deprecated-generative-ai-js#487; AI Dev Forum #109319):
+# the websocket sometimes closes with 1008 "Requested entity was not
+# found" right after send_tool_response. ConnectionClosed covers that
+# and any transport drop; APIError is the SDK's re-raise of the same
+# close; OSError covers network-level failures during connect.
+_RECOVERABLE_CLOSE = (ConnectionClosed, genai_errors.APIError, OSError)
+
+# Give up after this many consecutive rapid failures — if sessions keep
+# dying immediately, reconnecting is masking a real problem (bad key,
+# retired model) and the daemon should surface it instead.
+_MAX_RECONNECT_ATTEMPTS = 5
+
+# A session that lived this long before dropping was healthy; reset the
+# consecutive-failure counter so one flaky tool call per hour can never
+# accumulate into a give-up.
+_STABLE_SESSION_S = 30.0
 
 
 class Orchestrator:
@@ -68,6 +89,12 @@ class Orchestrator:
         # Session
         self.session = None
 
+        # Latest session-resumption handle from the server (see
+        # receive_audio). Carried across websocket lifetimes so the
+        # reconnect loop in run() can resume the conversation after a
+        # recoverable drop instead of starting cold.
+        self._resumption_handle: str | None = None
+
         # Text-turn readiness. status flips to 'running' the moment the
         # child spawns, but the Gemini live session only accepts input once
         # the server's setup_complete arrives (a few hundred ms later). A
@@ -83,8 +110,13 @@ class Orchestrator:
         # PyAudio instance
         self._pya: pyaudio.PyAudio | None = None
 
-        # Audio stream reference for cleanup
+        # Audio stream references for cleanup. Opened lazily by
+        # listen_audio / play_audio and kept open across live-session
+        # reconnects — the device streams are independent of the
+        # websocket, and reopening them per reconnect risks racing a
+        # still-draining PortAudio read from the previous session.
         self._audio_stream = None
+        self._playback_stream = None
 
         # Camera reference for cleanup
         self._camera_cap = None
@@ -151,7 +183,12 @@ class Orchestrator:
         """
         prompt = "" if JsonLogger.is_enabled() else "message > "
         while True:
-            line = await asyncio.to_thread(input, prompt)
+            try:
+                line = await asyncio.to_thread(input, prompt)
+            except EOFError:
+                # stdin closed — the daemon parent went away. Same
+                # graceful-shutdown path as a typed "q".
+                break
             if line.lower() == "q":
                 break
             text = line
@@ -169,7 +206,13 @@ class Orchestrator:
             # the append run with no await between them, so receive_audio's
             # flush can't strand a turn enqueued here.
             if self._live_ready.is_set():
-                await self._inject_text(text)
+                try:
+                    await self._inject_text(text)
+                except Exception:
+                    # The socket died between the readiness check and the
+                    # send (this task outlives individual live sessions).
+                    # Buffer the turn; the reconnect path flushes it.
+                    self._pending_text.append(text)
             else:
                 self._pending_text.append(text)
 
@@ -200,26 +243,32 @@ class Orchestrator:
                 )
 
     async def listen_audio(self) -> None:
-        """Capture audio from microphone."""
-        if self._input_device_index is not None:
-            mic_info = self._pya.get_device_info_by_index(self._input_device_index)
-        else:
-            mic_info = self._pya.get_default_input_device_info()
-        print(
-            f"[AUDIO] Starting microphone capture - Device: {mic_info['name']}, "
-            f"Rate: {SEND_SAMPLE_RATE}Hz"
-        )
+        """Capture audio from microphone.
 
-        self._audio_stream = await asyncio.to_thread(
-            self._pya.open,
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=SEND_SAMPLE_RATE,
-            input=True,
-            input_device_index=mic_info["index"],
-            frames_per_buffer=CHUNK_SIZE,
-        )
-        print("[AUDIO] Microphone stream opened successfully")
+        The mic stream is opened once and reused across live-session
+        reconnects (this task is restarted per session, the device
+        stream is not — see _audio_stream in __init__).
+        """
+        if self._audio_stream is None:
+            if self._input_device_index is not None:
+                mic_info = self._pya.get_device_info_by_index(self._input_device_index)
+            else:
+                mic_info = self._pya.get_default_input_device_info()
+            print(
+                f"[AUDIO] Starting microphone capture - Device: {mic_info['name']}, "
+                f"Rate: {SEND_SAMPLE_RATE}Hz"
+            )
+
+            self._audio_stream = await asyncio.to_thread(
+                self._pya.open,
+                format=FORMAT,
+                channels=CHANNELS,
+                rate=SEND_SAMPLE_RATE,
+                input=True,
+                input_device_index=mic_info["index"],
+                frames_per_buffer=CHUNK_SIZE,
+            )
+            print("[AUDIO] Microphone stream opened successfully")
 
         kwargs = {"exception_on_overflow": False} if __debug__ else {}
         chunk_count = 0
@@ -382,6 +431,30 @@ class Orchestrator:
                             await self._inject_text(self._pending_text.popleft())
                     continue
 
+                # The server streams periodic resumption handles because
+                # session_resumption is enabled in create_live_config.
+                # Cache the newest one — it's what lets run()'s reconnect
+                # loop resume this conversation after the native-audio
+                # models' known post-tool-response 1008 close.
+                resumption_update = getattr(
+                    response, "session_resumption_update", None
+                )
+                if resumption_update is not None:
+                    if resumption_update.resumable and resumption_update.new_handle:
+                        self._resumption_handle = resumption_update.new_handle
+                    continue
+
+                # GoAway is the server's advance warning that it will
+                # close the connection soon. The reconnect loop handles
+                # the actual close; just surface the warning.
+                go_away = getattr(response, "go_away", None)
+                if go_away is not None:
+                    if not JsonLogger.is_enabled():
+                        print(
+                            f"[SESSION] Server GoAway — closing in {go_away.time_left}"
+                        )
+                    continue
+
                 # Handle function calls (tool calls)
                 if response.tool_call and response.tool_call.function_calls:
                     if not JsonLogger.is_enabled():
@@ -478,22 +551,28 @@ class Orchestrator:
             audio_chunk_count = 0
 
     async def play_audio(self) -> None:
-        """Play audio from the API."""
-        if self._output_device_index is not None:
-            speaker_info = self._pya.get_device_info_by_index(self._output_device_index)
-            print(f"[AUDIO] Starting audio playback - Device: {speaker_info['name']}, Rate: {RECEIVE_SAMPLE_RATE}Hz")
-        else:
-            print(f"[AUDIO] Starting audio playback - Rate: {RECEIVE_SAMPLE_RATE}Hz")
+        """Play audio from the API.
 
-        stream = await asyncio.to_thread(
-            self._pya.open,
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=RECEIVE_SAMPLE_RATE,
-            output=True,
-            output_device_index=self._output_device_index,
-        )
-        print("[AUDIO] Audio output stream opened successfully")
+        Like the mic side, the speaker stream is opened once and reused
+        across live-session reconnects.
+        """
+        if self._playback_stream is None:
+            if self._output_device_index is not None:
+                speaker_info = self._pya.get_device_info_by_index(self._output_device_index)
+                print(f"[AUDIO] Starting audio playback - Device: {speaker_info['name']}, Rate: {RECEIVE_SAMPLE_RATE}Hz")
+            else:
+                print(f"[AUDIO] Starting audio playback - Rate: {RECEIVE_SAMPLE_RATE}Hz")
+
+            self._playback_stream = await asyncio.to_thread(
+                self._pya.open,
+                format=FORMAT,
+                channels=CHANNELS,
+                rate=RECEIVE_SAMPLE_RATE,
+                output=True,
+                output_device_index=self._output_device_index,
+            )
+            print("[AUDIO] Audio output stream opened successfully")
+        stream = self._playback_stream
 
         playback_count = 0
         # 300ms grace covers speaker-to-mic acoustic propagation, PortAudio
@@ -630,6 +709,73 @@ class Orchestrator:
 
             await asyncio.sleep(1.0)
 
+    async def _run_live_session(self, client, send_text_task) -> None:
+        """Run one websocket lifetime against the Live API.
+
+        Connects (resuming the prior conversation when a resumption
+        handle is cached), starts the per-session worker tasks, and
+        blocks until either the user exits (send_text_task completes →
+        raises CancelledError) or a worker fails (the TaskGroup raises
+        its ExceptionGroup). The reconnect loop in run() decides whether
+        a failure is a recoverable connection drop.
+        """
+        live_config = create_live_config(self.config, self._resumption_handle)
+
+        async with (
+            client.aio.live.connect(
+                model=self.config.model, config=live_config
+            ) as session,
+            asyncio.TaskGroup() as tg,
+        ):
+            self.session = session
+            if JsonLogger.is_enabled():
+                JsonLogger.status("connected")
+            else:
+                print("[INIT] Connected to Gemini API successfully")
+
+            # The SDK completes the setup handshake inside connect() —
+            # setup_complete never traverses the receive loop (verified on
+            # google-genai 2.2.0 AND 2.8.0), so the receive-loop gate at
+            # setup_complete never fired and _live_ready never set: every
+            # typed turn buffered forever. Connected IS ready. Set the
+            # text-turn gate here; the setup_complete branch in
+            # receive_audio stays as a harmless fallback for any SDK
+            # version that does surface it.
+            self._live_ready.set()
+            while self._pending_text:
+                await self._inject_text(self._pending_text.popleft())
+
+            # Fresh queues per session: audio buffered for a dead socket
+            # is stale on the new one.
+            self.audio_in_queue = asyncio.Queue()
+            self.out_queue = asyncio.Queue(maxsize=5)
+            if not JsonLogger.is_enabled():
+                print("[INIT] Audio queues initialized")
+
+            if not JsonLogger.is_enabled():
+                print("[INIT] Starting all tasks...")
+            tg.create_task(self.send_realtime())
+            tg.create_task(self.listen_audio())
+
+            # Start unified vision capture loop (handles all modes dynamically)
+            if not JsonLogger.is_enabled():
+                print(f"[INIT] Starting vision capture (initial mode: {self._video_mode})")
+            tg.create_task(self.vision_capture_loop())
+
+            tg.create_task(self.receive_audio())
+            tg.create_task(self.play_audio())
+            if JsonLogger.is_enabled():
+                JsonLogger.status("running", mode=self._video_mode)
+            else:
+                print("[INIT] All tasks started - RAVEN is running")
+
+            # send_text_task is owned by run() and survives session
+            # drops; awaiting it here blocks until user exit, while a
+            # worker failure cancels this body and raises the group's
+            # ExceptionGroup instead.
+            await send_text_task
+            raise asyncio.CancelledError("User requested exit")
+
     async def run(self) -> None:
         """
         Main entry point - run the voice assistant.
@@ -663,66 +809,90 @@ class Orchestrator:
                 print(f"[INIT] Connecting to Gemini API - Model: {self.config.model}")
 
             client = create_client(self.config)
-            live_config = create_live_config(self.config)
 
-            async with (
-                client.aio.live.connect(
-                    model=self.config.model, config=live_config
-                ) as session,
-                asyncio.TaskGroup() as tg,
-            ):
-                self.session = session
-                if JsonLogger.is_enabled():
-                    JsonLogger.status("connected")
-                else:
-                    print("[INIT] Connected to Gemini API successfully")
+            # The stdin reader lives OUTSIDE the per-connection TaskGroup
+            # so a reconnect doesn't spawn a second input() thread — two
+            # readers competing for stdin would lose lines (most visibly
+            # the daemon's "q" shutdown sentinel).
+            send_text_task = asyncio.create_task(self.send_text())
 
-                # The SDK completes the setup handshake inside connect() —
-                # setup_complete never traverses the receive loop (verified on
-                # google-genai 2.2.0 AND 2.8.0), so the receive-loop gate at
-                # setup_complete never fired and _live_ready never set: every
-                # typed turn buffered forever. Connected IS ready. Set the
-                # text-turn gate here; the setup_complete branch in
-                # receive_audio stays as a harmless fallback for any SDK
-                # version that does surface it.
-                self._live_ready.set()
-                while self._pending_text:
-                    await self._inject_text(self._pending_text.popleft())
+            # Reconnect loop. The native-audio preview models sometimes
+            # kill the websocket right after a tool response (1008
+            # "Requested entity was not found" — known upstream, no
+            # server-side fix). With session_resumption enabled, the drop
+            # is recoverable: reconnect with the cached handle and the
+            # conversation continues. Non-connection failures re-raise.
+            reconnect_attempts = 0
+            try:
+                while True:
+                    session_started = time.monotonic()
+                    try:
+                        await self._run_live_session(client, send_text_task)
+                    except ExceptionGroup as eg:
+                        if time.monotonic() - session_started >= _STABLE_SESSION_S:
+                            reconnect_attempts = 0
+                        recoverable, rest = eg.split(_RECOVERABLE_CLOSE)
+                        if rest is not None or reconnect_attempts >= _MAX_RECONNECT_ATTEMPTS:
+                            raise
+                        reason = "; ".join(
+                            f"{type(e).__name__}: {e}"
+                            for e in recoverable.exceptions
+                        )
+                    except _RECOVERABLE_CLOSE as exc:
+                        # connect() itself failed, before the TaskGroup
+                        # started. With a resumption handle in play the
+                        # likeliest cause is the handle going stale —
+                        # drop it so the next attempt starts a fresh
+                        # session instead of failing forever.
+                        if time.monotonic() - session_started >= _STABLE_SESSION_S:
+                            reconnect_attempts = 0
+                        if reconnect_attempts >= _MAX_RECONNECT_ATTEMPTS:
+                            raise
+                        reason = f"{type(exc).__name__}: {exc}"
+                        self._resumption_handle = None
 
-                self.audio_in_queue = asyncio.Queue()
-                self.out_queue = asyncio.Queue(maxsize=5)
-                if not JsonLogger.is_enabled():
-                    print("[INIT] Audio queues initialized")
+                    reconnect_attempts += 1
+                    self._live_ready.clear()
+                    self.session = None
 
-                if not JsonLogger.is_enabled():
-                    print("[INIT] Starting all tasks...")
-                send_text_task = tg.create_task(self.send_text())
-                tg.create_task(self.send_realtime())
-                tg.create_task(self.listen_audio())
+                    # User exited while the session was collapsing — don't
+                    # reconnect just to tear straight back down.
+                    if send_text_task.done():
+                        raise asyncio.CancelledError("User requested exit")
 
-                # Start unified vision capture loop (handles all modes dynamically)
-                if not JsonLogger.is_enabled():
-                    print(f"[INIT] Starting vision capture (initial mode: {self._video_mode})")
-                tg.create_task(self.vision_capture_loop())
-
-                tg.create_task(self.receive_audio())
-                tg.create_task(self.play_audio())
-                if JsonLogger.is_enabled():
-                    JsonLogger.status("running", mode=self._video_mode)
-                else:
-                    print("[INIT] All tasks started - RAVEN is running")
-
-                await send_text_task
-                raise asyncio.CancelledError("User requested exit")
+                    delay = min(2 ** (reconnect_attempts - 1), 8)
+                    if JsonLogger.is_enabled():
+                        JsonLogger.status(
+                            "reconnecting",
+                            attempt=reconnect_attempts,
+                            reason=reason[:200],
+                        )
+                    else:
+                        print(
+                            f"[RECONNECT] Live session dropped ({reason}) — "
+                            f"reconnecting in {delay}s "
+                            f"(attempt {reconnect_attempts}/{_MAX_RECONNECT_ATTEMPTS}, "
+                            f"resume handle: {'yes' if self._resumption_handle else 'no'})"
+                        )
+                    await asyncio.sleep(delay)
+            finally:
+                if not send_text_task.done():
+                    send_text_task.cancel()
 
         except asyncio.CancelledError:
             if JsonLogger.is_enabled():
                 JsonLogger.status("stopping")
             else:
                 print("[SHUTDOWN] Shutting down...")
-        except ExceptionGroup as eg:
+        except Exception as eg:
+            # Catches the TaskGroup's ExceptionGroup AND plain connection
+            # errors re-raised after the reconnect budget is exhausted —
+            # either way the daemon reports and exits cleanly rather than
+            # crashing main.py with a raw traceback.
             if self._audio_stream:
                 self._audio_stream.close()
+            if self._playback_stream:
+                self._playback_stream.close()
             if JsonLogger.is_enabled():
                 JsonLogger.error(str(eg))
             traceback.print_exception(eg)

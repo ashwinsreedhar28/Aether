@@ -33,12 +33,21 @@ def create_client(config: Config) -> genai.Client:
     return client
 
 
-def create_live_config(config: Config) -> types.LiveConnectConfig:
+def create_live_config(
+    config: Config, resumption_handle: str | None = None
+) -> types.LiveConnectConfig:
     """
     Create LiveConnectConfig for Gemini Live API.
 
     Args:
         config: RAVEN configuration
+        resumption_handle: Session-resumption handle from a previous
+            connection's session_resumption_update messages. None starts
+            a fresh session. Passing a handle resumes the prior
+            conversation state server-side — the recovery path for the
+            native-audio preview models' known habit of closing the
+            websocket (1008 "Requested entity was not found") right
+            after a tool response.
 
     Returns:
         Configured LiveConnectConfig
@@ -89,6 +98,15 @@ def create_live_config(config: Config) -> types.LiveConnectConfig:
         # orchestrator tees these onto the "raven" transcript channel so the
         # CLI (and any transcript view) can echo the reply chat-style.
         output_audio_transcription=types.AudioTranscriptionConfig(),
+        # session_resumption: always on, even for a fresh session
+        # (handle=None). Enabling it makes the server stream periodic
+        # session_resumption_update messages whose handles the
+        # orchestrator caches; when the websocket dies mid-session the
+        # reconnect loop passes the latest handle back here and the
+        # conversation continues where it left off.
+        session_resumption=types.SessionResumptionConfig(
+            handle=resumption_handle
+        ),
         tools=tools,
     )
 

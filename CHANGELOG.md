@@ -28,6 +28,11 @@ historical record.
   manual launcher's path) instead of creating a dead window whose tab pointed
   at no session. Unknown app ids return the registry instead of silently
   creating a blank window.
+- Terminals spawn again after a fresh `pnpm install`: node-pty 1.1.0 ships
+  prebuilds whose `spawn-helper` loses its execute bit during pnpm
+  extraction, so every PTY spawn failed with `posix_spawnp failed` (dead
+  blank terminal windows, manual and voice alike). A shell postinstall
+  script restores the bit (`shell/scripts/fix-node-pty-perms.mjs`).
 - Raven no longer randomly claims it can't open apps: the system prompt
   listed "opening an app" as a capability-gap example (contradicting
   `open_app`) and never mentioned the viewer tools; it now carries a Desktop

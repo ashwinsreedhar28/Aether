@@ -8,6 +8,7 @@
   "main": "out/main/index.js",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
+    "postinstall": "node scripts/fix-node-pty-perms.mjs",
     "predev": "pnpm -r --filter \"!aether-shell\" build",
     "dev": "electron-vite dev",
     "prebuild": "pnpm -r --filter \"!aether-shell\" build",

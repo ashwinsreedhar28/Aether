@@ -16,6 +16,7 @@ import traceback
 from collections import deque
 from typing import Any
 
+import numpy as np
 import pyaudio
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -51,6 +52,17 @@ _MAX_RECONNECT_ATTEMPTS = 5
 # accumulate into a give-up.
 _STABLE_SESSION_S = 30.0
 
+# Barge-in detection (see listen_audio). A mic chunk is CHUNK_SIZE
+# frames at SEND_SAMPLE_RATE = 1024/16000 = 64ms, so 3 consecutive
+# loud chunks ≈ 190ms of sustained speech — long enough to ignore a
+# cough or a dropped object, short enough to feel instant.
+_BARGE_IN_CONSECUTIVE_CHUNKS = 3
+
+# EMA weight for the speaker-echo baseline. At 64ms per chunk, 0.25
+# settles on a new reply's loudness within ~4 chunks (~250ms) while
+# still smoothing over syllable-level dips.
+_ECHO_EMA_ALPHA = 0.25
+
 
 class Orchestrator:
     """
@@ -77,10 +89,29 @@ class Orchestrator:
         # speech — fires interrupted=true (cutting off the current turn)
         # and then responds to the echo. _playback_until is a monotonic
         # timestamp; the listen_audio loop drops mic chunks while
-        # time.monotonic() < _playback_until. Trade-off: no barge-in
-        # (user can't talk over Raven). Acceptable for week-1; a future
-        # PR can replace this with proper AEC or push-to-talk.
+        # time.monotonic() < _playback_until — UNLESS the barge-in
+        # detector below decides the user is talking over Raven.
         self._playback_until: float = 0.0
+
+        # Barge-in detector state (see listen_audio / _is_barge_in).
+        # The echo EMA tracks how loud Raven's own voice is at the mic
+        # during a playback window; a streak of chunks well above that
+        # baseline means the user is speaking over it. The streak's
+        # chunks are buffered so the start of the user's utterance
+        # reaches the API instead of being eaten by the gate.
+        self._echo_rms_ema: float = 0.0
+        self._barge_streak: int = 0
+        self._barge_buffer: deque[bytes] = deque(
+            maxlen=_BARGE_IN_CONSECUTIVE_CHUNKS
+        )
+
+        # After a barge-in cut, the server keeps streaming the rest of
+        # the old turn's audio until its VAD registers the user's
+        # speech. Playing those stragglers would resume Raven's voice
+        # and re-close the echo gate mid-utterance — so play_audio
+        # discards chunks while this is set. Cleared by receive_audio
+        # when the server confirms the interruption (or the turn ends).
+        self._suppress_playback: bool = False
 
         # Queues
         self.audio_in_queue: asyncio.Queue | None = None
@@ -283,12 +314,98 @@ class Orchestrator:
             # this, the speaker output feeds back into the mic, Gemini Live
             # treats it as user input, generates a response, plays it,
             # picks it up again — the cycling-response failure mode.
+            # Exception: sustained mic energy well above the echo
+            # baseline means the user is talking OVER Raven — barge-in.
             if time.monotonic() < self._playback_until:
-                muted_count += 1
-                if muted_count % 100 == 0 and not JsonLogger.is_enabled():
-                    print(f"[AUDIO] Muted {muted_count} mic chunks during playback")
+                if not self._is_barge_in(data):
+                    muted_count += 1
+                    if muted_count % 100 == 0 and not JsonLogger.is_enabled():
+                        print(f"[AUDIO] Muted {muted_count} mic chunks during playback")
+                    continue
+                # Cut local playback now (instant to the ear) and open
+                # the gate. The server hears the user's speech and its
+                # VAD interrupts generation — receive_audio's
+                # interrupted path handles the rest, same as an
+                # interruption during silence.
+                self._cut_playback_for_barge_in()
+                while self._barge_buffer:
+                    await self.out_queue.put(
+                        {"data": self._barge_buffer.popleft(), "mime_type": "audio/pcm"}
+                    )
                 continue
+            self._reset_barge_in_detector()
             await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
+
+    def _is_barge_in(self, chunk: bytes) -> bool:
+        """Decide whether a playback-window mic chunk is the user
+        talking over Raven.
+
+        Energy-gated detection: track an EMA of the mic RMS during
+        playback (≈ how loud Raven's own voice is at the mic — the echo
+        baseline), and call it user speech when
+        _BARGE_IN_CONSECUTIVE_CHUNKS in a row land above
+        max(barge_in_min_rms, barge_in_factor × baseline). The EMA is
+        only updated from chunks BELOW the threshold so the user's own
+        voice can't inflate the baseline it has to beat. This is not
+        AEC — the user must speak up over Raven, not whisper — but it
+        needs no new deps and no audio-stack rewrite (see issue #239
+        for the AEC follow-up).
+        """
+        if not self.config.barge_in_enabled or not chunk:
+            return False
+        samples = np.frombuffer(chunk, dtype=np.int16).astype(np.float64)
+        rms = float(np.sqrt(np.mean(samples**2)))
+        if self._echo_rms_ema == 0.0:
+            # First chunk of a playback window seeds the baseline.
+            self._echo_rms_ema = rms
+            return False
+        threshold = max(
+            float(self.config.barge_in_min_rms),
+            self.config.barge_in_factor * self._echo_rms_ema,
+        )
+        if rms > threshold:
+            self._barge_streak += 1
+            self._barge_buffer.append(chunk)
+            return self._barge_streak >= _BARGE_IN_CONSECUTIVE_CHUNKS
+        self._barge_streak = 0
+        self._barge_buffer.clear()
+        self._echo_rms_ema = (
+            1 - _ECHO_EMA_ALPHA
+        ) * self._echo_rms_ema + _ECHO_EMA_ALPHA * rms
+        return False
+
+    def _reset_barge_in_detector(self) -> None:
+        """Clear detector state once a playback window ends.
+
+        Each reply re-seeds its own echo baseline — replies differ in
+        loudness, and a stale baseline from a loud reply would make a
+        quiet one impossible to interrupt.
+        """
+        self._echo_rms_ema = 0.0
+        self._barge_streak = 0
+        self._barge_buffer.clear()
+
+    def _cut_playback_for_barge_in(self) -> None:
+        """Stop Raven's voice locally the moment barge-in is detected.
+
+        Mirrors receive_audio's interrupted path (flush the playback
+        queue), zeroes the echo gate so the user's speech streams to
+        the API immediately, and raises _suppress_playback so the old
+        turn's straggler chunks — the server keeps streaming them until
+        its VAD registers the interruption — get discarded instead of
+        resuming Raven's voice. The chunk already inside the speaker
+        buffer finishes (~64ms tail); the server's interrupted signal
+        arrives moments later and stops generation at the source.
+        """
+        cleared = 0
+        if self.audio_in_queue is not None:
+            while not self.audio_in_queue.empty():
+                self.audio_in_queue.get_nowait()
+                cleared += 1
+        self._playback_until = 0.0
+        self._suppress_playback = True
+        if not JsonLogger.is_enabled():
+            print(f"[AUDIO] Barge-in — cut playback ({cleared} chunks dropped)")
 
     async def handle_function_call_async(
         self, function_call: types.FunctionCall
@@ -489,6 +606,10 @@ class Orchestrator:
                     server_content, "interrupted", False
                 ):
                     interrupted = True
+                    # The server has registered the interruption — the
+                    # next audio it sends belongs to the NEW reply, so
+                    # stop discarding (see _cut_playback_for_barge_in).
+                    self._suppress_playback = False
 
                 # Pull user-side transcripts off the server_content stream.
                 # input_audio_transcription is enabled in
@@ -548,6 +669,10 @@ class Orchestrator:
                     cleared_count += 1
                 if not JsonLogger.is_enabled():
                     print(f"[AUDIO] Interrupted — cleared {cleared_count} chunks")
+            # Turn over — if a barge-in suppression is still pending
+            # (false trigger the server never confirmed), lift it so
+            # the next reply plays normally.
+            self._suppress_playback = False
             audio_chunk_count = 0
 
     async def play_audio(self) -> None:
@@ -582,6 +707,11 @@ class Orchestrator:
         bytes_per_sample = 2  # 16-bit PCM
         while True:
             bytestream = await self.audio_in_queue.get()
+            # Barge-in suppression: stragglers of an interrupted turn
+            # are discarded — playing them would resume Raven's voice
+            # and re-close the echo gate over the user's speech.
+            if self._suppress_playback:
+                continue
             playback_count += 1
             if playback_count % 50 == 0:
                 print(f"[AUDIO] Played {playback_count} audio chunks to speakers")
@@ -746,9 +876,13 @@ class Orchestrator:
                 await self._inject_text(self._pending_text.popleft())
 
             # Fresh queues per session: audio buffered for a dead socket
-            # is stale on the new one.
+            # is stale on the new one. Barge-in state is likewise
+            # per-turn — a suppression pending when the socket died
+            # must not mute the new session's first reply.
             self.audio_in_queue = asyncio.Queue()
             self.out_queue = asyncio.Queue(maxsize=5)
+            self._suppress_playback = False
+            self._reset_barge_in_detector()
             if not JsonLogger.is_enabled():
                 print("[INIT] Audio queues initialized")
 

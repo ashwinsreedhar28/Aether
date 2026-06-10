@@ -16,6 +16,11 @@ historical record.
 - Voice mute button for the Raven assistant (VoiceMuteButton, wired into App.tsx).
 
 ### Changed
+- Lane 6 (ADR 2026-06-09 §9): CI and auto-review now fire on PRs targeting
+  `integration/*` trunk branches, not just `main`; auto-review skips
+  fork-originated PRs explicitly (trunk-repo branches only — the #204 OIDC
+  401 becomes a deliberate skip). Gate per ADR §8: build, lint, strict
+  typecheck.
 - ADR (2026-06-09): Viewer × Aether capability-merge plan — scene server archived (supersedes the 2026-05-26 data-layer/presentation-layer ADR), Raven-only assistant, strict TS bar held, mesh SDK collapse; Lanes 1-7 defined. PR #201 is staging substrate, not merged.
 - Lane 2 (ADR 2026-06-09 §3): the cmd-/ AI-menu label "Command Palette" →
   "Aether Console" (Director's ruling). Display string only — the

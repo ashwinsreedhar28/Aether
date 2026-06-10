@@ -1,10 +1,14 @@
 name: ci
 
+# Trunk branches: main plus integration/* (long-running reconciliation
+# trunks, e.g. integration/viewer). PRs targeting either get the same
+# gate — build, lint, strict typecheck (ADR 2026-06-09 §8) — and pushes
+# (i.e. merged PRs) re-validate the branch itself.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'integration/**']
   push:
-    branches: [main]
+    branches: [main, 'integration/**']
 
 # Cancel superseded runs on the same ref (saves minutes when pushes land
 # quickly during a review round).

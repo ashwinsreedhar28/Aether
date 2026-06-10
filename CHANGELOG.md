@@ -13,6 +13,10 @@ historical record.
 - `scripts/lane-done.sh` post-merge ritual script; §7-lite micro-lane tier banked in CLAUDE.md.
 
 ### Fixed
+- Voice daemon survives the Gemini native-audio models' known server-side
+  websocket kill (1008 "Requested entity was not found" after a tool
+  response): raven-core now enables session resumption and reconnects with
+  the cached handle, resuming the conversation instead of dying mid-session.
 - Lanes app no longer crash-loops on open: the re-homed surface still typed
   `agent` as a string and rendered it as a React child, but the lanes node has
   served `agent: { active, count } | null` since #143 — React throws on object

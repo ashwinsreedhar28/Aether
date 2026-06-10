@@ -9,6 +9,9 @@ historical record.
 
 ## [Unreleased]
 
+### Added
+- `scripts/lane-done.sh` post-merge ritual script; §7-lite micro-lane tier banked in CLAUDE.md.
+
 ### Fixed
 - Lanes app no longer crash-loops on open: the re-homed surface still typed
   `agent` as a string and rendered it as a React child, but the lanes node has

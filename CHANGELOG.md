@@ -52,6 +52,15 @@ historical record.
 - Voice mute button for the Raven assistant (VoiceMuteButton, wired into App.tsx).
 
 ### Changed
+- App icon v4 (#248): star-field letter-A constellation tile replaces the
+  Concept-C aurora icon, tile fill pinned to the shell Desktop background
+  token `--holo-bg` (#0a0a0f). Source of truth
+  `assets/icon/aether-app-icon-v4.svg`; regenerated `shell/build/icon.icns` +
+  padded dock/window PNGs (tile at 80% on transparent 1024 per Apple squircle
+  convention); full-bleed `assets/icon/aether-icon-1024.png` and 1280×640
+  social-preview PNG banked for web use. Splash card now shows the logo
+  (inline SVG) on the same token hex in place of the glow-dot + wordmark;
+  loading status + progress bar unchanged.
 - Lane 6 (ADR 2026-06-09 §9): CI and auto-review now fire on PRs targeting
   `integration/*` trunk branches, not just `main`; auto-review skips
   fork-originated PRs explicitly (trunk-repo branches only — the #204 OIDC

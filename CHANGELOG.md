@@ -18,6 +18,11 @@ historical record.
 - `scripts/lane-done.sh` post-merge ritual script; §7-lite micro-lane tier banked in CLAUDE.md.
 
 ### Fixed
+- Terminals spawn again after a fresh `pnpm install`: node-pty 1.1.0 ships
+  prebuilds whose `spawn-helper` loses its execute bit during pnpm
+  extraction, so every PTY spawn failed with `posix_spawnp failed` (dead
+  blank terminal windows, manual and voice alike). A shell postinstall
+  script restores the bit (`shell/scripts/fix-node-pty-perms.mjs`).
 - Voice daemon survives the Gemini native-audio models' known server-side
   websocket kill (1008 "Requested entity was not found" after a tool
   response): raven-core now enables session resumption and reconnects with

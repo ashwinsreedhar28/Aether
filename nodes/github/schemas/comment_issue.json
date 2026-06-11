@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "github.comment_issue",
+  "title": "github.comment_issue",
+  "description": "Add a comment to an existing issue by number on the configured repo. Params: { number: integer (the issue number), body: string (markdown, max 4000) }. Returns { ok: true, number, comment_id, url }. Denies: github_no_token (AETHER_GITHUB_TOKEN absent — the degraded capability error), github_bad_number, github_bad_body, github_api_error { status, reason } (404 status means no such issue), github_unreachable { reason }.",
+  "type": "object",
+  "required": ["number", "body"],
+  "additionalProperties": false,
+  "properties": {
+    "number": { "type": "integer", "minimum": 1 },
+    "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "github.create_issue",
+  "title": "github.create_issue",
+  "description": "File a gap as a GitHub issue on the configured repo (env AETHER_GITHUB_REPO, default ashwinsreedhar28/Aether) — with dedup INSIDE the surface. The node first checks an in-process memo of keys it already filed (GitHub's filtered list is eventually consistent; back-to-back re-asks must still dedup — memo hits are re-verified open via a direct read), then searches open 'gap'-labeled issues for a matching normalized capability key; on either match it comments the new utterance on the existing issue (the +1 demand signal) and returns { ok, deduped: true, number, url, comment_id, capability_key } — no duplicate is filed. Otherwise it creates the issue (title 'gap(<area>): <summary>', label 'gap', body carrying the verbatim utterance, attempted path/failure, session id, timestamp, and a machine-readable capability-key marker) and returns { ok, deduped: false, number, url, capability_key }. Gap issues are RECORDS, not contracts — no spec content in the body. capability_key is optional; when absent it is derived from area + summary (normalized: lowercase, non-alphanumerics to hyphens). Denies: github_no_token (AETHER_GITHUB_TOKEN absent — the degraded capability error), github_bad_capability_key (nothing survives normalization), github_api_error { status, reason }, github_unreachable { reason }.",
+  "type": "object",
+  "required": ["area", "summary", "utterance"],
+  "additionalProperties": false,
+  "properties": {
+    "area": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 180 },
+    "utterance": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "failure": { "type": "string", "maxLength": 2000 },
+    "session_id": { "type": "string", "maxLength": 100 },
+    "capability_key": { "type": "string", "minLength": 1, "maxLength": 120 }
+  }
+}

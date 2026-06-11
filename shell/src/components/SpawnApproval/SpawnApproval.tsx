@@ -235,17 +235,25 @@ export function SpawnApproval(): React.ReactElement | null {
   if (!snap) return null
   const spawns = snap.spawns
 
-  // Candidate: the highest-priority record worth surfacing. A recipe in flight,
-  // then a pending request, then a live spawn, then a just-closed spawn's
-  // cleanup, then a failure to acknowledge.
+  // Candidate: the highest-priority record worth surfacing. A pending request
+  // outranks everything — busy gates the Approve button (`blocked` below),
+  // never visibility (#300: a request that landed mid-recipe sat invisible
+  // behind the in-flight card until the app restarted) — then the recipe in
+  // flight, a live spawn, a just-closed spawn's cleanup, a failure to
+  // acknowledge. Members of the approved batch still read 'requested' in the
+  // ledger while they hold the running/queued slots; they render as SPAWNING,
+  // so the pending-request finder skips them.
   const runningRec = snap.running ? (spawns.find((s) => s.id === snap.running) ?? null) : null
-  const requested = spawns.find((s) => s.status === 'requested') ?? null
+  const requested =
+    spawns.find(
+      (s) => s.status === 'requested' && s.id !== snap.running && !snap.queue.includes(s.id),
+    ) ?? null
   const active = spawns.find((s) => s.status === 'spawned') ?? null
   const failed = spawns.find((s) => s.status === 'failed') ?? null
   const justClosed = justClosedId
     ? (spawns.find((s) => s.id === justClosedId && s.status === 'closed') ?? null)
     : null
-  const candidate = runningRec ?? requested ?? active ?? justClosed ?? failed ?? null
+  const candidate = requested ?? runningRec ?? active ?? justClosed ?? failed ?? null
 
   // A strip click reopens a specific spawn's card, overriding the candidate and
   // any minimize (open() clears minimizedKey, so an opened card never matches it).

@@ -18,7 +18,9 @@ import {
   pythonCandidates,
   pickFirstCapable,
   type SpawnRecord,
-} from './spawnLedger'
+  // .ts extension so `node --test` can load this module (same rule as the
+  // test files; tsconfig sets allowImportingTsExtensions).
+} from './spawnLedger.ts'
 import type { ControlDispatch } from './viewerControl'
 
 const execFileAsync = promisify(execFile)
@@ -28,6 +30,11 @@ const execFileAsync = promisify(execFile)
 // recipe runs off the IPC return so nothing blocks on it.
 const STEP_TIMEOUT_MS = 15 * 60 * 1000
 const TERMINAL_TIMEOUT_MS = 30 * 1000
+// Delivery oracle ceiling (#300): how long a lane pane gets to leave the bare
+// shell after send-keys before the recipe calls the kickoff lost and fails the
+// lane by name instead of recording a ghost.
+const KICKOFF_TIMEOUT_MS = 5 * 1000
+const KICKOFF_POLL_MS = 250
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 const WATCH_DEBOUNCE_MS = 120
 
@@ -433,20 +440,31 @@ export class SpawnService extends EventEmitter {
 
       // No LANE.md for lane kind: the contract lives on the issue, and the
       // kickoff (whose first action is `gh issue view N --comments`) is
-      // delivered as the session's first prompt.
-      const claudeCmd = `claude --dangerously-skip-permissions ${sq(laneKickoff(issue))}`
+      // delivered as the session's first prompt. Delivery is file-based
+      // (#300): the kickoff used to transit three quoting layers — sq() inside
+      // sq() inside `$SHELL -lic` — and arrived EMPTY, leaving a virgin pane
+      // and a hung recipe. Now the content goes to a file no shell touches,
+      // and the line sent to the pane is FIXED (laneSendKeys) — nothing
+      // interpolated but the session name.
+      setStep('write kickoff')
+      writeFileSync(join(worktree, '.lane-kickoff.md'), laneKickoff(issue))
       let tmuxSession: string | undefined
       if (this.tmuxOk) {
         setStep('tmux new-session')
         // A shell under claude, not claude AS the session command: when claude
         // exits, the session survives for post-mortem instead of vanishing.
         await this.runShell(`tmux new-session -d -s ${sq(session)} -c ${sq(worktree)}`, worktree)
-        await this.runShell(`tmux send-keys -t ${sq('=' + session)} ${sq(claudeCmd)} Enter`, worktree)
+        await this.runShell(laneSendKeys(session), worktree)
+        // Delivery oracle: a 0-exit send-keys only proves tmux accepted the
+        // keystrokes (#219's pane was virgin after one). Wait for the pane to
+        // actually leave the bare shell; a throw here is a named markFailed.
+        setStep('kickoff delivery')
+        await this.awaitKickoffDelivery(session, worktree)
         tmuxSession = session
       }
 
       setStep('open terminal')
-      const paneCmd = tmuxSession ? `tmux attach -t ${sq('=' + session)}` : claudeCmd
+      const paneCmd = tmuxSession ? `tmux attach -t ${sq('=' + session)}` : LANE_CLAUDE_CMD
       const opened = await this.openLaneTerminal(worktree, paneCmd, `Lane #${issue}`)
       if (!opened && !tmuxSession) {
         // pty fallback (#268 pre-decision 4): the terminal pane IS the process
@@ -477,16 +495,54 @@ export class SpawnService extends EventEmitter {
   // renderer control bridge. Returns false instead of throwing — the caller
   // decides whether the window is load-bearing (pty fallback) or presentation
   // (tmux lanes, which stay alive detached).
-  private async openLaneTerminal(cwd: string, command: string, title: string): Promise<boolean> {
+  private async openLaneTerminal(
+    cwd: string,
+    command: string,
+    title: string,
+    timeoutMs: number = TERMINAL_TIMEOUT_MS,
+  ): Promise<boolean> {
     if (!this.dispatch) return false
     try {
-      const res = (await this.dispatch('open-lane-terminal', { cwd, command, title })) as {
-        ok?: boolean
-      } | null
+      // Raced, never bare-awaited (#300): a renderer reply that never comes
+      // used to pin the recipe forever with neither spawned nor failed
+      // written. A timeout degrades to false — tmux lanes take the
+      // orphan/reattach path; the pty fallback turns it into a named failure
+      // at the call site.
+      const res = (await withTimeout(
+        this.dispatch('open-lane-terminal', { cwd, command, title }),
+        timeoutMs,
+      )) as { ok?: boolean } | null
       return res?.ok === true
     } catch (err) {
       console.warn('[spawnService] open-lane-terminal failed:', err)
       return false
+    }
+  }
+
+  // The kickoff delivery oracle (#300): poll the pane's foreground command
+  // until it stops being the bare shell (claude shows up as `claude`/`node`).
+  // Past the deadline, THROW — the lane is not live, and a markFailed naming
+  // this step beats a ghost lane whose pane sat virgin.
+  private async awaitKickoffDelivery(session: string, worktree: string): Promise<void> {
+    const shellName = basename(process.env.SHELL || '/bin/zsh')
+    const deadline = Date.now() + KICKOFF_TIMEOUT_MS
+    for (;;) {
+      const pane = (
+        await this.runShellCapture(
+          `tmux display -p -t ${sq('=' + session)} '#{pane_current_command}'`,
+          worktree,
+        )
+      ).trim()
+      // A login shell can report a leading dash ("-zsh") — still bare.
+      if (pane !== '' && pane.replace(/^-/, '') !== shellName) return
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `kickoff sent but the pane never left the shell (still ${pane || 'empty'} after ` +
+            `${KICKOFF_TIMEOUT_MS / 1000}s) — session ${session} is alive; ` +
+            `\`tmux kill-session -t ${session}\` before retrying`,
+        )
+      }
+      await new Promise((r) => setTimeout(r, KICKOFF_POLL_MS))
     }
   }
 
@@ -715,6 +771,37 @@ export function laneKickoff(issue: number): string {
     `When done: run the verify suite and report the gate; open the PR only on "clean, proceed," ` +
     `with the full §7 self-review body, ending Closes #${issue}.`
   )
+}
+
+// The fixed lane launch line (#300): claude reads the kickoff from
+// .lane-kickoff.md in the pane's cwd, so the content never transits shell
+// quoting. Must stay single-quote-free — sq() then wraps it verbatim.
+// Exported for tests.
+export const LANE_CLAUDE_CMD = 'claude --dangerously-skip-permissions "$(cat .lane-kickoff.md)"'
+
+// The exact line a lane session is sent (#300). The ONLY interpolated value is
+// the session name; kickoff content must never appear here — unit-tested.
+export function laneSendKeys(session: string): string {
+  return `tmux send-keys -t ${sq('=' + session)} ${sq(LANE_CLAUDE_CMD)} Enter`
+}
+
+// Resolve to `p`'s value, or null once `ms` elapses — the timer side never
+// rejects. Guards renderer dispatches: a reply that never comes must degrade,
+// not pin the recipe (#300). Exported for tests.
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise<T | null>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(null), ms)
+    p.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e: unknown) => {
+        clearTimeout(timer)
+        reject(e instanceof Error ? e : new Error(String(e)))
+      },
+    )
+  })
 }
 
 // POSIX single-quote a value for safe embedding in a shell command string.

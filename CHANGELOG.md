@@ -73,6 +73,19 @@ historical record.
 - `scripts/lane-done.sh` post-merge ritual script; §7-lite micro-lane tier banked in CLAUDE.md.
 
 ### Fixed
+- Lane spawns actually deliver their kickoff (#300): the kickoff prompt is
+  written to `.lane-kickoff.md` in the worktree and the pane runs a FIXED
+  `claude … "$(cat .lane-kickoff.md)"` line (only the session name is
+  interpolated — content no longer transits three quoting layers and arrives
+  empty), with a 5s pane-leaves-the-shell delivery oracle that fails the lane
+  by name instead of recording a ghost. The `open-lane-terminal` dispatch is
+  raced against the 30s terminal timeout (a silent renderer can no longer pin
+  the recipe with neither `spawned` nor `failed` written), and the control
+  bridge resolves every failure as a `{ __controlError }` envelope that
+  `executeViewerControl` re-throws main-side — a rejected promise never
+  crosses `executeJavaScript` again. A spawn request landing while a recipe
+  is busy now surfaces its card immediately (busy gates the Approve button,
+  never visibility). Teardown block gains the kickoff file.
 - "Open the terminal" by voice now spawns a real PTY-backed terminal — the
   `open-app` control action routes `terminal` through `openTerminal()` (the
   manual launcher's path) instead of creating a dead window whose tab pointed

@@ -15,6 +15,142 @@ a release lane folds them into a version section with
 `node scripts/roll-changelog.mjs --version X.Y.Z` and deletes them.
 Preview with --dry-run. Law: CLAUDE.md §8; format: changelog/README.md. -->
 
+## [0.12.0] - 2026-06-11
+
+### Added
+- The v0.11.0 release cut (#297): CHANGELOG `[Unreleased]` rolled into
+  `[0.11.0] - 2026-06-11` (lossless — heading change plus a headline note, per
+  the #182 cut precedent), narrative release notes at
+  `docs/releases/v0.11.0.md`, the Atlas living map recounted against
+  post-#268 main and re-snapshotted into `docs/atlas/history/` (the
+  flip-book's first cut-time page), README fully re-counted from source
+  (23 apps exact, 49 voice functions, 20 nodes / 81 edges) with the
+  self-staffing build-process chapter and `AETHER_GITHUB_TOKEN` /
+  `AETHER_GITHUB_REPO` named in the quickstart, and tag commands prepared
+  for the Director's cut: the v0.10.0 retro-tag (the heading existed since
+  #182 with no tag behind it) plus v0.11.0.
+- Rung 2.5 — gate reports reach the card, clean-proceed by voice (#310): the
+  lane kickoff now dictates the machine-readable lane channel — the lane
+  posts its full gate report to its issue thread ("GATE REPORT — " prefix)
+  before stopping at the gate, and "PR OPENED — #N <url>" once its PR is up.
+  A spawned lane's card folds that thread pull-based (one `github.get_issue`
+  read on card open + explicit REFRESH over a new `shell → github.get_issue`
+  edge; only comments newer than the spawn count; no background poller) into
+  LANE AT GATE with the report inline, then LANE PR OPENED with an OPEN PR
+  link. New confirm-gated raven tool `lane_proceed` (alias `proceed_lane`)
+  appends a `kind:"relay"` request to the spawn ledger; the shell enforces
+  the v1 allowlist (the literal "clean, proceed" ONLY), types it into the
+  lane's tmux pane via the pane-id send machinery, and records the
+  relayed/failed outcome (the card's RELAY row). The card's PROCEED button
+  on AT GATE rides the same ledger path; relays found pending at boot are
+  failed by name, never auto-sent; relay lines hold no lane capacity on
+  either fold (TS + Python).
+- Reviewer cell on the PR path (#311) — `.github/workflows/claude-spec-review.yml`,
+  a sibling to the mechanical auto-review: on PR open/synchronize it resolves the
+  Closes-issue, reads the ratified ARCHITECT SPEC (+ ADDENDUM comments), reviews
+  the diff against FIX/SMOKE/OUT-OF-SCOPE, verifies the PR title against the
+  issue, and checks §7 claims against diff reality. Exactly one verdict comment
+  per head SHA (sticky, superseded in place): `REVIEWER: APPROVE`,
+  `REVIEWER: CONCERNS —` itemized, or `REVIEWER: NO SPEC FOUND` (spec-less PRs
+  are never approved). Advisory by design — CLAUDE.md §1 now documents the merge
+  condition as CI green + REVIEWER: APPROVE + the Director's button; NOT a
+  required status check (that promotion is autonomy-ladder decision A2, untaken).
+- Rung 1.5 skeleton — machine-composed draft specs from gap issues (#312): a new
+  `daemons/architect-draft/compose_spec.py` takes a gap issue number, fetches the
+  record (GitHub REST, the #256 PAT-in-env contract), retrieves precedent from the
+  local aether-rag corpus (importing `rag_lib`, the same primitive `search_corpus`
+  wraps), prompts the **Director-configured** draft model (env `AETHER_DRAFT_MODEL`
+  → `<data-root>/architect/config.json` `draft_model`; no default in code —
+  unconfigured is an instructive refusal), and posts the result as an issue comment
+  prefixed `DRAFT SPEC (machine-composed, unratified) — `. The load-bearing guard
+  interaction: the composer blockquote-defangs any line that would anchor the
+  line-anchored spec guard and hard-refuses to post a body that still matches, so a
+  machine draft can never self-certify past `work_on_issue`'s spawn gate —
+  ratification stays a human re-posting the real marker. Unit tests pin the
+  sanitizer, the assembled comment, and guard-regex parity with
+  `work_on_issue_tool._SPEC_MARKER_RE`. A new confirm-gated raven voice tool
+  `draft_spec(number)` ("draft a spec for issue 311") runs the composer in its own
+  venv as a subprocess and relays the comment URL as a tiny side-effect signal.
+- Voice lane closeout — guarded teardown as the spawn's mirror (#317): new
+  confirm-gated raven tool `close_lane` (alias `close_out_lane`) appends a
+  `kind:"teardown"` request to the spawn ledger; the card's CLOSE OUT button
+  (two-beat confirm) rides the same line. The shell executes the canonical
+  cleanup block itself — tmux kill-session → rm `.lane-kickoff.md` →
+  submodule deinit → `git worktree remove --force` → `git branch -D` →
+  restore main's submodules — behind ordered guards: an open PR on the
+  record's branch refuses (`pr-open`, no force path), a pane still off the
+  bare shell refuses (`lane-busy`, no force path), and a dirty worktree or
+  unpushed branch draws the warn whose explicit CLOSE ANYWAY (card-only
+  force, #308 law) proceeds. `closed` is written only after every step
+  succeeds; a failed step writes the new `teardown_failed` status (a retry
+  card with the failing step + the copyable block), and capacity is freed
+  only by `closed` on both folds (TS + Python). Boot-pending teardowns are
+  failed by name, never auto-executed. ADR supersedes the v1.1 copy-only
+  cleanup clause; the copyable block remains the manual escape hatch.
+- Field-gotcha bank (#322) — four §10-class gotchas from the organ-building arc
+  banked in `docs/governance-log.md` (2026-06-11 batch): claude-code-action's
+  silent self-skip when the calling workflow file differs from main (green run,
+  no verdict; #314), python.org macOS builds lacking sqlite3 loadable-extension
+  support (RAG venvs built from Homebrew/Anaconda python; #319), the same builds
+  lacking wired system CAs (use certifi when available; #319), and merge-pulls
+  into a running dev server's checkout hot-swapping main-process code under a
+  live renderer (black screen; quit first or run from a dedicated worktree —
+  now one line in CLAUDE.md §13.12).
+
+### Changed
+- Per-lane changelog fragments + ADR-per-file split (#222): the two shared
+  append surfaces stop being rebase magnets. Lanes no longer edit
+  CHANGELOG.md or DECISIONS.md — each lane writes ONE fragment at
+  `changelog/unreleased/<issue>-<slug>.md` (house format: `### Section` +
+  the entry bullet) and lands any decision as a new file at
+  `decisions/<date>-<slug>.md` (same header + six required fields).
+  `CHANGELOG.md`'s `[Unreleased]` body is now a generated stub —
+  `scripts/roll-changelog.mjs --version X.Y.Z` compiles fragments in stable
+  order (ascending issue number) into the version section and deletes them;
+  DECISIONS.md is now a generated index over `decisions/`
+  (`scripts/gen-decisions-index.mjs`, `--check` in CI). The 32 existing
+  ADRs migrated byte-preserved; the 6 open `[Unreleased]` entries migrated
+  to fragments verbatim. Contract repointed across CLAUDE.md §8 (+§7
+  pointer), the lane kickoff text, the mechanical auto-review's checks
+  #2/#3 (fragment presence; ADR-file format — root hand-edits flagged), the
+  rebase playbook, and `CORPUS_GLOBS` (+ the #200 set-equality tripwire)
+  which gains `changelog/unreleased/*.md` and `decisions/*.md`.
+
+### Fixed
+- Spec-review verdict cites the head commit SHA, not a file blob SHA (#316).
+  The reviewer cell's prompt now receives the head commit explicitly
+  (`HEAD_SHA: ${{ github.event.pull_request.head.sha }}` interpolated into
+  `claude-spec-review.yml`) and the verdict block must end with exactly
+  `Reviewed <HEAD_SHA> against issue #<n>` — SHAs sourced from API payloads
+  (e.g. blob SHAs in `pulls/{n}/files`) are forbidden, so the
+  one-verdict-per-head-SHA supersede contract keys on a real commit.
+- Orphaned-lane affordances: completable rows, pull-based freshness (#318).
+  Every orphan reattach row backed by a live (`spawned`) ledger record now
+  carries a ghost COMPLETE beside REATTACH (one shared row component behind
+  the per-card strip and the standalone ORPHANED LANES card) with the full
+  #305/#308 warn-and-force semantics — a live-session refusal arms COMPLETE
+  ANYWAY on that row, never a silent terminal write. The orphan list itself
+  became a pull-refreshed cache instead of a boot snapshot: a new
+  `spawn:refresh-orphans` IPC re-probes tmux on Lanes open, card summon, and
+  explicit refresh (no background poller — the Rung 2.5 philosophy); entries
+  whose session died or whose newest matching record is terminal drop from
+  every strip without a relaunch, attachment is read from tmux itself
+  (`#{session_attached}`), and a successful complete drops its row
+  synchronously.
+- Lane terminal scroll scrolls the buffer, not command history (#324): the
+  spawn recipe now enables tmux mouse mode per lane session (`set-option -t
+  %pane_id mouse on` right after pane resolution — `mouse` is a session
+  option, so the pane target sets it on the owning session and only that
+  session). Without it tmux translated wheel events into arrow keys per the
+  alternate-screen convention, so wheeling at the prompt walked history and
+  off-screen output was unreachable. Wheel-up now enters copy-mode and
+  scrolls back; wheel-down at the bottom returns to live; arrow keys still
+  reach the shell unchanged. User-global tmux config untouched; renderer
+  xterm hosts needed no change (nothing suppresses mouse reporting, and both
+  plain-pty surfaces already carry `scrollback: 10000`). Run-4 matrix
+  extended in the field: `set-option` is pane-typed for targets — `-t
+  =lane-N` fails on tmux 3.6b exactly as send-keys did in #302.
+
 ## [0.11.0] - 2026-06-11
 
 *The release where the Viewer became the shell and the loop learned to staff

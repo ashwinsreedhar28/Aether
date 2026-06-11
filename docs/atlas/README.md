@@ -32,6 +32,7 @@ above reconciles them.
 | [history/2026-06-04-progress-ledger.html](history/2026-06-04-progress-ledger.html) | Two-day progress ledger — the cockpit, then the loop that builds the rest |
 | [history/2026-06-04-rag-mcp-sketch.html](history/2026-06-04-rag-mcp-sketch.html) | "No MCP today" — where a RAG MCP server slots into the mesh |
 | [history/2026-06-11-v0.11.0-cut.html](history/2026-06-11-v0.11.0-cut.html) | The v0.11.0 cut — the Viewer merge landed, gaps file as GitHub issues, lanes spawn by voice; the flip-book's first cut-time snapshot |
+| [history/2026-06-11-v0.12.0-cut.html](history/2026-06-11-v0.12.0-cut.html) | The v0.12.0 cut — the loop closed end to end: gate reports on the issue thread, voice proceed, the reviewer cell keyed to head SHA, voice closeout, the composer's maiden flight, and the fragments contract |
 
 ## The convention
 

@@ -37,7 +37,7 @@ Four things make it what it is today:
   assistant — a Python Gemini Live orchestrator (native-audio model, pinned)
   under a supervised daemon. You can talk over it (**barge-in**), it survives
   server-side session kills (**session resumption** + an in-process reconnect
-  loop), and it acts through **49 voice functions across 20 tool modules**:
+  loop), and it acts through **54 voice functions across 23 tool modules**:
   reading your mail, messages, calendar, news, and finances; arranging
   windows; opening apps and views; filing capability gaps on the issue
   board; spawning approved implementer lanes. It drives the desktop over
@@ -45,7 +45,7 @@ Four things make it what it is today:
   channel.
 - **A signed mesh.** Every cross-system interaction travels as an HMAC-signed
   envelope that a single [`manifest.yaml`](manifest.yaml) edge graph
-  authorizes — currently **20 nodes and 81 authorized edges**, each node
+  authorizes — currently **20 nodes and 82 authorized edges**, each node
   classed as a **Sensor / Actor / Mixer / Planner**. Edge present = permitted;
   edge absent = denied. The manifest is the single, auditable answer to "what
   can talk to what."
@@ -54,11 +54,13 @@ Four things make it what it is today:
   repeat asks accrue as +1 comments), proposes concrete next builds when
   asked, and — on approval — staffs the work itself: a spoken "work on issue
   N" becomes a git worktree, a detached implementer session, and a reviewed
-  PR. The loop runs `gaps → issues → proposals → spawned lanes → PRs`, and a
-  human gates every spawn and presses every merge. In the last arc, the
-  system ran three implementer lanes concurrently overnight — and shipped
-  the first PR in this repo's history produced end-to-end by the system
-  itself, from board issue to merge.
+  PR. The loop runs `gaps → issues → draft specs → ratification → spawned
+  lanes → gate reports → reviewed PRs → voice closeout`, and a human gates
+  every spawn and presses every merge. As of v0.12.0 the loop has run closed
+  end to end: a gap filed by voice came back as a machine-drafted spec, was
+  ratified by a human, staffed itself, reported its gate to its own issue
+  thread, took a spoken "clean, proceed," earned a reviewer verdict on its
+  head commit, merged on the Director's button, and was torn down by voice.
 
 This repo is the **workspace half** — an Electron app on the developer's
 laptop. The eventual **home-substrate half** (an always-on box with physical
@@ -90,8 +92,12 @@ work rail** — machine-filed gaps and human-filed lanes are the same kind of
 object, and no lane starts until its issue carries an ARCHITECT SPEC; and
 once one does, a spoken **"work on issue N" spawns the implementer lane** —
 one approval card, then a git worktree, a detached Claude Code session, and
-a PR that closes its issue. Humans still gate every spawn and press every
-merge.
+a PR that closes its issue. Since the v0.12.0 cut the loop is closed end to
+end: lanes post their **gate reports to their own issue threads**, the
+go-ahead is a spoken "clean, proceed," a **reviewer cell** verdicts every PR
+against its ratified spec (one verdict per head commit, advisory by design),
+and **closeout is a voice act** behind guarded teardown. Humans still gate
+every spawn and press every merge.
 
 [CLAUDE.md](CLAUDE.md) is the full operating manual — the contributor law on
 roles, branching, self-review, and decision-recording — and
@@ -152,7 +158,7 @@ the first time the relevant nodes spawn.
   │ Gemini Live, native │  │ workspaces ▸ windows ▸ tabs · 23 apps      │
   │ audio · barge-in ·  │  │ (terminal, browser, editors, kanban,       │
   │ session resumption  │  │  mesh, lanes, gaps, …)                     │
-  │ 49 fns / 20 modules │  │ hosts viewer_desktop (Actor): open_app,    │
+  │ 54 fns / 23 modules │  │ hosts viewer_desktop (Actor): open_app,    │
   └──────────┬──────────┘  │ open_view, apply_layout, notify, …         │
              │             └─────────────────────┬──────────────────────┘
              │ mesh.invoke                       │ signed envelopes
@@ -160,7 +166,7 @@ the first time the relevant nodes spawn.
   ┌────────────────────────────────────────────────────┐
   │        RAVEN_MESH Core — the broker                │      authorized by
   │        HMAC-signed envelopes · SSE delivery        │◄──── manifest.yaml
-  └──────────────────────────┬─────────────────────────┘      20 nodes · 81 edges
+  └──────────────────────────┬─────────────────────────┘      20 nodes · 82 edges
                              │ dispatch
                              ▼
   mesh nodes — one process each, classed Sensor / Actor / Mixer / Planner
@@ -190,10 +196,10 @@ core/                  Vendored RAVEN_MESH (Python broker + Python/TS SDKs + sch
 nodes/                 Mesh nodes, one process each
 daemons/
 ├─ raven-daemon/       Voice supervisor (HTTP+WS on 127.0.0.1:7433)
-├─ raven-core/         Python Gemini Live orchestrator (49 voice functions)
+├─ raven-core/         Python Gemini Live orchestrator (54 voice functions)
 └─ aether-rag/         Retrieval over Aether's own written record
 
-manifest.yaml          The mesh topology: 20 nodes, 81 authorized edges
+manifest.yaml          The mesh topology: 20 nodes, 82 authorized edges
 _ingest/               Reference repos (submodules, read-only — never imported at runtime)
 ```
 
@@ -220,7 +226,7 @@ living map, re-snapshotted at each release cut).
 | [CHANGELOG.md](CHANGELOG.md) | Per-PR change history (Keep a Changelog) |
 | [docs/atlas/](docs/atlas/README.md) | The Atlas — living visual architecture map + frozen snapshots |
 | [docs/scene-protocol.md](docs/scene-protocol.md) | Scene-server wire contract (AVP track) |
-| [docs/releases/](docs/releases/v0.11.0.md) | Per-release narrative notes |
+| [docs/releases/](docs/releases/v0.12.0.md) | Per-release narrative notes |
 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contribution, security, conduct |
 
 ## Lineage
@@ -252,7 +258,8 @@ categories lighting up:
 | `v0.7.0`–`v0.8.0` | Substrate consolidation               |
 | `v0.9.x`  | Data breadth (macOS surfaces) + process discipline |
 | `v0.10.0` | The cockpit & the self-building loop          |
-| `v0.11.0` | **The Viewer merge & the self-staffing loop** — one window manager, one assistant; gaps file as issues; lanes spawn by voice ([notes](docs/releases/v0.11.0.md)) |
+| `v0.11.0` | The Viewer merge & the self-staffing loop — one window manager, one assistant; gaps file as issues; lanes spawn by voice ([notes](docs/releases/v0.11.0.md)) |
+| `v0.12.0` | **The closed loop** — gate reports on the issue thread, "clean, proceed" by voice, a reviewer cell on every PR, voice closeout; the record rolls from fragments ([notes](docs/releases/v0.12.0.md)) |
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
 

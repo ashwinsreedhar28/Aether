@@ -40,6 +40,8 @@ A four-party project. Internalize it — most of your behavior is shaped by wher
 
 You never push to main. The review *conversation* lives on the PR; Director↔Architect chat is for direction-level decisions and visual-test feedback.
 
+**Gap issues are records, not contracts.** Issues labeled `gap` (raven files them through the github node, #255/#258) carry the moment a capability was missing — utterance, failure, session id — and NO spec. No Implementer starts from a gap issue until it carries an ARCHITECT SPEC comment.
+
 ---
 
 ## 2. Project Context (read once, then refer to `MASTER_SYNTHESIS.md`)

@@ -14,9 +14,10 @@ import { homedir } from 'node:os'
 
 // Append-only, event-sourced ledger for the spawn actor — the shell-side reader
 // of the same $AETHER_DATA_DIR/spawns/requests.jsonl the raven request_spawn tool
-// appends to (one JSON object per line). It deliberately mirrors the intents gap
-// store (nodes/intents/src/storage.ts): low-frequency, append-only, never
-// rewritten, fsync'd per append, and trivially inspectable with `cat`.
+// appends to (one JSON object per line). It deliberately mirrors the retired
+// intents gap store (nodes/intents, removed in #258 — see git history):
+// low-frequency, append-only, never rewritten, fsync'd per append, and
+// trivially inspectable with `cat`.
 //
 // Pure on purpose — no Electron imports — so the orchestrator (spawnService.ts)
 // and the isolated test both consume it. The voice tool writes the *request*
@@ -354,8 +355,9 @@ export class SpawnLedger {
     return byId
   }
 
-  // One append + fsync — the durability path lives in exactly one place, mirroring
-  // the intents store. Per-call open/close is fine: spawns fire minutes apart.
+  // One append + fsync — the durability path lives in exactly one place (the
+  // retired intents store's pattern). Per-call open/close is fine: spawns fire
+  // minutes apart.
   private append(obj: Record<string, unknown>): void {
     const fd = openSync(this.path, 'a')
     try {

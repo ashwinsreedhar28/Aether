@@ -2,12 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "visualizer.render",
   "title": "visualizer.render",
-  "description": "Render a visualization. `intent` selects the template: 'mesh' (summoned mesh-topology overlay), 'dashboard' (always-present backdrop panels), 'lanes' (dev-lane panel), 'gaps' (capability-gap log overlay), 'agenda' (today/tomorrow calendar overlay). `args` is reserved for per-intent options (unused). Unknown intents return MeshDeny('unknown_intent').",
+  "description": "Render a visualization. `intent` selects the template: 'mesh' (summoned mesh-topology overlay), 'dashboard' (always-present backdrop panels), 'lanes' (dev-lane panel), 'agenda' (today/tomorrow calendar overlay). `args` is reserved for per-intent options (unused). Unknown intents return MeshDeny('unknown_intent').",
   "type": "object",
   "properties": {
     "intent": {
       "type": "string",
-      "description": "Which visualization to render: 'mesh' | 'dashboard' | 'lanes' | 'gaps' | 'agenda'."
+      "description": "Which visualization to render: 'mesh' | 'dashboard' | 'lanes' | 'agenda'."
     },
     "args": {
       "type": "object",

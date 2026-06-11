@@ -7,7 +7,6 @@ import {
   FINANCE_ENTRY,
   GITHUB_ENTRY,
   HOST_NOTIFICATIONS_ENTRY,
-  INTENTS_ENTRY,
   LANES_ENTRY,
   MACOS_MAIL_ENTRY,
   MACOS_MESSAGES_ENTRY,
@@ -85,7 +84,6 @@ export class NodeManager {
       // it there means re-adding a spawn call (spawnVisualizer in git
       // history), not rebuilding the node.
       this.spawnLanes(),
-      this.spawnIntents(),
       this.spawnGithub(),
     ])
   }
@@ -301,26 +299,6 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/lanes build`',
       secretEnvName: 'MESH_LANES_SECRET',
       secretValue: this.secrets.lanesSecret,
-      extraEnv: {
-        AETHER_DATA_DIR: dataDir,
-      },
-    })
-  }
-
-  private async spawnIntents(): Promise<void> {
-    // intents — the gap sensor. Persists gap records (requests Aether could
-    // not fulfil) to an append-only JSONL log under AETHER_DATA_DIR, and
-    // serves them back via intents.list. The first node whose persisted data
-    // is mesh-authored rather than a re-fetchable cache — AETHER_DATA_DIR is
-    // the writable root for both gaps.jsonl and the running marker.
-    const dataDir = nodeDataDir()
-    mkdirSync(dataDir, { recursive: true })
-    await this.spawnNode({
-      id: 'intents',
-      entry: INTENTS_ENTRY,
-      buildHint: '`pnpm --filter @aether/intents build`',
-      secretEnvName: 'MESH_INTENTS_SECRET',
-      secretValue: this.secrets.intentsSecret,
       extraEnv: {
         AETHER_DATA_DIR: dataDir,
       },

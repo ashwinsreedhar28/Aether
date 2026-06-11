@@ -10,6 +10,16 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Gaps panel reads the live issue board (Lane B of #255, #257): `GapsApp`
+  rewritten from the intents ledger to `github.list_issues` — open issues
+  newest-first, gap label chip visually distinct, gap-only filter (client-side
+  over one `limit: 100` stream per Architect ruling), number/title/age/comment
+  count (the +1 signal), click-through opens the issue in the viewer browser.
+  Refresh: on-open + manual + 60s visible-only poll; offline render from cache
+  with an "as of" strip; clean no-token state per the node contract.
+  `useMeshSurface` gained `visibleOnly` polling, a `cacheKey` localStorage
+  option, and `fetchedAtMs` (third arg now `number | MeshSurfaceOptions`,
+  bare-number callers unchanged).
 - `github` Actor node (`nodes/github`, Lane A of #255): gaps file as GitHub
   issues. Three surfaces — `create_issue` (dedup inside: a repeat ask comments
   the existing gap issue and returns `{ deduped: true }`), `list_issues` (the

@@ -64,6 +64,8 @@ describe('buildGapBody / extractCapabilityKey', () => {
     expect(body).toContain('sess-42')
     expect(body).toContain('2026-06-10T12:00:00.000Z')
     expect(body).toContain('RECORD, not a contract')
+    expect(body).toContain('until an architect spec lands on it')
+    expect(body).not.toContain('ARCHITECT SPEC')
     expect(extractCapabilityKey(body)).toBe('email-reading')
   })
 

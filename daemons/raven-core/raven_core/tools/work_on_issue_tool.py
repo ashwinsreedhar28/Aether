@@ -53,10 +53,12 @@ FUNCTIONS = ["work_on_issue", "spawn_lane"]
 SPAWNS_SUBPATH = ("spawns",)
 LEDGER_NAME = "requests.jsonl"
 
-# The record-not-contract marker (CLAUDE.md §1). Case-sensitive on purpose:
-# the law's literal form is all-caps, and a prose mention ("an architect
-# spec") must not pass the guard.
-SPEC_MARKER = "ARCHITECT SPEC"
+# The record-not-contract marker (CLAUDE.md §1). Line-anchored: the marker
+# certifies only when it leads a line — optionally indented and/or fenced
+# ("ARCHITECT SPEC — fix…", "=== ARCHITECT SPEC ===") — so a mid-sentence
+# mention (the gap footer's prose) never passes the guard. Case-sensitive
+# on purpose: the law's literal form is all-caps.
+_SPEC_MARKER_RE = re.compile(r"^\s*(?:=+\s*)?ARCHITECT SPEC", re.MULTILINE)
 
 # Hard cap on one utterance's batch size, independent of spawn.max_lanes —
 # a mis-heard number list must not fan out into a dozen API reads.
@@ -161,7 +163,7 @@ def _spec_text_of(issue: dict[str, Any]) -> str | None:
         for comment in comments:
             if isinstance(comment, dict) and isinstance(comment.get("body"), str):
                 candidates.append(comment["body"])
-    marked = [text for text in candidates if SPEC_MARKER in text]
+    marked = [text for text in candidates if _SPEC_MARKER_RE.search(text)]
     return marked[-1] if marked else None
 
 

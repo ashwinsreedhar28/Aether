@@ -24,7 +24,7 @@ import { homedir } from 'node:os'
 // line (in Python); the shell appends *lifecycle* events here. Both agree on the
 // path because both resolve $userData/data (AETHER_DATA_DIR).
 //
-// Two line families share the log, folded oldest → newest:
+// Three line families share the log, folded oldest → newest:
 //   • a REQUEST line — draft kind:
 //       { id, ts, draft_path, draft_name, status:'requested' }
 //     or lane kind (#268, written by raven's work_on_issue tool):
@@ -32,13 +32,17 @@ import { homedir } from 'node:os'
 //         status:'requested' }
 //   • a LIFECYCLE event — { id, ts, status:'spawned'|'closed'|'dismissed'|'failed',
 //                           worktree?, branch?, step?, error?, tmux_session? }
-// Discriminator: a line with a string `draft_path` is a draft request; a line
-// with kind === 'lane' and a numeric `issue` is a lane request; any other line
-// with `id` + `status` is a lifecycle event flipping that request's state. Folding
-// forward lets a crash leave a partial log that still reads correctly, and lets
-// the human-gated states (requested → spawned → closed, or → dismissed/failed) be
-// reconstructed without ever rewriting a line. Lane requests sharing a batch_id
-// form ONE approval unit (#268 addendum): one card, approve-all or cancel-all.
+//   • a RELAY line (#310, both request and outcome — see the relay section
+//     below): every relay line carries kind:'relay' and folds separately.
+// Discriminator: a line with kind === 'relay' belongs to the relay fold and
+// never touches a spawn record; a line with a string `draft_path` is a draft
+// request; a line with kind === 'lane' and a numeric `issue` is a lane request;
+// any other line with `id` + `status` is a lifecycle event flipping that
+// request's state. Folding forward lets a crash leave a partial log that still
+// reads correctly, and lets the human-gated states (requested → spawned →
+// closed, or → dismissed/failed) be reconstructed without ever rewriting a
+// line. Lane requests sharing a batch_id form ONE approval unit (#268
+// addendum): one card, approve-all or cancel-all.
 
 export type SpawnStatus = 'requested' | 'spawned' | 'closed' | 'dismissed' | 'failed'
 
@@ -80,6 +84,44 @@ export interface SpawnRecord {
   // that failed.
   ragBootstrap?: 'ok' | 'failed'
   ragStep?: string
+}
+
+// ---- relay line family (#310) -----------------------------------------------
+// Rung 2.5's go-ahead channel: a relay REQUEST asks the shell to type a fixed
+// line into a live lane's pane ("clean, proceed" — a lane stopped at its gate
+// ships on it); the shell appends the relayed/failed outcome. Every relay line
+// — request AND lifecycle — carries kind:'relay', so this fold, the spawn fold
+// above, and the Python tools' capacity count can all segregate the family
+// without tracking ids across families.
+//   • request:   { id, ts, kind:'relay', issue, text, status:'requested' }
+//     (written by raven's lane_proceed tool, or by the card's PROCEED button
+//     through SpawnService.proceed — one path, one audit trail)
+//   • lifecycle: { id, ts, kind:'relay', status:'relayed'|'failed', error? }
+
+// THE V1 RELAY ALLOWLIST: the one literal a relay may type into a lane pane.
+// Arbitrary relay text is out of scope by spec (#310); the Python tool offers
+// no text argument and the shell refuses any recorded text that is not this
+// exact string. Kept in sync with lane_proceed_tool.py's RELAY_TEXT.
+export const RELAY_TEXT = 'clean, proceed'
+
+export type RelayStatus = 'requested' | 'relayed' | 'failed'
+
+// One relay's current (folded) state. `ts` is the latest event's time;
+// `requestedTs` the request's (for stable newest-first ordering).
+export interface RelayRecord {
+  id: string
+  ts: string
+  requestedTs: string
+  // The lane this relay targets, by issue number (how the voice path names
+  // lanes); the executor resolves it to the newest live lane record.
+  issue: number
+  // Recorded verbatim from the request line. The ALLOWLIST is enforced at
+  // execution time by the side that owns the pane (SpawnService), not here —
+  // the ledger is plain JSONL and a hand-edited line must still fold legibly.
+  text: string
+  status: RelayStatus
+  // Present when the relay failed (status 'failed').
+  error?: string
 }
 
 // kebab-case slug — MUST match the Python tool's _slugify so the branch/worktree
@@ -308,6 +350,52 @@ export class SpawnLedger {
     this.append({ id, ts: new Date().toISOString(), status: 'dismissed' })
   }
 
+  // ---- relay family (#310) ---------------------------------------------------
+
+  /** Append a relay request line — the card's PROCEED path. The live voice
+   * flow writes the identical shape from lane_proceed_tool.py; this method
+   * documents the on-disk contract. Text defaults to (and in v1 should always
+   * be) the RELAY_TEXT allowlist literal. */
+  requestRelay(issue: number, text: string = RELAY_TEXT): RelayRecord {
+    const rec: RelayRecord = {
+      id: randomUUID(),
+      ts: new Date().toISOString(),
+      requestedTs: '',
+      issue,
+      text,
+      status: 'requested',
+    }
+    rec.requestedTs = rec.ts
+    this.append({ id: rec.id, ts: rec.ts, kind: 'relay', issue, text, status: 'requested' })
+    return rec
+  }
+
+  markRelayed(id: string): void {
+    this.append({ id, ts: new Date().toISOString(), kind: 'relay', status: 'relayed' })
+  }
+
+  markRelayFailed(id: string, error: string): void {
+    this.append({ id, ts: new Date().toISOString(), kind: 'relay', status: 'failed', error })
+  }
+
+  /** Folded relay state, newest request first (for the snapshot/card). */
+  listRelays(): RelayRecord[] {
+    return [...this.foldRelays().values()].sort((a, b) =>
+      b.requestedTs.localeCompare(a.requestedTs),
+    )
+  }
+
+  /** Still-'requested' relays, oldest first — the executor's FIFO. */
+  pendingRelays(): RelayRecord[] {
+    return [...this.foldRelays().values()]
+      .filter((r) => r.status === 'requested')
+      .sort((a, b) => a.requestedTs.localeCompare(b.requestedTs))
+  }
+
+  findRelay(id: string): RelayRecord | undefined {
+    return this.foldRelays().get(id)
+  }
+
   /** Folded state, newest request first. */
   list(): SpawnRecord[] {
     const byId = this.fold()
@@ -364,6 +452,12 @@ export class SpawnLedger {
       const id = typeof obj.id === 'string' ? obj.id : null
       if (!id) continue
       const ts = typeof obj.ts === 'string' ? obj.ts : ''
+
+      // Relay lines (#310) fold separately (foldRelays); without this skip a
+      // relay request would seed a ghost 'requested' spawn stub and a failed
+      // relay outcome would raise a SPAWN FAILED card for a record that
+      // never existed.
+      if (obj.kind === 'relay') continue
 
       // Request line — carries the draft identity.
       if (typeof obj.draft_path === 'string') {
@@ -454,6 +548,69 @@ export class SpawnLedger {
       if (typeof obj.rag_step === 'string') existing.ragStep = obj.rag_step
       if (typeof obj.tmux_session === 'string') existing.tmuxSession = obj.tmux_session
       byId.set(id, existing)
+    }
+
+    return byId
+  }
+
+  // Fold the relay family (#310), oldest → newest — the kind:'relay' sibling
+  // of fold() above. A malformed line is skipped; a lifecycle line for an
+  // unknown relay id is dropped (unlike spawn lifecycle events, which seed
+  // stubs: a relay with no request line has no issue to execute against and
+  // nothing the card could usefully show).
+  private foldRelays(): Map<string, RelayRecord> {
+    const byId = new Map<string, RelayRecord>()
+    if (!existsSync(this.path)) return byId
+
+    let raw: string
+    try {
+      raw = readFileSync(this.path, 'utf8')
+    } catch {
+      return byId
+    }
+
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      let obj: Record<string, unknown>
+      try {
+        obj = JSON.parse(trimmed) as Record<string, unknown>
+      } catch {
+        continue /* skip malformed line */
+      }
+      if (obj.kind !== 'relay') continue
+      const id = typeof obj.id === 'string' ? obj.id : null
+      if (!id) continue
+      const ts = typeof obj.ts === 'string' ? obj.ts : ''
+
+      // Request line — carries the target issue and the recorded text.
+      if (
+        typeof obj.issue === 'number' &&
+        Number.isInteger(obj.issue) &&
+        obj.issue >= 1 &&
+        typeof obj.text === 'string'
+      ) {
+        const existing = byId.get(id)
+        byId.set(id, {
+          id,
+          ts: existing?.ts || ts,
+          requestedTs: ts,
+          issue: obj.issue,
+          text: obj.text,
+          status: existing?.status ?? 'requested',
+          error: existing?.error,
+        })
+        continue
+      }
+
+      // Outcome line — flips an existing relay's status.
+      const status = obj.status
+      if (status !== 'relayed' && status !== 'failed') continue
+      const existing = byId.get(id)
+      if (!existing) continue
+      existing.status = status
+      existing.ts = ts
+      if (typeof obj.error === 'string') existing.error = obj.error
     }
 
     return byId

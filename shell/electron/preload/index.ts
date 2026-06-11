@@ -138,6 +138,21 @@ export interface OrphanLane {
   worktree?: string
 }
 
+// A folded "clean, proceed" relay (#310): requested by voice (lane_proceed)
+// or the card's PROCEED button; the shell types it into the lane's pane and
+// records the outcome.
+export type RelayStatus = 'requested' | 'relayed' | 'failed'
+
+export interface RelayRecord {
+  id: string
+  ts: string
+  requestedTs: string
+  issue: number
+  text: string
+  status: RelayStatus
+  error?: string
+}
+
 export interface SpawnSnapshot {
   spawns: SpawnView[]
   running: string | null
@@ -152,6 +167,9 @@ export interface SpawnSnapshot {
   // the card names the `brew install tmux` remedy.
   tmuxAvailable: boolean
   orphans: OrphanLane[]
+  // Folded relays (#310), newest first — the card surfaces a lane's last
+  // relay outcome so a voice "proceed lane N" is observable.
+  relays: RelayRecord[]
 }
 
 export interface SpawnActionResult {
@@ -270,6 +288,10 @@ const spawn = {
   // Reattach an orphaned lane-* tmux session into a fresh terminal window.
   reattach: (session: string): Promise<SpawnActionResult> =>
     ipcRenderer.invoke('spawn:reattach', session),
+  // Relay the fixed "clean, proceed" go-ahead into the live lane working
+  // `issue` (#310) — the card's PROCEED button on AT GATE.
+  proceed: (issue: number): Promise<SpawnActionResult> =>
+    ipcRenderer.invoke('spawn:proceed', issue),
   // Push on every ledger change (request landed, approved, spawned, failed, …).
   onChanged: (cb: (snap: SpawnSnapshot) => void): Unsubscribe => subscribe('spawn:changed', cb),
 }

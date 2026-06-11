@@ -631,6 +631,10 @@ ipcMain.handle('spawn:complete', (_e, id: unknown, force: unknown) =>
   spawnService.complete(String(id), force === true),
 )
 ipcMain.handle('spawn:reattach', (_e, session: unknown) => spawnService.reattach(String(session)))
+// The card's PROCEED button (#310): record + execute a "clean, proceed" relay
+// against the lane working `issue` — the same ledger path raven's
+// lane_proceed tool writes, so voice and card relays share one audit trail.
+ipcMain.handle('spawn:proceed', (_e, issue: unknown) => spawnService.proceed(Number(issue)))
 
 app.whenReady().then(() => {
   // macOS dev mode: set Dock icon explicitly. In packaged builds the .icns

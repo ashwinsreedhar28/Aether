@@ -20,6 +20,7 @@ import {
   cleanupBlock,
   pythonCandidates,
   pickFirstCapable,
+  RELAY_TEXT,
 } from './spawnLedger.ts'
 
 function freshLedger(): { ledger: SpawnLedger; path: string; cleanup: () => void } {
@@ -420,4 +421,63 @@ test('targetsForLane sanitizes and defaults like the draft path does', () => {
     branch: 'lane/issue-7',
     worktree: join(homedir(), 'aether-lane-7'),
   })
+})
+
+// ---- relay family (#310): kind-tagged lines, segregated folds ----------------
+
+test('RELAY_TEXT is the allowlist literal (Python tool parity)', () => {
+  // Pinned: lane_proceed_tool.py duplicates this string; a drift here is a
+  // relay the shell would refuse.
+  assert.equal(RELAY_TEXT, 'clean, proceed')
+})
+
+test('relay lines fold separately and never touch spawn records', () => {
+  const { ledger, cleanup } = freshLedger()
+  try {
+    const relay = ledger.requestRelay(310)
+    // Invisible to the spawn fold: no ghost 'requested' card, no capacity.
+    assert.equal(ledger.list().length, 0)
+    assert.equal(ledger.liveCount(), 0)
+    // Visible to the relay fold, carrying the fixed text.
+    assert.equal(ledger.findRelay(relay.id)?.status, 'requested')
+    assert.equal(ledger.findRelay(relay.id)?.issue, 310)
+    assert.equal(ledger.findRelay(relay.id)?.text, RELAY_TEXT)
+    assert.equal(ledger.pendingRelays().length, 1)
+
+    ledger.markRelayed(relay.id)
+    assert.equal(ledger.findRelay(relay.id)?.status, 'relayed')
+    assert.equal(ledger.pendingRelays().length, 0)
+
+    // A FAILED relay outcome must not seed a SPAWN FAILED stub either.
+    const r2 = ledger.requestRelay(311)
+    ledger.markRelayFailed(r2.id, 'no live lane')
+    assert.equal(ledger.findRelay(r2.id)?.status, 'failed')
+    assert.equal(ledger.findRelay(r2.id)?.error, 'no live lane')
+    assert.equal(ledger.list().length, 0)
+  } finally {
+    cleanup()
+  }
+})
+
+test('relay outcomes for unknown ids are dropped; listRelays is newest-first', async () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    // An outcome with no request line has no issue to execute against — drop.
+    appendFileSync(
+      path,
+      JSON.stringify({ id: 'ghost', ts: '2026-06-11T00:00:00Z', kind: 'relay', status: 'failed', error: 'x' }) + '\n',
+    )
+    assert.equal(ledger.findRelay('ghost'), undefined)
+    assert.equal(ledger.listRelays().length, 0)
+
+    const a = ledger.requestRelay(301)
+    await new Promise((r) => setTimeout(r, 5))
+    const b = ledger.requestRelay(302)
+    assert.deepEqual(
+      ledger.listRelays().map((r) => r.id),
+      [b.id, a.id],
+    )
+  } finally {
+    cleanup()
+  }
 })

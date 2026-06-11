@@ -812,6 +812,15 @@ relationships:
   # is pure renderer work on top of this edge.
   - from: shell
     to: github.list_issues
+  # The spawn card's gate check (#310): a spawned lane's card reads the lane's
+  # OWN issue thread — body + comments — to fold AT GATE / PR OPENED from the
+  # fixed comment prefixes the kickoff dictates ("GATE REPORT — ",
+  # "PR OPENED — "). Pull-based: one read on card open / explicit refresh, no
+  # poller. A NEW relationship distinct from the board list above (#136's
+  # lesson: every consumer/surface pair needs its own edge); raven's
+  # get_issue edge does not cover the shell.
+  - from: shell
+    to: github.get_issue
 
   # Agenda overlay: the visualizer Mixer reads the calendar to compose the
   # summoned 'agenda' overlay (viz-agenda) — today's full day from calendar.today

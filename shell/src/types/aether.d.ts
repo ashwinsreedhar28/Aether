@@ -92,6 +92,20 @@ export interface OrphanLane {
   worktree?: string
 }
 
+/** A folded "clean, proceed" relay (#310) — voice or card PROCEED; the shell
+ * types it into the lane's pane and records the outcome. */
+export type RelayStatus = 'requested' | 'relayed' | 'failed'
+
+export interface RelayRecord {
+  id: string
+  ts: string
+  requestedTs: string
+  issue: number
+  text: string
+  status: RelayStatus
+  error?: string
+}
+
 export interface SpawnSnapshot {
   spawns: SpawnView[]
   running: string | null
@@ -102,6 +116,7 @@ export interface SpawnSnapshot {
   maxLanes: number
   tmuxAvailable: boolean
   orphans: OrphanLane[]
+  relays: RelayRecord[]
 }
 
 export interface SpawnActionResult {
@@ -142,7 +157,12 @@ export interface AetherBridge {
     dismiss: (id: string) => Promise<SpawnActionResult>
     complete: (id: string, force?: boolean) => Promise<SpawnActionResult>
     reattach: (session: string) => Promise<SpawnActionResult>
+    proceed: (issue: number) => Promise<SpawnActionResult>
     onChanged: (cb: (snap: SpawnSnapshot) => void) => Unsub
+  }
+  shell: {
+    /** Open an http(s) URL in the default browser — never throws. */
+    openExternal: (url: string) => Promise<{ ok: boolean; reason?: string }>
   }
 }
 

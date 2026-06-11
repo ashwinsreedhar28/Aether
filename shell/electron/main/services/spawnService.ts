@@ -547,6 +547,18 @@ export class SpawnService extends EventEmitter {
         // session name (run-4 matrix; see resolveLanePaneId).
         setStep('resolve pane')
         const paneId = await this.resolveLanePaneId(session)
+        // Mouse mode, this session only (#324): without it tmux translates
+        // wheel events into arrow keys (the alternate-screen convention), so
+        // scrolling walked command history instead of the buffer. mouse is a
+        // session option — targeting the pane sets it on the owning session
+        // and ONLY that session; no -g, the user's global tmux options stay
+        // untouched. Pane-typed target per the run-4 rule: set-option takes
+        // a target-pane (tmux ≥3.0), and `-t =lane-N` fails exactly the way
+        // send-keys did (probed on 3.6b: `no such session: =lane-N`).
+        setStep('tmux set mouse')
+        await execFileAsync(this.requireTmuxBin(), ['set-option', '-t', paneId, 'mouse', 'on'], {
+          timeout: TERMINAL_TIMEOUT_MS,
+        })
         setStep('tmux send-keys')
         await execFileAsync(this.requireTmuxBin(), laneSendKeysArgs(paneId), {
           timeout: TERMINAL_TIMEOUT_MS,
@@ -1214,7 +1226,8 @@ export class SpawnService extends EventEmitter {
   // =-target, and send-keys against the bare name or the %pane_id both exit
   // 0 — '=' exact-match is parsed per command and is session-typed only.
   // Rule going forward, rather than litigating =-semantics per command:
-  // pane-target commands (send-keys, display -p) address #{pane_id}; '='
+  // pane-target commands (send-keys, display -p, set-option — the last
+  // probed on 3.6b for #324, same verbatim failure) address #{pane_id}; '='
   // stays only on session-typed targets (has-session, attach, kill-session);
   // pipes are forbidden only across a server boot (new-session — see
   // runTmux).

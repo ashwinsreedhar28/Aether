@@ -83,13 +83,16 @@ Denies: `github_no_token`, `github_bad_capability_key`, `github_bad_<field>`,
 ## `list_issues` — the open board
 
 Params: `{ labels?: string, limit?: number }` — `labels` is GitHub's
-comma-separated filter (issues must carry **all** listed labels; the panel's
-gap-only chip passes `gap`), `limit` defaults 50, max 100. Always open issues,
-newest-first, PRs filtered out.
+comma-separated filter (issues must carry **all** listed labels; the node's
+affordance — Lane B's panel filters client-side over one stream by Architect
+ruling), `limit` defaults 50, max 100. Always open issues, newest-first, PRs
+filtered out.
 
 Returns `{ issues, fetched_at_ms, stale, token_available }` where each issue is
 `{ number, title, labels, state, created_at, updated_at, comments, url, author }`
-(`created_at` ISO 8601 → age; `comments` → the +1 signal; `url` → click-through).
+(`labels` is a plain `string[]` of label **names** — GitHub's REST label
+objects are flattened; `created_at` ISO 8601 → age; `comments` → the +1
+signal; `url` → click-through).
 
 Caching: serve-from-cache for 30s per `(labels, limit)` pair — pollers hit the
 cache, not GitHub (worst case ~120 reads/hr vs the 5000/hr PAT budget). When

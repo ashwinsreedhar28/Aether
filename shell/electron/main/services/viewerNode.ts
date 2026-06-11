@@ -158,6 +158,7 @@ export interface ViewerNode {
     focus_window: (env: Envelope) => Promise<Record<string, unknown>>
     apply_layout: (env: Envelope) => Promise<Record<string, unknown>>
     notify: (env: Envelope) => Promise<void>
+    show_lane_card: (env: Envelope) => Promise<Record<string, unknown>>
   }
   /**
    * The SEND half of view_event: the human touched view `viewId`, so emit a
@@ -450,6 +451,28 @@ export function createViewerNode(deps: ViewerNodeDeps): ViewerNode {
     return { ok: true, preset }
   }
 
+  // Raise the SpawnApproval card for lane N (#305) — the surface behind
+  // raven's show_lane_card voice tool. The renderer resolves N to a spawn
+  // record (issue number / branch, the same matcher as the clickable Lanes
+  // rows) and opens its card. A no-record miss comes back as a structured
+  // ok:false (open_app's pattern) so the agent can SAY "no record for lane N"
+  // instead of reporting the viewer as broken.
+  async function showLaneCard(env: Envelope): Promise<Record<string, unknown>> {
+    const number = (env.payload as { number?: unknown }).number
+    if (typeof number !== 'number' || !Number.isInteger(number) || number < 1) {
+      throw new MeshDeny('viewer_bad_payload', { have: { number } })
+    }
+    const result = (await dispatch('show-lane-card', { number })) as {
+      ok?: boolean
+      status?: string
+      error?: string
+    } | null
+    if (!result || result.ok !== true) {
+      return { ok: false, number, error: result?.error ?? 'card raise failed' }
+    }
+    return { ok: true, number, status: result.status }
+  }
+
   // Discovery half of open_app: reflect the renderer's app registry so an agent
   // can see WHICH apps exist (ids + names + icons) before opening one.
   async function listApps(_env: Envelope): Promise<Record<string, unknown>> {
@@ -528,6 +551,7 @@ export function createViewerNode(deps: ViewerNodeDeps): ViewerNode {
     n.on('focus_window', focusWindow)
     n.on('apply_layout', applyLayout)
     n.on('notify', notifyHandler)
+    n.on('show_lane_card', showLaneCard)
     await n.start()
     node = n
     return n
@@ -555,6 +579,7 @@ export function createViewerNode(deps: ViewerNodeDeps): ViewerNode {
       focus_window: focusWindow,
       apply_layout: applyLayout,
       notify: notifyHandler,
+      show_lane_card: showLaneCard,
     },
     emitViewEvent,
     emitViewEventForWindow,

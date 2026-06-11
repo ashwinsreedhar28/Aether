@@ -217,6 +217,11 @@ export function SpawnApproval(): React.ReactElement | null {
   // the cleanup card for it. Session-local on purpose: a long-closed spawn must
   // not re-haunt the window on every boot (reopen it from the strip instead).
   const [justClosedId, setJustClosedId] = useState<string | null>(null)
+  // The id whose complete() was refused with code 'live-session' (#305): the
+  // record's tmux session is still alive. The footer swaps MARK COMPLETE for an
+  // explicit COMPLETE ANYWAY while the warning shows — never a silent terminal
+  // write on a live record (the lane-232 incident).
+  const [liveWarnId, setLiveWarnId] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
   const openedId = useSpawnUi((s) => s.openedId)
@@ -244,13 +249,17 @@ export function SpawnApproval(): React.ReactElement | null {
     [],
   )
 
-  const onComplete = useCallback(async (id: string) => {
+  const onComplete = useCallback(async (id: string, force = false) => {
     setActionError(null)
-    const res = await window.aether.spawn.complete(id)
+    const res = await window.aether.spawn.complete(id, force)
     if (!res.ok) {
+      // Live-session refusal (#305): arm the COMPLETE ANYWAY affordance and
+      // show the warning; the next press carries force.
+      if (res.code === 'live-session') setLiveWarnId(id)
       setActionError(res.error ?? 'action failed')
       return
     }
+    setLiveWarnId(null)
     // Surface the teardown block for the spawn we just closed.
     setJustClosedId(id)
   }, [])
@@ -338,6 +347,7 @@ export function SpawnApproval(): React.ReactElement | null {
   if (minimizedKey === cardKey) return null
   const onMinimize = (): void => {
     setActionError(null)
+    setLiveWarnId(null)
     setCopied(false)
     minimize(cardKey)
   }
@@ -392,7 +402,7 @@ export function SpawnApproval(): React.ReactElement | null {
     const blockedReason =
       snap.running !== null
         ? 'A spawn recipe is already running — approve again when it finishes.'
-        : `Approving ${batch.length} lane(s) would exceed the cap (${snap.liveCount} live, max ${snap.maxLanes}). Mark a spawn complete first.`
+        : `Approving ${batch.length} lane(s) would exceed the cap (${snap.liveCount} live, max ${snap.maxLanes}). Mark a spawn complete first (open its card from the Spawns strip or its Lanes row).`
     return (
       <Frame heading={batch.length > 1 ? `LANE SPAWN REQUEST — ${batch.length} LANES` : 'SPAWN REQUEST'} onMinimize={onMinimize}>
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
@@ -433,9 +443,11 @@ export function SpawnApproval(): React.ReactElement | null {
           className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t"
           style={{ borderColor: 'var(--holo-border)' }}
         >
-          {wouldExceed && active && (
-            <Btn label="MARK COMPLETE" onClick={() => void onComplete(active.id)} />
-          )}
+          {/* State-gated actions (#305 addendum): a requested card carries
+              Approve + Dismiss ONLY. The old over-cap MARK COMPLETE shortcut
+              acted on a DIFFERENT (live) record from the requested card — the
+              lane-232 hazard class — so it is absent, not disabled; the
+              blocked line names where the real action lives. */}
           <Btn
             label={batch.length > 1 ? 'DISMISS ALL' : 'DISMISS'}
             variant="danger"
@@ -491,11 +503,23 @@ export function SpawnApproval(): React.ReactElement | null {
               onClick={() => void onReattach(displayOrphan.session)}
             />
           )}
-          <Btn
-            label="MARK COMPLETE"
-            variant={displayOrphan ? 'ghost' : 'accent'}
-            onClick={() => void onComplete(display.id)}
-          />
+          {liveWarnId === display.id ? (
+            // The live-session refusal is showing (#305): the same action,
+            // re-offered deliberately. Force-close frees the capacity slot;
+            // the session survives until the cleanup block's kill-session.
+            <Btn
+              label="COMPLETE ANYWAY"
+              variant="danger"
+              title="The tmux session stays alive — the cleanup block on the next card kills it"
+              onClick={() => void onComplete(display.id, true)}
+            />
+          ) : (
+            <Btn
+              label="MARK COMPLETE"
+              variant={displayOrphan ? 'ghost' : 'accent'}
+              onClick={() => void onComplete(display.id)}
+            />
+          )}
         </div>
       </Frame>
     )

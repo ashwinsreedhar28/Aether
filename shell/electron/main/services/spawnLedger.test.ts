@@ -223,6 +223,18 @@ test('cleanupBlock encodes the §13.12 teardown order with recorded paths', () =
   assert.match(block, /aether-timers/)
   assert.match(block, /git branch -D 'feat\/timers'/)
   assert.match(block, /git submodule update --init --recursive/)
+  // No tmux session recorded → no kill-session line.
+  assert.ok(!block.includes('tmux'))
+})
+
+test('cleanupBlock leads with kill-session for a recorded tmux session (#305)', () => {
+  const block = cleanupBlock('/Users/x/aether', '/Users/x/aether-lane-232', 'lane/issue-232', 'lane-232')
+  // Closing the record never stops the session (the #305 audit), so the
+  // teardown must — before the worktree the session sits in is removed.
+  // '=' pins exact-name matching; `|| true` tolerates an already-dead session.
+  const killAt = block.indexOf("tmux kill-session -t '=lane-232' || true")
+  const removeAt = block.indexOf('worktree remove')
+  assert.ok(killAt !== -1 && removeAt !== -1 && killAt < removeAt)
 })
 
 // ---- RAG bootstrap outcome folds onto the spawned event ---------------------

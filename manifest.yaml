@@ -486,6 +486,10 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/viewer_desktop/schemas/notify.json
+      - name: show_lane_card
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/show_lane_card.json
 
 
 relationships:
@@ -513,6 +517,12 @@ relationships:
     to: viewer_desktop.apply_layout
   - from: raven
     to: viewer_desktop.notify
+  # Spawn-card summon (#305): "show me lane 219's card" → raven's
+  # show_lane_card tool → this surface → the renderer raises that record's
+  # SpawnApproval card. Its own edge per the every-consumer/surface-pair
+  # law (#136).
+  - from: raven
+    to: viewer_desktop.show_lane_card
   # The shell itself (renderer apps / a headless round-trip) can open apps too.
   - from: shell
     to: viewer_desktop.open_app

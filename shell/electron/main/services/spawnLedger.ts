@@ -174,12 +174,22 @@ export function targetsForLane(
 // teardown gotcha: submodule `deinit` must run BEFORE `worktree remove`, and
 // because deinit is global across worktrees sharing one .git, main's submodules
 // are restored at the end. No auto-run in v1.1 — the Director copies and runs it.
-export function cleanupBlock(repoRoot: string, worktree: string, branch: string): string {
+// A lane's recorded tmux session is killed FIRST (#305 dismiss-semantics audit:
+// closing the record never stops the session, so the teardown must) — '=' pins
+// exact-name matching, and `|| true` keeps an already-dead session from
+// aborting the block.
+export function cleanupBlock(
+  repoRoot: string,
+  worktree: string,
+  branch: string,
+  tmuxSession?: string,
+): string {
   return [
     '# Tear down the spawned worktree — run from the main checkout.',
     '# deinit is global across worktrees sharing this .git, so the last line',
     "# restores main's submodules (CLAUDE.md §13.12 teardown).",
     `cd ${shq(repoRoot)}`,
+    ...(tmuxSession ? [`tmux kill-session -t ${shq('=' + tmuxSession)} || true`] : []),
     `rm -f ${shq(join(worktree, '.lane-kickoff.md'))}`,
     `git -C ${shq(worktree)} submodule deinit -f --all`,
     `git worktree remove --force ${shq(worktree)}`,

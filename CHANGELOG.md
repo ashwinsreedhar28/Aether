@@ -83,6 +83,15 @@ historical record.
   API, whose VAD interrupts generation. Config knobs `barge_in_enabled` /
   `barge_in_factor` / `barge_in_min_rms` in `~/.raven/config.json`.
 - `scripts/lane-done.sh` post-merge ritual script; §7-lite micro-lane tier banked in CLAUDE.md.
+- Any lane's spawn card is summonable (#305): Lanes rows with a matching spawn
+  record are clickable (raises that record's card; issue/branch matching via the
+  shared `matchSpawnRecord`), and the new `show_lane_card` voice tool →
+  `viewer_desktop.show_lane_card` surface (own raven edge per #136) does the
+  same by voice. Dismiss-semantics audit (#304 cross-ref): `complete()` now
+  refuses a record whose tmux session is still alive unless forced — the card
+  warns explicitly and re-offers COMPLETE ANYWAY; the cleanup block leads with
+  `tmux kill-session` for lanes; card actions are state-gated (the requested
+  card's cross-record MARK COMPLETE shortcut is gone — Approve + Dismiss only).
 
 ### Fixed
 - Voice open-app resolves display names and survives id drift (#243, residue

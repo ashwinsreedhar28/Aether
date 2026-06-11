@@ -1,0 +1,14 @@
+# architect-draft composer runtime deps (Rung 1.5, #312).
+#
+# Three pins, version-parity with their home daemons — keep them in lockstep:
+#   - fastembed + sqlite-vec: compose_spec imports the aether-rag spike's
+#     rag_lib for corpus retrieval (the same primitive search_corpus wraps);
+#     pins mirror daemons/aether-rag/requirements.txt.
+#   - google-genai: the draft-model call; pin mirrors
+#     daemons/raven-core/requirements.txt.
+#
+# Everything else compose_spec touches is stdlib (urllib for the GitHub REST
+# contract — deliberately not `gh`, per the #256 PAT-in-env pre-decision).
+fastembed==0.8.0
+sqlite-vec==0.1.9
+google-genai==2.2.0

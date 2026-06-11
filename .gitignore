@@ -22,6 +22,10 @@ daemons/aether-rag/.venv/
 daemons/aether-rag/.rag/
 daemons/aether-rag/**/__pycache__/
 
+# architect-draft composer: venv (see its README for setup)
+daemons/architect-draft/.venv/
+daemons/architect-draft/**/__pycache__/
+
 # Runtime / data — per CLAUDE.md §4, `data/` is gitignored
 data/
 *.db

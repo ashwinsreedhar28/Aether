@@ -114,6 +114,11 @@ def _committed_count() -> int:
             obj = json.loads(line)
         except ValueError:
             continue
+        if obj.get("kind") == "relay":
+            # Relay lines (#310 lane_proceed) share the ledger but hold no
+            # lane capacity — a pending "clean, proceed" must not eat an
+            # approve slot. Every relay line carries kind: "relay".
+            continue
         rec_id = obj.get("id")
         status = obj.get("status")
         if isinstance(rec_id, str) and isinstance(status, str):

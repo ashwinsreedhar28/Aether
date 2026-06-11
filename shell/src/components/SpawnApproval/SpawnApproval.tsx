@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { OrphanLane, SpawnSnapshot, SpawnView } from '../../types/aether'
 import { useSpawnUi } from '../../stores/spawnUi'
+import { foldGateComments, type LaneGateState } from '../../utils/laneGate'
 
 // The spawn actor's window — a global modal raised by the shell's SpawnService
 // when a spawn request lands in the ledger (raven's request_spawn tool wrote it
@@ -205,6 +206,230 @@ function OrphanStrip({ orphans }: { orphans: OrphanLane[] }): React.ReactElement
         </div>
       )}
     </div>
+  )
+}
+
+// ---- the spawned card (#310: gate-aware) -------------------------------------
+
+// Pull-based gate state for a spawned lane (#310): ONE github.get_issue read
+// when the card opens, plus the explicit REFRESH — no background poller in v1
+// by spec. The issue thread is the machine-readable lane channel; the fold
+// matches the fixed comment prefixes the kickoff dictates and only counts
+// comments newer than this record's spawned event.
+function useLaneGate(
+  issue: number | null,
+  spawnedAtIso: string,
+): {
+  gate: LaneGateState | null
+  checking: boolean
+  gateError: string | null
+  refresh: () => void
+} {
+  const [gate, setGate] = useState<LaneGateState | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [gateError, setGateError] = useState<string | null>(null)
+  const check = useCallback(async () => {
+    if (issue == null) return
+    setChecking(true)
+    setGateError(null)
+    try {
+      const res = await window.aether.mesh.invoke('github.get_issue', { number: issue })
+      if (res.ok && res.envelope) {
+        const payload = res.envelope.payload as { comments?: unknown }
+        setGate(foldGateComments(payload.comments, spawnedAtIso))
+      } else {
+        setGateError(res.error?.message ?? 'gate check unavailable')
+      }
+    } catch (e) {
+      setGateError(e instanceof Error ? e.message : 'gate check unavailable')
+    } finally {
+      setChecking(false)
+    }
+  }, [issue, spawnedAtIso])
+  useEffect(() => {
+    void check()
+  }, [check])
+  return { gate, checking, gateError, refresh: () => void check() }
+}
+
+// The SPAWN ACTIVE card, gate-aware for lane records (#310): a GATE REPORT
+// comment on the issue thread newer than the spawn renders LANE AT GATE with
+// the report inline and a PROCEED button (the "clean, proceed" relay — the
+// same ledger path the lane_proceed voice tool writes); a PR OPENED comment
+// upgrades the state and links the PR. Draft spawns render exactly as before.
+// Mounted with key={display.id} so gate/relay state never leaks across records.
+function ActiveCard({
+  display,
+  snap,
+  displayOrphan,
+  otherOrphans,
+  liveWarn,
+  actionError,
+  onComplete,
+  onReattach,
+  onMinimize,
+}: {
+  display: SpawnView
+  snap: SpawnSnapshot
+  displayOrphan: OrphanLane | null
+  otherOrphans: OrphanLane[]
+  liveWarn: boolean
+  actionError: string | null
+  onComplete: (id: string, force?: boolean) => void
+  onReattach: (session: string) => void
+  onMinimize: () => void
+}): React.ReactElement {
+  // Gate state applies to lane records only — a draft spawn has no issue
+  // thread to fold.
+  const issue = display.kind === 'lane' ? (display.issue ?? null) : null
+  const { gate, checking, gateError, refresh } = useLaneGate(issue, display.ts)
+  const phase: 'working' | 'at-gate' | 'pr-opened' = gate?.pr
+    ? 'pr-opened'
+    : gate?.report
+      ? 'at-gate'
+      : 'working'
+  const prUrl = gate?.pr?.url ?? null
+
+  // PROCEED outcome, local to this card; the ledger keeps the audit trail
+  // (the RELAY row reads it back from the snapshot).
+  const [proceeding, setProceeding] = useState(false)
+  const [proceedError, setProceedError] = useState<string | null>(null)
+  const onProceed = async (): Promise<void> => {
+    if (issue == null) return
+    setProceeding(true)
+    setProceedError(null)
+    const res = await window.aether.spawn.proceed(issue)
+    setProceeding(false)
+    if (!res.ok) setProceedError(res.error ?? 'relay failed')
+  }
+
+  // The lane's newest relay (snapshot arrives newest-first) — makes a voice
+  // "proceed lane N" observable on the card, success or failure.
+  const lastRelay = issue != null ? (snap.relays.find((r) => r.issue === issue) ?? null) : null
+
+  const heading =
+    phase === 'pr-opened' ? 'LANE PR OPENED' : phase === 'at-gate' ? 'LANE AT GATE' : 'SPAWN ACTIVE'
+
+  return (
+    <Frame heading={heading} onMinimize={onMinimize}>
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
+        <Row label="LANE" value={laneLabel(display)} />
+        <Row label="BRANCH" value={display.branch ?? display.targetBranch} />
+        <Row label="WORKTREE" value={display.worktree ?? display.targetWorktree} />
+        {display.tmuxSession && <Row label="TMUX" value={display.tmuxSession} />}
+        <Row label="RAG" value={ragLabel(display)} />
+        <Row label="CAPACITY" value={`${snap.liveCount} of ${snap.maxLanes} lanes live`} />
+        {issue != null && (
+          <Row
+            label="GATE"
+            value={
+              checking
+                ? 'checking the issue thread…'
+                : phase === 'pr-opened'
+                  ? (gate?.pr?.body.split('\n')[0]?.trim() ?? 'PR opened')
+                  : phase === 'at-gate'
+                    ? 'AT GATE — report below; PROCEED relays "clean, proceed"'
+                    : gateError
+                      ? `check failed — ${gateError}`
+                      : 'working — no gate report on the issue thread yet'
+            }
+          />
+        )}
+        {lastRelay && (
+          <Row
+            label="RELAY"
+            value={
+              lastRelay.status === 'relayed'
+                ? `"${lastRelay.text}" relayed ✓`
+                : lastRelay.status === 'failed'
+                  ? `relay failed — ${lastRelay.error ?? 'no detail'}`
+                  : `"${lastRelay.text}" pending…`
+            }
+          />
+        )}
+        {gate?.report && (
+          <div className="pt-2">
+            <div className="text-[10px] tracking-[0.2em] mb-1.5" style={{ color: 'var(--holo-muted)' }}>
+              GATE REPORT — posted to the issue thread
+            </div>
+            <pre
+              className="text-[11px] font-mono whitespace-pre-wrap break-words rounded p-3 max-h-[34vh] overflow-y-auto"
+              style={{ color: 'var(--holo-text)', background: 'var(--holo-bg)', border: '1px solid var(--holo-border)' }}
+            >
+              {gate.report}
+            </pre>
+          </div>
+        )}
+        <div className="text-[11px] font-mono pt-1" style={{ color: 'var(--holo-muted)' }}>
+          {display.tmuxSession
+            ? displayOrphan
+              ? `The Claude Code session is alive inside tmux (${display.tmuxSession}) but NO terminal window is attached — the relaunch case. Reattach to bring it back into a terminal window, or kill it: tmux kill-session -t ${display.tmuxSession}. Mark complete when the lane is done to free its capacity slot.`
+              : `A Claude Code session is running inside tmux (${display.tmuxSession}) with a terminal window attached. Quitting Aether does NOT stop it — the lane survives detached and offers a reattach on the next boot. To kill it: tmux kill-session -t ${display.tmuxSession}. Mark complete when the lane is done to free its capacity slot.`
+            : display.kind === 'lane'
+              ? 'A Claude Code session is running in a plain terminal pane (tmux is not installed) — quitting Aether KILLS this lane. Mark complete when the session is done.'
+              : 'A Claude Code session is running in its own Terminal window. Closing that window stops the agent (the kill switch). Mark complete when the session is done. You can also minimize this window and reopen it from the Spawns strip.'}
+        </div>
+        {(actionError || proceedError) && (
+          <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
+            {actionError ?? proceedError}
+          </div>
+        )}
+        <OrphanStrip orphans={otherOrphans} />
+      </div>
+      <div
+        className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t"
+        style={{ borderColor: 'var(--holo-border)' }}
+      >
+        {issue != null && (
+          <Btn
+            label={checking ? 'CHECKING…' : 'REFRESH'}
+            disabled={checking}
+            title="Re-read the issue thread for a gate report / PR link"
+            onClick={refresh}
+          />
+        )}
+        {prUrl && (
+          <Btn
+            label="OPEN PR"
+            variant="accent"
+            onClick={() => void window.aether.shell.openExternal(prUrl)}
+          />
+        )}
+        {phase === 'at-gate' && (
+          <Btn
+            label={proceeding ? 'RELAYING…' : 'PROCEED'}
+            variant="accent"
+            disabled={proceeding}
+            title={`Types "clean, proceed" into the lane's pane — it will open its PR`}
+            onClick={() => void onProceed()}
+          />
+        )}
+        {displayOrphan && (
+          <Btn
+            label="REATTACH"
+            variant="accent"
+            onClick={() => onReattach(displayOrphan.session)}
+          />
+        )}
+        {liveWarn ? (
+          // The live-session refusal is showing (#305): the same action,
+          // re-offered deliberately. Force-close frees the capacity slot;
+          // the session survives until the cleanup block's kill-session.
+          <Btn
+            label="COMPLETE ANYWAY"
+            variant="danger"
+            title="The tmux session stays alive — the cleanup block on the next card kills it"
+            onClick={() => onComplete(display.id, true)}
+          />
+        ) : (
+          <Btn
+            label="MARK COMPLETE"
+            variant={displayOrphan || phase === 'at-gate' ? 'ghost' : 'accent'}
+            onClick={() => onComplete(display.id)}
+          />
+        )}
+      </div>
+    </Frame>
   )
 }
 
@@ -465,63 +690,23 @@ export function SpawnApproval(): React.ReactElement | null {
     )
   }
 
-  // ---- SPAWN ACTIVE (live worktree) ----
+  // ---- SPAWN ACTIVE (live worktree; lane records are gate-aware, #310) ----
   if (display.status === 'spawned') {
     return (
-      <Frame heading="SPAWN ACTIVE" onMinimize={onMinimize}>
-        <div className="px-5 py-5 space-y-3">
-          <Row label="LANE" value={laneLabel(display)} />
-          <Row label="BRANCH" value={display.branch ?? display.targetBranch} />
-          <Row label="WORKTREE" value={display.worktree ?? display.targetWorktree} />
-          {display.tmuxSession && <Row label="TMUX" value={display.tmuxSession} />}
-          <Row label="RAG" value={ragLabel(display)} />
-          <Row label="CAPACITY" value={`${snap.liveCount} of ${snap.maxLanes} lanes live`} />
-          <div className="text-[11px] font-mono pt-1" style={{ color: 'var(--holo-muted)' }}>
-            {display.tmuxSession
-              ? displayOrphan
-                ? `The Claude Code session is alive inside tmux (${display.tmuxSession}) but NO terminal window is attached — the relaunch case. Reattach to bring it back into a terminal window, or kill it: tmux kill-session -t ${display.tmuxSession}. Mark complete when the lane is done to free its capacity slot.`
-                : `A Claude Code session is running inside tmux (${display.tmuxSession}) with a terminal window attached. Quitting Aether does NOT stop it — the lane survives detached and offers a reattach on the next boot. To kill it: tmux kill-session -t ${display.tmuxSession}. Mark complete when the lane is done to free its capacity slot.`
-              : display.kind === 'lane'
-                ? 'A Claude Code session is running in a plain terminal pane (tmux is not installed) — quitting Aether KILLS this lane. Mark complete when the session is done.'
-                : 'A Claude Code session is running in its own Terminal window. Closing that window stops the agent (the kill switch). Mark complete when the session is done. You can also minimize this window and reopen it from the Spawns strip.'}
-          </div>
-          {actionError && (
-            <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
-              {actionError}
-            </div>
-          )}
-          <OrphanStrip orphans={otherOrphans} />
-        </div>
-        <div
-          className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t"
-          style={{ borderColor: 'var(--holo-border)' }}
-        >
-          {displayOrphan && (
-            <Btn
-              label="REATTACH"
-              variant="accent"
-              onClick={() => void onReattach(displayOrphan.session)}
-            />
-          )}
-          {liveWarnId === display.id ? (
-            // The live-session refusal is showing (#305): the same action,
-            // re-offered deliberately. Force-close frees the capacity slot;
-            // the session survives until the cleanup block's kill-session.
-            <Btn
-              label="COMPLETE ANYWAY"
-              variant="danger"
-              title="The tmux session stays alive — the cleanup block on the next card kills it"
-              onClick={() => void onComplete(display.id, true)}
-            />
-          ) : (
-            <Btn
-              label="MARK COMPLETE"
-              variant={displayOrphan ? 'ghost' : 'accent'}
-              onClick={() => void onComplete(display.id)}
-            />
-          )}
-        </div>
-      </Frame>
+      <ActiveCard
+        // Keyed per record: gate + relay state must never leak across spawns
+        // sharing the mounted component position.
+        key={display.id}
+        display={display}
+        snap={snap}
+        displayOrphan={displayOrphan}
+        otherOrphans={otherOrphans}
+        liveWarn={liveWarnId === display.id}
+        actionError={actionError}
+        onComplete={(id, force) => void onComplete(id, force)}
+        onReattach={(session) => void onReattach(session)}
+        onMinimize={onMinimize}
+      />
     )
   }
 

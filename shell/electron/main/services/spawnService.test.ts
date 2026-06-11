@@ -11,7 +11,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -20,9 +20,10 @@ import {
   laneSendKeysArgs,
   laneKickoff,
   parsePaneId,
+  relaySendKeysArgs,
   withTimeout,
 } from './spawnService.ts'
-import { SpawnLedger } from './spawnLedger.ts'
+import { SpawnLedger, RELAY_TEXT } from './spawnLedger.ts'
 
 // ---- kickoff delivery is file-based: the send-keys argv is FIXED ------------
 
@@ -133,6 +134,126 @@ test('dismiss refuses a spawned record outright (#305 audit: blocked, not non-te
     assert.equal(res.ok, false)
     assert.match(res.error ?? '', /cannot dismiss a spawned spawn/)
     assert.equal(ledger.find(id)?.status, 'spawned')
+  } finally {
+    cleanup()
+  }
+})
+
+// ---- gate relays (#310): fixed text, named refusals, no auto-proceed ---------
+
+test('relaySendKeysArgs varies the pane id and nothing else — the text is the allowlist literal', () => {
+  assert.deepEqual(relaySendKeysArgs('%4'), ['send-keys', '-t', '%4', 'clean, proceed', 'Enter'])
+  // The argv has no text parameter to vary: the literal IS the v1 scope fence.
+  assert.equal(relaySendKeysArgs('%9')[3], RELAY_TEXT)
+})
+
+test('laneKickoff dictates the machine-readable lane channel (#310 prefixes)', () => {
+  const k = laneKickoff(310)
+  // Prefix literals kept in sync with shell/src/utils/laneGate.ts (its own
+  // test pins the same strings on the fold side).
+  assert.ok(k.includes('"GATE REPORT — "'))
+  assert.ok(k.includes('PR OPENED — '))
+  assert.ok(k.includes('gh issue comment 310'))
+  assert.ok(k.includes('Closes #310'))
+})
+
+// A service over a ledger holding one live lane record (issue 232, tmux
+// session recorded), tmux fully stubbed: requireTmuxBin resolves to
+// /usr/bin/true, so the send-keys exec really runs — and exits 0 — without a
+// tmux server anywhere near the test.
+function liveLaneFixture(): {
+  svc: SpawnService
+  ledger: SpawnLedger
+  cleanup: () => void
+} {
+  const dir = mkdtempSync(join(tmpdir(), 'spawn-relay-'))
+  const ledgerPath = join(dir, 'spawns', 'requests.jsonl')
+  const ledger = new SpawnLedger(ledgerPath)
+  appendFileSync(
+    ledgerPath,
+    JSON.stringify({
+      id: 'lane-rec',
+      ts: '2026-06-11T00:00:00.000Z',
+      kind: 'lane',
+      batch_id: 'b1',
+      issue: 232,
+      issue_title: 'demo lane',
+      branch: 'lane/issue-232',
+      worktree: '~/aether-lane-232',
+      status: 'requested',
+    }) + '\n',
+  )
+  ledger.markSpawned('lane-rec', join(dir, 'wt'), 'lane/issue-232', undefined, 'lane-232')
+  const svc = new SpawnService({ repoRoot: dir, ledgerPath })
+  const open = svc as unknown as {
+    tmuxOk: boolean
+    tmuxHasSession: (session: string) => Promise<boolean>
+    resolveLanePaneId: (session: string) => Promise<string>
+    requireTmuxBin: () => string
+  }
+  open.tmuxOk = true
+  open.tmuxHasSession = async () => true
+  open.resolveLanePaneId = async () => '%7'
+  open.requireTmuxBin = () => '/usr/bin/true'
+  return { svc, ledger, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
+test('proceed relays to a live lane and records the relayed outcome', async () => {
+  const { svc, ledger, cleanup } = liveLaneFixture()
+  try {
+    const res = await svc.proceed(232)
+    assert.equal(res.ok, true)
+    const relay = ledger.listRelays()[0]
+    assert.equal(relay?.issue, 232)
+    assert.equal(relay?.text, RELAY_TEXT)
+    assert.equal(relay?.status, 'relayed')
+    // The relay never touched the spawn record.
+    assert.equal(ledger.find('lane-rec')?.status, 'spawned')
+  } finally {
+    cleanup()
+  }
+})
+
+test('proceed with no live lane fails by name and the failure is on the ledger', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'spawn-relay-'))
+  try {
+    const ledgerPath = join(dir, 'spawns', 'requests.jsonl')
+    const svc = new SpawnService({ repoRoot: dir, ledgerPath })
+    const res = await svc.proceed(999)
+    assert.equal(res.ok, false)
+    assert.match(res.error ?? '', /no live \(spawned\) lane record for issue #999/)
+    const relay = new SpawnLedger(ledgerPath).listRelays()[0]
+    assert.equal(relay?.status, 'failed')
+    assert.match(relay?.error ?? '', /no live/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('executeRelay refuses non-allowlisted text — a hand-edited ledger line cannot type into a pane', async () => {
+  const { svc, ledger, cleanup } = liveLaneFixture()
+  try {
+    const rogue = ledger.requestRelay(232, 'rm -rf / # not the literal')
+    const res = await (
+      svc as unknown as { executeRelay: (id: string) => Promise<{ ok: boolean; error?: string }> }
+    ).executeRelay(rogue.id)
+    assert.equal(res.ok, false)
+    assert.match(res.error ?? '', /not allowlisted/)
+    assert.equal(ledger.findRelay(rogue.id)?.status, 'failed')
+  } finally {
+    cleanup()
+  }
+})
+
+test('armRelays fails boot-pending relays instead of sending them (no auto-proceed)', () => {
+  const { svc, ledger, cleanup } = liveLaneFixture()
+  try {
+    ledger.requestRelay(232)
+    ;(svc as unknown as { armRelays: () => void }).armRelays()
+    assert.equal(ledger.pendingRelays().length, 0)
+    const relay = ledger.listRelays()[0]
+    assert.equal(relay?.status, 'failed')
+    assert.match(relay?.error ?? '', /never auto-sent/)
   } finally {
     cleanup()
   }

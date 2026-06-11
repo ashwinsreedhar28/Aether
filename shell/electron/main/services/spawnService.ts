@@ -17,7 +17,9 @@ import {
   cleanupBlock,
   pythonCandidates,
   pickFirstCapable,
+  RELAY_TEXT,
   type SpawnRecord,
+  type RelayRecord,
   // .ts extension so `node --test` can load this module (same rule as the
   // test files; tsconfig sets allowImportingTsExtensions).
 } from './spawnLedger.ts'
@@ -85,6 +87,9 @@ export interface SpawnSnapshot {
   // kills them) and the card shows the `brew install tmux` remedy.
   tmuxAvailable: boolean
   orphans: OrphanLane[]
+  // Folded relay records (#310), newest first — the card shows a lane's last
+  // relay outcome (relayed/failed) so a voice "proceed lane N" is observable.
+  relays: RelayRecord[]
 }
 
 export interface SpawnServiceConfig {
@@ -143,6 +148,14 @@ export class SpawnService extends EventEmitter {
   // lane-* sessions alive in tmux that no terminal window of THIS app lifetime
   // is attached to. Seeded at boot; sessions drop out on spawn/reattach.
   private orphans: OrphanLane[] = []
+  // Relay ids being executed RIGHT NOW (#310) — the in-process guard between
+  // a request line landing and its outcome line: the watcher fires on our own
+  // appends, so without this a card PROCEED would race the drain into a
+  // double send-keys.
+  private readonly relayInFlight = new Set<string>()
+  // Relays execute only after the boot sweep has settled crash leftovers —
+  // see armRelays(). Until then the drain is a no-op.
+  private relaysArmed = false
 
   constructor(cfg: SpawnServiceConfig) {
     super()
@@ -171,7 +184,10 @@ export class SpawnService extends EventEmitter {
       console.error('[spawnService] watch failed:', err)
     }
     this.broadcast()
-    void this.probeTmux().then(() => this.broadcast())
+    void this.probeTmux().then(() => {
+      this.armRelays()
+      this.broadcast()
+    })
   }
 
   stop(): void {
@@ -196,6 +212,7 @@ export class SpawnService extends EventEmitter {
       maxLanes: this.maxLanes,
       tmuxAvailable: this.tmuxOk,
       orphans: [...this.orphans],
+      relays: this.ledger.listRelays(),
     }
   }
 
@@ -605,6 +622,101 @@ export class SpawnService extends EventEmitter {
     return { ok: true }
   }
 
+  // ---- gate relays (#310) ------------------------------------------------------
+
+  /** The card's PROCEED path: record a relay request for `issue` and execute
+   * it immediately. Same ledger line the voice tool writes — one path, one
+   * audit trail — but the card gets the outcome back on the return. */
+  async proceed(issue: number): Promise<{ ok: boolean; error?: string }> {
+    if (!Number.isInteger(issue) || issue < 1) {
+      return { ok: false, error: 'bad issue number' }
+    }
+    const rec = this.ledger.requestRelay(issue)
+    return this.executeRelay(rec.id)
+  }
+
+  // The boot sweep: a relay still 'requested' at startup is a crash leftover
+  // (raven runs under the shell, so nothing appends while we're down). Fail
+  // it by name instead of typing into a pane minutes after the words were
+  // spoken — relays execute only when their request lands while the service
+  // is live. Anything else would be auto-proceed, which #310 rules out.
+  private armRelays(): void {
+    for (const relay of this.ledger.pendingRelays()) {
+      if (this.relayInFlight.has(relay.id)) continue
+      this.ledger.markRelayFailed(
+        relay.id,
+        'found pending at shell boot — never auto-sent; say it again or press PROCEED',
+      )
+    }
+    this.relaysArmed = true
+  }
+
+  // Drain pending relays FIFO — invoked from the ledger watcher, so a request
+  // appended by the voice tool executes within the debounce window. Serial on
+  // purpose: relays are human-paced one-liners.
+  private async drainRelays(): Promise<void> {
+    if (!this.relaysArmed) return
+    for (const relay of this.ledger.pendingRelays()) {
+      if (this.relayInFlight.has(relay.id)) continue
+      await this.executeRelay(relay.id)
+    }
+  }
+
+  // Execute one recorded relay: enforce the v1 allowlist, resolve the newest
+  // LIVE lane record for the issue, and type the fixed line into its pane via
+  // the same pane-id machinery the kickoff uses. Every exit writes an outcome
+  // line — relayed or failed-with-reason — so the card (and the issue's
+  // operator) can always see what happened to a spoken "proceed".
+  private async executeRelay(id: string): Promise<{ ok: boolean; error?: string }> {
+    const relay = this.ledger.findRelay(id)
+    if (!relay || relay.status !== 'requested') {
+      return { ok: false, error: 'unknown or already-settled relay' }
+    }
+    if (this.relayInFlight.has(id)) {
+      return { ok: false, error: 'relay already in flight' }
+    }
+    this.relayInFlight.add(id)
+    const fail = (error: string): { ok: false; error: string } => {
+      this.ledger.markRelayFailed(id, error)
+      this.broadcast()
+      return { ok: false, error }
+    }
+    try {
+      // THE ALLOWLIST (#310): the ledger is plain JSONL — a hand-edited line
+      // must not be able to type arbitrary text into a live implementer
+      // session. Enforced here, on the side that owns the pane.
+      if (relay.text !== RELAY_TEXT) {
+        return fail(`relay text not allowlisted — v1 relays only the literal "${RELAY_TEXT}"`)
+      }
+      const lane = this.ledger
+        .list()
+        .find((r) => r.kind === 'lane' && r.issue === relay.issue && r.status === 'spawned')
+      if (!lane) return fail(`no live (spawned) lane record for issue #${relay.issue}`)
+      if (!lane.tmuxSession) {
+        return fail(
+          `lane #${relay.issue} runs on the pty fallback (no tmux session) — type into its terminal window directly`,
+        )
+      }
+      if (!this.tmuxOk) return fail('tmux is not available — cannot reach the lane pane')
+      if (!(await this.tmuxHasSession(lane.tmuxSession))) {
+        return fail(`tmux session ${lane.tmuxSession} is not alive — the lane may be done or torn down`)
+      }
+      const paneId = await this.resolveLanePaneId(lane.tmuxSession)
+      await execFileAsync(this.requireTmuxBin(), relaySendKeysArgs(paneId), {
+        timeout: TERMINAL_TIMEOUT_MS,
+      })
+      this.ledger.markRelayed(id)
+      this.broadcast()
+      console.log(`[spawnService] relayed "${RELAY_TEXT}" to lane #${relay.issue} (${lane.tmuxSession})`)
+      return { ok: true }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return fail(msg.slice(0, 1000))
+    } finally {
+      this.relayInFlight.delete(id)
+    }
+  }
+
   // ---- tmux ------------------------------------------------------------------
 
   // Resolve the tmux BINARY once through the login shell (Homebrew shellenv
@@ -887,6 +999,10 @@ export class SpawnService extends EventEmitter {
     if (this.debounce) return
     this.debounce = setTimeout(() => {
       this.debounce = null
+      // The watcher is also the relay trigger (#310): a request line appended
+      // by the voice tool executes here, off the broadcast tick. Off the
+      // return — the snapshot push must not wait on tmux.
+      void this.drainRelays()
       this.broadcast()
     }, WATCH_DEBOUNCE_MS)
   }
@@ -899,7 +1015,11 @@ export class SpawnService extends EventEmitter {
 // The canonical lane kickoff (#268 pre-decision 3) — the first prompt the
 // spawned implementer receives. One template, shell-side only: the issue is
 // the contract (first action reads it), so the kickoff stays issue-agnostic
-// boilerplate plus the number. Exported for the card preview and tests.
+// boilerplate plus the number. Rung 2.5 (#310): the gate report and the PR
+// link are POSTED TO THE ISSUE THREAD with fixed prefixes — the thread is the
+// machine-readable lane channel the card's AT GATE / PR OPENED states fold
+// (prefix literals kept in sync with shell/src/utils/laneGate.ts; both sides
+// pin them in tests). Exported for the card preview and tests.
 export function laneKickoff(issue: number): string {
   return (
     `You are the Implementer for Aether issue #${issue}. ` +
@@ -907,8 +1027,11 @@ export function laneKickoff(issue: number): string {
     `(body plus any ADDENDUM comments) is the contract; do not start from a spec-less issue. ` +
     `CLAUDE.md §7/§11/§13 discipline. RECON before building: read the files the spec names ` +
     `before writing anything. Stop and report options on anything the spec doesn't cover. ` +
-    `When done: run the verify suite and report the gate; open the PR only on "clean, proceed," ` +
-    `with the full §7 self-review body, ending Closes #${issue}.`
+    `When done: run the verify suite, then post the FULL gate report as a comment on issue ` +
+    `#${issue}, prefixed exactly "GATE REPORT — " (gh issue comment ${issue} --body-file <file>), ` +
+    `and stop at the gate. Open the PR only on "clean, proceed," with the full §7 self-review ` +
+    `body, ending Closes #${issue}; the moment the PR is open, comment ` +
+    `"PR OPENED — #<pr-number> <pr-url>" on issue #${issue}.`
   )
 }
 
@@ -927,6 +1050,15 @@ export const LANE_CLAUDE_CMD = 'claude --dangerously-skip-permissions "$(cat .la
 // content must never appear here — unit-tested. Exported for tests.
 export function laneSendKeysArgs(paneId: string): string[] {
   return ['send-keys', '-t', paneId, LANE_CLAUDE_CMD, 'Enter']
+}
+
+// The exact send-keys argv for a gate relay (#310) — same no-quoting law as
+// laneSendKeysArgs: handed straight to the tmux binary, the pane id is the
+// ONLY varying element, and the typed line is the RELAY_TEXT allowlist
+// literal. This function taking no text parameter IS the v1 scope fence —
+// arbitrary relay text has no code path to the pane. Exported for tests.
+export function relaySendKeysArgs(paneId: string): string[] {
+  return ['send-keys', '-t', paneId, RELAY_TEXT, 'Enter']
 }
 
 // First line of `list-panes -F '#{pane_id}'` output, validated against the

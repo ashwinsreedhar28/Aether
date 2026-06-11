@@ -53,20 +53,32 @@ jobs:
             section must reference §11 explicitly (it's the prompt the heuristics
             check is for).
 
-            **2. CHANGELOG.md updated.** Verify the PR adds at least one line under
-            `[Unreleased]` in CHANGELOG.md. If the PR is docs-only and the docs in
-            question are CHANGELOG.md itself, that counts. If the PR changes source
-            code, configs, or non-CHANGELOG docs without a CHANGELOG entry, flag it.
-            Pre-1.0 versioning per CLAUDE.md §6 — do not enforce semver here.
+            **2. Changelog fragment present (#222).** Lanes never edit CHANGELOG.md;
+            each lane adds ONE fragment at `changelog/unreleased/<issue>-<slug>.md`
+            whose body is a `### Added|Changed|Fixed|Removed` heading plus the entry
+            bullet (format: changelog/README.md). Verify the PR adds at least one
+            such fragment. Flag (a) a PR that changes source, configs, or docs with
+            no fragment, and (b) any hand-edit to CHANGELOG.md's `[Unreleased]`
+            body, which is a generated stub. Exempt from (b): a release/roll PR —
+            recognizable because it deletes fragments and adds a `## [x.y.z]`
+            section via scripts/roll-changelog.mjs. Pre-1.0 versioning per
+            CLAUDE.md §6 — do not enforce semver here.
 
-            **3. DECISIONS.md ADR format.** If the PR adds an entry to DECISIONS.md,
-            verify the entry has all six required fields, in this order:
-            `**Status:**`, `**Decided by:**`, `**Context:**`, `**Decision:**`,
-            `**Consequences:**`, `**Alternatives considered:**`. A missing field or
-            an out-of-order field is a ⚠. If the PR does not touch DECISIONS.md,
-            mark this ⊘. Do not enforce on entries that already existed on `main`
-            (DECISIONS.md is append-only — historical entries are policy-preserved
-            verbatim, even if their shape diverges from the now-required template).
+            **3. ADR file format (#222).** ADRs live one per file at
+            `decisions/<date>-<slug>.md`, opening with `## [YYYY-MM-DD] <Title>`.
+            If the PR adds an ADR file, verify it has all six required fields, in
+            this order: `**Status:**`, `**Decided by:**`, `**Context:**`,
+            `**Decision:**`, `**Consequences:**`, `**Alternatives considered:**`.
+            A missing or out-of-order field is a ⚠, as is an ADR added anywhere
+            other than decisions/ (e.g. appended to DECISIONS.md). An edit to an
+            EXISTING decisions/ file is a ⚠ unless it only flips `Status:` to
+            `superseded by [link]` (the one permitted edit). DECISIONS.md is a
+            generated index: flag any change to it that is not accompanied by a
+            decisions/ change (regenerated via scripts/gen-decisions-index.mjs —
+            CI checks staleness, you check provenance). Migrated pre-#222 files
+            are policy-preserved verbatim — do not enforce field shape on files
+            that already existed on `main`. If the PR touches neither decisions/
+            nor DECISIONS.md, mark this ⊘.
 
             **4. Cross-doc consistency (CLAUDE.md §11.9).** When the PR's diff
             includes a literal phrase, version number ("Current state (v0.x.0)"),

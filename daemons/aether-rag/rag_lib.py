@@ -47,6 +47,8 @@ CORPUS_GLOBS: tuple[str, ...] = (
     "README.md",
     "nodes/*/README.md",
     "manifest.yaml",
+    "changelog/unreleased/*.md",
+    "decisions/*.md",
 )
 
 

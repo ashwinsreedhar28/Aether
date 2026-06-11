@@ -123,10 +123,12 @@ and a one-line criteria summary.
 ## §8 — Decision Records & Changelog: the templates
 
 `CLAUDE.md` §8 keeps the binding rules (the six required ADR fields in order, the
-append-only rule, the Keep-a-Changelog per-PR rule). The illustrative template
+append-only rule, the fragment/ADR-file law from #222: lanes never edit
+CHANGELOG.md or DECISIONS.md — both are generated). The illustrative template
 blocks, verbatim:
 
-**DECISIONS.md ADR entry:**
+**ADR file (`decisions/<date>-<slug>.md` — one decision per file; regenerate the
+DECISIONS.md index with `node scripts/gen-decisions-index.mjs` in the same PR):**
 
 ```markdown
 ## [YYYY-MM-DD] <Title>
@@ -139,21 +141,15 @@ blocks, verbatim:
 **Alternatives considered:** <what else was on the table and why we rejected each>
 ```
 
-**CHANGELOG.md entry:**
+**Changelog fragment (`changelog/unreleased/<issue>-<slug>.md` — one per lane;
+sections `Added` / `Changed` / `Fixed` / `Removed`; full format in
+`changelog/README.md`; a release lane folds fragments with
+`node scripts/roll-changelog.mjs --version X.Y.Z`):**
 
 ```markdown
-## [Unreleased]
 ### Added
-- Electron shell skeleton with holographic theme.
-
-### Changed
-- ...
-
-### Fixed
-- ...
-
-### Removed
-- ...
+- Electron shell skeleton with holographic theme (#NNN): continuation lines
+  indented two spaces.
 ```
 
 ---

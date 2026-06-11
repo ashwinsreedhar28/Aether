@@ -22,6 +22,7 @@ import {
   parsePaneId,
   withTimeout,
 } from './spawnService.ts'
+import { SpawnLedger } from './spawnLedger.ts'
 
 // ---- kickoff delivery is file-based: the send-keys argv is FIXED ------------
 
@@ -68,6 +69,73 @@ test('withTimeout resolves null when the promise never settles', async () => {
 test('withTimeout passes through a settled value and a rejection', async () => {
   assert.equal(await withTimeout(Promise.resolve('ok'), 1000), 'ok')
   await assert.rejects(withTimeout(Promise.reject(new Error('boom')), 1000), /boom/)
+})
+
+// ---- terminal writes on live-session records (#305 dismiss-semantics audit) -
+
+// A service over a ledger holding one spawned record with a recorded tmux
+// session, with the probe stubbed to report it alive/dead — no tmux, no
+// Electron (the same private-access cast the dispatch test uses).
+function spawnedServiceFixture(sessionAlive: boolean): {
+  svc: SpawnService
+  id: string
+  ledger: SpawnLedger
+  cleanup: () => void
+} {
+  const dir = mkdtempSync(join(tmpdir(), 'spawn-service-'))
+  const ledgerPath = join(dir, 'spawns', 'requests.jsonl')
+  const ledger = new SpawnLedger(ledgerPath)
+  const rec = ledger.request('demo', join(dir, 'demo.md'))
+  ledger.markSpawned(rec.id, join(dir, 'wt'), 'lane/issue-232', undefined, 'lane-232')
+  const svc = new SpawnService({ repoRoot: dir, ledgerPath })
+  const open = svc as unknown as {
+    tmuxOk: boolean
+    tmuxHasSession: (session: string) => Promise<boolean>
+  }
+  open.tmuxOk = true
+  open.tmuxHasSession = async () => sessionAlive
+  return { svc, id: rec.id, ledger, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
+test('complete refuses a live-session record without force — never a silent terminal write', async () => {
+  const { svc, id, ledger, cleanup } = spawnedServiceFixture(true)
+  try {
+    const res = await svc.complete(id)
+    assert.equal(res.ok, false)
+    assert.equal(res.code, 'live-session')
+    // The refusal wrote nothing: the record still holds its capacity slot.
+    assert.equal(ledger.find(id)?.status, 'spawned')
+    assert.equal(ledger.liveCount(), 1)
+    // The same action, forced, is the deliberate path the card's warning offers.
+    const forced = await svc.complete(id, true)
+    assert.equal(forced.ok, true)
+    assert.equal(ledger.find(id)?.status, 'closed')
+  } finally {
+    cleanup()
+  }
+})
+
+test('complete closes a dead-session record without ceremony', async () => {
+  const { svc, id, ledger, cleanup } = spawnedServiceFixture(false)
+  try {
+    const res = await svc.complete(id)
+    assert.equal(res.ok, true)
+    assert.equal(ledger.find(id)?.status, 'closed')
+  } finally {
+    cleanup()
+  }
+})
+
+test('dismiss refuses a spawned record outright (#305 audit: blocked, not non-terminal)', async () => {
+  const { svc, id, ledger, cleanup } = spawnedServiceFixture(true)
+  try {
+    const res = svc.dismiss(id)
+    assert.equal(res.ok, false)
+    assert.match(res.error ?? '', /cannot dismiss a spawned spawn/)
+    assert.equal(ledger.find(id)?.status, 'spawned')
+  } finally {
+    cleanup()
+  }
 })
 
 test('openLaneTerminal resolves false against a never-resolving dispatch', async () => {

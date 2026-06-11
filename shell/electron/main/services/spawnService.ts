@@ -308,16 +308,36 @@ export class SpawnService extends EventEmitter {
   }
 
   /** Mark a live spawn complete (appends 'closed'), releasing the concurrency
-   * gate. The Director calls this once the spawned session has finished. */
-  complete(id: string): { ok: boolean; error?: string } {
+   * gate. The Director calls this once the spawned session has finished.
+   *
+   * Dismiss-semantics audit (#305, field #304): a record whose tmux session is
+   * still alive is REFUSED without `force` — the lane-232 incident was a silent
+   * close on a live record, which discounted capacity and left the surviving
+   * session matching nothing at the next boot's orphan seed (the matcher's
+   * spawned-only filter is per contract). The refusal carries
+   * `code: 'live-session'` so the card can warn explicitly and re-offer the
+   * same action as a deliberate COMPLETE ANYWAY; the post-close cleanup block
+   * then leads with the `tmux kill-session` line. tmux-unprobeable states
+   * (binary missing, pty-fallback records with no session) close as before. */
+  async complete(id: string, force = false): Promise<{ ok: boolean; error?: string; code?: 'live-session' }> {
     const rec = this.ledger.find(id)
     if (!rec) return { ok: false, error: 'unknown spawn' }
-    if (rec.status === 'spawned') {
-      this.ledger.markClosed(id)
-      this.broadcast()
-      return { ok: true }
+    if (rec.status !== 'spawned') {
+      return { ok: false, error: `cannot mark complete a ${rec.status} spawn` }
     }
-    return { ok: false, error: `cannot mark complete a ${rec.status} spawn` }
+    if (!force && rec.tmuxSession && this.tmuxOk && (await this.tmuxHasSession(rec.tmuxSession))) {
+      return {
+        ok: false,
+        code: 'live-session',
+        error:
+          `${rec.tmuxSession} is still ALIVE in tmux — closing this record frees its capacity ` +
+          `slot and stops tracking the session, but does NOT stop it (the cleanup block on the ` +
+          `next card leads with tmux kill-session). Complete anyway, or finish the session first.`,
+      }
+    }
+    this.ledger.markClosed(id)
+    this.broadcast()
+    return { ok: true }
   }
 
   // ---- recipe ---------------------------------------------------------------
@@ -834,7 +854,9 @@ export class SpawnService extends EventEmitter {
       const targets = targetsForLane(r.issue ?? 0, r.laneBranch, r.laneWorktree)
       const view: SpawnView = { ...r, targetBranch: targets.branch, targetWorktree: targets.worktree }
       if (r.status === 'requested') view.preview = laneKickoff(r.issue ?? 0)
-      if (r.worktree && r.branch) view.cleanup = cleanupBlock(this.repoRoot, r.worktree, r.branch)
+      if (r.worktree && r.branch) {
+        view.cleanup = cleanupBlock(this.repoRoot, r.worktree, r.branch, r.tmuxSession)
+      }
       return view
     }
     // Read the draft only for the actionable request (where the card shows the
@@ -847,7 +869,9 @@ export class SpawnService extends EventEmitter {
     if (draftText !== null) view.preview = draftText
     // Cleanup block for a worktree we actually created (recorded branch +
     // worktree) — surfaced on the active card and the post-complete view.
-    if (r.worktree && r.branch) view.cleanup = cleanupBlock(this.repoRoot, r.worktree, r.branch)
+    if (r.worktree && r.branch) {
+      view.cleanup = cleanupBlock(this.repoRoot, r.worktree, r.branch, r.tmuxSession)
+    }
     return view
   }
 

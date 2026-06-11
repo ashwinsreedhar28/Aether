@@ -107,6 +107,9 @@ export interface SpawnSnapshot {
 export interface SpawnActionResult {
   ok: boolean
   error?: string
+  // 'live-session' (#305): complete() refused because the record's tmux
+  // session is still alive — re-call with force after an explicit warning.
+  code?: 'live-session'
 }
 
 type Unsub = () => void
@@ -137,7 +140,7 @@ export interface AetherBridge {
     list: () => Promise<SpawnSnapshot>
     approve: (id: string) => Promise<SpawnActionResult>
     dismiss: (id: string) => Promise<SpawnActionResult>
-    complete: (id: string) => Promise<SpawnActionResult>
+    complete: (id: string, force?: boolean) => Promise<SpawnActionResult>
     reattach: (session: string) => Promise<SpawnActionResult>
     onChanged: (cb: (snap: SpawnSnapshot) => void) => Unsub
   }

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "viewer_desktop.show_lane_card",
+  "title": "viewer_desktop.show_lane_card",
+  "description": "Raise the SpawnApproval card for a specific lane's spawn record (#305). Params: { number: integer (the lane's issue number, e.g. 219) }. The renderer matches the record by issue number / branch — the same matcher behind the clickable Lanes rows — and opens its card. Returns { ok, number, status } or { ok: false, number, error } when no record matches.",
+  "type": "object",
+  "required": ["number"],
+  "additionalProperties": true,
+  "properties": {
+    "number": { "type": "integer", "minimum": 1 }
+  }
+}

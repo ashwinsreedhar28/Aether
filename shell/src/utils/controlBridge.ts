@@ -5,6 +5,8 @@
  */
 
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { useSpawnUi } from '../stores/spawnUi';
+import { matchSpawnRecord } from './spawnMatch';
 import { getAppForFile, getApps } from '../apps';
 
 type ActionHandler = (params: Record<string, unknown>) => unknown | Promise<unknown>;
@@ -234,6 +236,23 @@ const handlers: Record<string, ActionHandler> = {
     }
     await window.electron.terminal.write(result.sessionId, command + '\n');
     return { ok: true, windowId: result.windowId, sessionId: result.sessionId };
+  },
+
+  // Spawn-card summon (#305): raise the SpawnApproval card for lane N — the
+  // voice path behind raven's show_lane_card tool. Resolves the record with
+  // the SAME matcher the clickable Lanes rows use (issue number / branch), so
+  // a click and "show me lane N's card" agree, then routes through
+  // useSpawnUi.open() exactly like a Spawns-strip click (clears any minimize).
+  'show-lane-card': async (params: Record<string, unknown>) => {
+    const raw = params.number;
+    const number =
+      typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 ? raw : null;
+    if (number == null) return { ok: false, error: 'bad lane number' };
+    const snap = await window.aether.spawn.list();
+    const rec = matchSpawnRecord(snap.spawns, { issue: number, branch: `lane/issue-${number}` });
+    if (!rec) return { ok: false, error: `no spawn record for lane ${number}` };
+    useSpawnUi.getState().open(rec.id);
+    return { ok: true, id: rec.id, issue: rec.issue ?? null, status: rec.status };
   },
 
   'apply-layout': (params: Record<string, unknown>) => {

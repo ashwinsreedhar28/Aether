@@ -157,6 +157,9 @@ export interface SpawnSnapshot {
 export interface SpawnActionResult {
   ok: boolean
   error?: string
+  // 'live-session' (#305): complete() refused because the record's tmux
+  // session is still alive — re-call with force after an explicit warning.
+  code?: 'live-session'
 }
 
 // ---- Files types ----------------------------------------------------------
@@ -262,7 +265,8 @@ const spawn = {
   list: (): Promise<SpawnSnapshot> => ipcRenderer.invoke('spawn:list'),
   approve: (id: string): Promise<SpawnActionResult> => ipcRenderer.invoke('spawn:approve', id),
   dismiss: (id: string): Promise<SpawnActionResult> => ipcRenderer.invoke('spawn:dismiss', id),
-  complete: (id: string): Promise<SpawnActionResult> => ipcRenderer.invoke('spawn:complete', id),
+  complete: (id: string, force?: boolean): Promise<SpawnActionResult> =>
+    ipcRenderer.invoke('spawn:complete', id, force === true),
   // Reattach an orphaned lane-* tmux session into a fresh terminal window.
   reattach: (session: string): Promise<SpawnActionResult> =>
     ipcRenderer.invoke('spawn:reattach', session),

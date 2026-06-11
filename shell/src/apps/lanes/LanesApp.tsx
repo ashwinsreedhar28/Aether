@@ -1,8 +1,19 @@
+import { useEffect, useState } from 'react';
 import { GitBranch, RefreshCw, Circle } from 'lucide-react';
 import { useMeshSurface } from '../../hooks/useMeshSurface';
+import { useSpawnUi } from '../../stores/spawnUi';
+import { matchSpawnRecord } from '../../utils/spawnMatch';
+import type { SpawnSnapshot } from '../../types/aether';
 
 // Re-homed Aether surface: dev lanes (nodes/lanes). Which git worktrees are
 // active vs idle — the surface Aether watches while it builds. Reads lanes.status.
+//
+// Rows with a matching spawn record are clickable (#305): a click raises that
+// record's SpawnApproval card (match by issue number / branch via
+// matchSpawnRecord — the same matcher the show-lane-card voice path uses), so
+// any lane's mark-complete / cleanup block is reachable even when another
+// card holds the candidate slot. Rows without a record (the main checkout,
+// hand-made worktrees) stay inert.
 
 // Live CC session signal (nodes/lanes/src/types.ts AgentInfo). null/undefined →
 // detection unavailable (lsof missing), distinct from { active: false } meaning
@@ -45,6 +56,22 @@ export function LanesApp() {
   const lanes = data?.lanes ?? [];
   const active = lanes.filter((l) => l.state === 'active').length;
 
+  // Spawn snapshot, for row → record matching. Same subscribe shape as
+  // SpawnApproval: seed from list(), then ride the 'changed' push.
+  const [spawnSnap, setSpawnSnap] = useState<SpawnSnapshot | null>(null);
+  const openCard = useSpawnUi((s) => s.open);
+  useEffect(() => {
+    let alive = true;
+    void window.aether.spawn.list().then((s) => {
+      if (alive) setSpawnSnap(s);
+    });
+    const unsub = window.aether.spawn.onChanged((s) => setSpawnSnap(s));
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, []);
+
   return (
     <div className="w-full h-full flex flex-col bg-[var(--holo-bg)] text-[var(--holo-text)]">
       <header className="flex items-center gap-3 px-4 py-3 border-b border-[var(--holo-border)]">
@@ -68,8 +95,17 @@ export function LanesApp() {
         {!loading && !error && lanes.length === 0 && (
           <p className="text-sm text-[var(--holo-muted)] px-1">No worktrees.</p>
         )}
-        {!loading && !error && lanes.map((l) => (
-          <div key={l.path} className="rounded-md border border-[var(--holo-border)] bg-[var(--holo-panel)]/40 px-3 py-2">
+        {!loading && !error && lanes.map((l) => {
+          const rec = spawnSnap ? matchSpawnRecord(spawnSnap.spawns, { branch: l.branch }) : null;
+          return (
+          <div
+            key={l.path}
+            onClick={rec ? () => openCard(rec.id) : undefined}
+            title={rec ? `Show spawn card — ${rec.issue != null ? `#${rec.issue} ` : ''}(${rec.status})` : undefined}
+            className={`rounded-md border border-[var(--holo-border)] bg-[var(--holo-panel)]/40 px-3 py-2${
+              rec ? ' cursor-pointer transition-colors hover:border-[var(--holo-accent)]' : ''
+            }`}
+          >
             <div className="flex items-center gap-2">
               <Circle
                 size={9}
@@ -97,7 +133,8 @@ export function LanesApp() {
               <p className="text-[10px] text-amber-400/80 mt-0.5 pl-4 font-mono">{l.dirty_count} uncommitted</p>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -627,7 +627,9 @@ spawnService.start()
 ipcMain.handle('spawn:list', () => spawnService.snapshot())
 ipcMain.handle('spawn:approve', (_e, id: unknown) => spawnService.approve(String(id)))
 ipcMain.handle('spawn:dismiss', (_e, id: unknown) => spawnService.dismiss(String(id)))
-ipcMain.handle('spawn:complete', (_e, id: unknown) => spawnService.complete(String(id)))
+ipcMain.handle('spawn:complete', (_e, id: unknown, force: unknown) =>
+  spawnService.complete(String(id), force === true),
+)
 ipcMain.handle('spawn:reattach', (_e, session: unknown) => spawnService.reattach(String(session)))
 
 app.whenReady().then(() => {

@@ -78,7 +78,9 @@ export function buildGapBody(fields: GapFields): string {
     `**Session:** ${fields.sessionId ?? '—'}`,
     `**Filed:** ${fields.filedAt.toISOString()}`,
     '',
-    '_A gap RECORD, not a contract — no implementer starts from this issue until it carries an ARCHITECT SPEC comment._',
+    // Lowercase "architect spec" on purpose: the raven-core spec guard
+    // matches the all-caps marker, and a gap body must never carry it.
+    '_A gap RECORD, not a contract — no implementer starts from this issue until an architect spec lands on it._',
     '',
     keyMarker(fields.key),
   ].join('\n')

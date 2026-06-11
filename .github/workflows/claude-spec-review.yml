@@ -59,8 +59,11 @@ jobs:
             session) does the substantive design review — do not re-architect,
             do not propose alternative implementations, do not score quality.
 
-            The PR number, title, body, and head SHA are in your context; the
-            allowed `gh` commands can re-fetch anything missing.
+            The PR number, title, and body are in your context; the allowed
+            `gh` commands can re-fetch anything missing. The head commit of
+            this PR is:
+
+            HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
             Procedure:
 
@@ -104,13 +107,17 @@ jobs:
 
             - All checks pass:
               `REVIEWER: APPROVE`
-              then one line: `Reviewed <head-sha> against issue #<N>.`
+              then one line, exactly: `Reviewed <HEAD_SHA> against issue
+              #<N>.` — where <HEAD_SHA> is the HEAD_SHA value given above,
+              verbatim. Never substitute a SHA sourced from an API payload
+              (e.g. the per-file blob SHAs in pulls/{n}/files are not
+              commit SHAs).
             - Any concern:
               `REVIEWER: CONCERNS —`
               then an itemized list, one line per concern, file-path-anchored
               where possible, each tagged with the failed check
               (FIX / OUT-OF-SCOPE / SMOKE / TITLE / §7-ACCURACY),
-              then the same `Reviewed <head-sha> ...` line.
+              then the same `Reviewed <HEAD_SHA> ...` line.
             - No spec:
               `REVIEWER: NO SPEC FOUND`
               plus one line naming what was missing (no Closes-reference, or

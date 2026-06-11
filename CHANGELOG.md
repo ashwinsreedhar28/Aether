@@ -10,6 +10,16 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Reviewer cell on the PR path (#311) — `.github/workflows/claude-spec-review.yml`,
+  a sibling to the mechanical auto-review: on PR open/synchronize it resolves the
+  Closes-issue, reads the ratified ARCHITECT SPEC (+ ADDENDUM comments), reviews
+  the diff against FIX/SMOKE/OUT-OF-SCOPE, verifies the PR title against the
+  issue, and checks §7 claims against diff reality. Exactly one verdict comment
+  per head SHA (sticky, superseded in place): `REVIEWER: APPROVE`,
+  `REVIEWER: CONCERNS —` itemized, or `REVIEWER: NO SPEC FOUND` (spec-less PRs
+  are never approved). Advisory by design — CLAUDE.md §1 now documents the merge
+  condition as CI green + REVIEWER: APPROVE + the Director's button; NOT a
+  required status check (that promotion is autonomy-ladder decision A2, untaken).
 - The v0.11.0 release cut (#297): CHANGELOG `[Unreleased]` rolled into
   `[0.11.0] - 2026-06-11` (lossless — heading change plus a headline note, per
   the #182 cut precedent), narrative release notes at

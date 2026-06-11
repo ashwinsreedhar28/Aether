@@ -1,0 +1,122 @@
+name: Claude Spec Review
+
+# Sibling to claude-auto-review.yml: that workflow does mechanical template
+# checks; this one is the REVIEWER cell — spec conformance. It resolves the
+# PR's Closes-issue, reads the ratified ARCHITECT SPEC (body + ADDENDUM
+# comments), and verdicts the diff against it: APPROVE / CONCERNS / NO SPEC
+# FOUND. Same trunk-branch set as ci.yml.
+#
+# The verdict is ADVISORY (CLAUDE.md §1 "Merge condition"): CI green +
+# REVIEWER: APPROVE + the Director's button. Do NOT register this workflow as
+# a required status check — promoting it is an autonomy-ladder decision (A2),
+# deliberately not taken here (issue #311).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, 'integration/**']
+
+# One review in flight per PR: a push mid-review cancels the stale run so an
+# outdated verdict can never finish late and overwrite the newer head SHA's.
+concurrency:
+  group: spec-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  spec-review:
+    # Trunk-repo branches only (ADR 2026-06-09 §9, the #204 fork-PR gap):
+    # on fork-originated PRs the action cannot obtain an OIDC token
+    # (ACTIONS_ID_TOKEN_REQUEST_URL unavailable) and 401s before doing any
+    # work. Collaborators push branches to this repo instead; skipping the
+    # job here turns a confusing red 401 into an explicit policy.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@beta
+        env:
+          # gh CLI auth for the allowed Bash commands below (issue/PR reads).
+          GH_TOKEN: ${{ github.token }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-sonnet-4-5-20250929
+          # One comment per PR, updated in place on every run — the "exactly
+          # one verdict comment per head SHA, superseding its prior comment"
+          # contract from issue #311.
+          use_sticky_comment: true
+          allowed_tools: "Bash(gh issue view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+          direct_prompt: |
+            You are the REVIEWER cell for this PR. You check SPEC CONFORMANCE,
+            nothing else. A sibling workflow (Claude Auto Review) does the
+            mechanical template checks — §7 headings present, CHANGELOG line,
+            ADR field order — do not repeat them. The Architect (a separate
+            session) does the substantive design review — do not re-architect,
+            do not propose alternative implementations, do not score quality.
+
+            The PR number, title, body, and head SHA are in your context; the
+            allowed `gh` commands can re-fetch anything missing.
+
+            Procedure:
+
+            **1. Resolve the spec.** Find the issue(s) the PR body closes
+            (`Closes #N` is the repo convention; accept Fixes/Resolves too).
+            Fetch each with `gh issue view <N> --comments`. The ratified spec
+            is the ARCHITECT SPEC block — in the issue body or a comment —
+            plus any ADDENDUM comments; later addenda supersede earlier text
+            where they conflict. If the PR references no issue, or no
+            referenced issue carries an ARCHITECT SPEC, post the NO SPEC FOUND
+            verdict (below) and stop. If multiple issues are referenced, the
+            union of their specs is the contract.
+
+            **2. Review the diff against the spec.** Get the diff with
+            `gh pr diff <number>`. Check:
+            - FIX: does the diff implement what the spec's FIX section
+              describes — and only that? Missing pieces and unrequested
+              extras are both concerns.
+            - OUT OF SCOPE: does the diff touch anything the spec lists as
+              out of scope? Any changed file with no plausible connection to
+              the FIX is a concern — name the file. Exception: governance
+              files the operating manual requires per-PR (a CHANGELOG.md
+              line; DECISIONS.md when a decision was made; CLAUDE.md /
+              docs/*.md when the spec directs it) are never out-of-scope.
+            - SMOKE: if the spec names smoke criteria, does the PR's
+              Verification section show they ran — or honestly say they were
+              skipped? Silent omission is a concern; an honest "skipped
+              because X" is the Architect's call, note it without flagging.
+
+            **3. Verify the PR title against the Closes-issue.** Same
+            type(scope), same substance as the issue title. Cosmetic
+            rewording is fine; a title describing different work is a concern.
+
+            **4. Check §7 claims against diff reality.** Does "What changed"
+            describe this diff? Are files and behaviors claimed in the body
+            actually in the diff, and is significant diff content reflected
+            in the body? Name any mismatch.
+
+            Your reply must END with exactly one verdict block, nothing after
+            it:
+
+            - All checks pass:
+              `REVIEWER: APPROVE`
+              then one line: `Reviewed <head-sha> against issue #<N>.`
+            - Any concern:
+              `REVIEWER: CONCERNS —`
+              then an itemized list, one line per concern, file-path-anchored
+              where possible, each tagged with the failed check
+              (FIX / OUT-OF-SCOPE / SMOKE / TITLE / §7-ACCURACY),
+              then the same `Reviewed <head-sha> ...` line.
+            - No spec:
+              `REVIEWER: NO SPEC FOUND`
+              plus one line naming what was missing (no Closes-reference, or
+              issue #N has no ARCHITECT SPEC). NEVER approve a spec-less PR.
+
+            Your verdict is advisory — the merge condition (CLAUDE.md §1) is
+            CI green + REVIEWER: APPROVE + the Director's button, and the
+            Director can overrule you. Keep the comment terse: the verdict
+            block, not an essay.

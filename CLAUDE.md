@@ -38,6 +38,8 @@ A four-party project. Internalize it — most of your behavior is shaped by wher
 
 **On tag-cutting.** Architect "cuts the tag" by writing the annotation message (the architectural work) but can't push from chat, so Director runs `git tag -a` + `git push origin <name>`, personally or by authorizing Implementer via paste — same delegation as the merge button.
 
+**Merge condition (reviewer cell).** Every PR to a trunk branch gets a spec-conformance verdict from the reviewer cell (`.github/workflows/claude-spec-review.yml`), which resolves the PR's Closes-issue, reads its ARCHITECT SPEC + ADDENDUM comments, and posts exactly one verdict comment per head SHA, superseding its prior one: `REVIEWER: APPROVE`, `REVIEWER: CONCERNS —` with an itemized list, or `REVIEWER: NO SPEC FOUND` (a spec-less PR is never approved). The merge condition is **CI green + `REVIEWER: APPROVE` on the current head SHA + the Director's button**. The verdict is advisory: it is deliberately NOT a required status check — promoting it to one is an autonomy-ladder decision (A2) that has not been taken — so a CONCERNS verdict informs the Director's button, it doesn't lock it.
+
 You never push to main. The review *conversation* lives on the PR; Director↔Architect chat is for direction-level decisions and visual-test feedback.
 
 **Gap issues are records, not contracts.** Issues labeled `gap` (raven files them through the github node, #255/#258) carry the moment a capability was missing — utterance, failure, session id — and NO spec. No Implementer starts from a gap issue until it carries an ARCHITECT SPEC comment.

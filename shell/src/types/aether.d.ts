@@ -91,11 +91,15 @@ export interface SpawnView {
   cleanup?: string
 }
 
-/** A lane-* tmux session alive with no terminal attached this app lifetime. */
+/** A lane-* tmux session alive with no terminal attached this app lifetime.
+ * recordId (#318) is present ⇔ the backing ledger record is live ('spawned'),
+ * so the orphan row can also complete it; terminal-record sessions never
+ * appear in the list. */
 export interface OrphanLane {
   session: string
   issue?: number
   worktree?: string
+  recordId?: string
 }
 
 /** A folded "clean, proceed" relay (#310) — voice or card PROCEED; the shell
@@ -183,6 +187,9 @@ export interface AetherBridge {
     dismiss: (id: string) => Promise<SpawnActionResult>
     complete: (id: string, force?: boolean) => Promise<SpawnActionResult>
     reattach: (session: string) => Promise<SpawnActionResult>
+    /** Re-probe tmux and refold the orphan list (#318) — pull-based
+     * freshness on Lanes open / card open / explicit refresh. */
+    refreshOrphans: () => Promise<SpawnSnapshot>
     proceed: (issue: number) => Promise<SpawnActionResult>
     closeLane: (issue: number, force?: boolean) => Promise<SpawnActionResult>
     onChanged: (cb: (snap: SpawnSnapshot) => void) => Unsub

@@ -631,6 +631,10 @@ ipcMain.handle('spawn:complete', (_e, id: unknown, force: unknown) =>
   spawnService.complete(String(id), force === true),
 )
 ipcMain.handle('spawn:reattach', (_e, session: unknown) => spawnService.reattach(String(session)))
+// Pull-based orphan freshness (#318): re-probe tmux and refold the orphan
+// list. Fired on Lanes open, card open, and explicit refresh — never a
+// background poller. Returns the fresh snapshot; broadcasts only on change.
+ipcMain.handle('spawn:refresh-orphans', () => spawnService.refreshOrphans())
 // The card's PROCEED button (#310): record + execute a "clean, proceed" relay
 // against the lane working `issue` — the same ledger path raven's
 // lane_proceed tool writes, so voice and card relays share one audit trail.

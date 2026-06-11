@@ -68,6 +68,10 @@ export interface OrphanLane {
   // hand-made lane-* session reattaches against the repo root instead).
   issue?: number
   worktree?: string
+  // The backing ledger record's id, present ⇔ that record is live ('spawned')
+  // — the card's orphan rows complete it in place (#318). Sessions whose
+  // newest matching record is terminal never appear here at all.
+  recordId?: string
 }
 
 export interface SpawnSnapshot {
@@ -153,8 +157,15 @@ export class SpawnService extends EventEmitter {
   // it DIRECTLY — never under a capturing shell (see runTmux).
   private tmuxBin: string | null = null
   // lane-* sessions alive in tmux that no terminal window of THIS app lifetime
-  // is attached to. Seeded at boot; sessions drop out on spawn/reattach.
+  // is attached to. A pull-refreshed CACHE, not a boot snapshot (#318): the
+  // boot probe seeds it, refreshOrphans() re-probes on demand (Lanes open,
+  // card open, explicit refresh — no background poller, the Rung 2.5
+  // philosophy), and entries drop when the session dies, the backing record
+  // goes terminal, or a reattach consumes them.
   private orphans: OrphanLane[] = []
+  // In-flight orphan re-probe (#318) — concurrent triggers (boot probe, a
+  // Lanes open racing a card summon) share one tmux ls instead of stacking.
+  private orphanRefresh: Promise<void> | null = null
   // Relay ids being executed RIGHT NOW (#310) — the in-process guard between
   // a request line landing and its outcome line: the watcher fires on our own
   // appends, so without this a card PROCEED would race the drain into a
@@ -375,6 +386,12 @@ export class SpawnService extends EventEmitter {
       }
     }
     this.ledger.markClosed(id)
+    // The record just went terminal, so its session no longer earns an orphan
+    // row (#318: terminal-record entries drop from every strip) — drop it
+    // synchronously rather than waiting for the next pull-based re-probe.
+    if (rec.tmuxSession) {
+      this.orphans = this.orphans.filter((o) => o.session !== rec.tmuxSession)
+    }
     this.broadcast()
     return { ok: true }
   }
@@ -551,8 +568,9 @@ export class SpawnService extends EventEmitter {
         throw new Error('terminal window could not be opened (and tmux is not installed)')
       }
       if (!opened && tmuxSession) {
-        // The lane is alive, just detached — surface it as a reattach offer.
-        this.orphans.push({ session, issue, worktree })
+        // The lane is alive, just detached — surface it as a reattach offer
+        // (recordId so the row can also complete it, #318).
+        this.orphans.push({ session, issue, worktree, recordId: rec.id })
       }
 
       this.ledger.markSpawned(rec.id, worktree, branch, rag, tmuxSession)
@@ -1081,35 +1099,112 @@ export class SpawnService extends EventEmitter {
       )
       return
     }
+    // Seed the cache through the same pull-based fold every later re-probe
+    // runs (#318: the boot seed is the first refresh, not a one-shot snapshot).
+    await this.refreshOrphans()
+    if (this.orphans.length > 0) {
+      console.log(
+        `[spawnService] ${this.orphans.length} orphaned lane session(s): ` +
+          this.orphans.map((o) => o.session).join(', '),
+      )
+    }
+  }
+
+  /** Pull-based orphan freshness (#318). Re-probe tmux for surviving lane-*
+   * sessions and refold against the ledger — entries whose session is dead or
+   * whose newest matching record is terminal drop from every strip. Broadcasts
+   * only when the list changed; returns the (now-fresh) snapshot so the
+   * renderer triggers (Lanes open, card open, explicit refresh) get truth on
+   * the return. No background poller by spec; concurrent calls share one probe. */
+  async refreshOrphans(): Promise<SpawnSnapshot> {
+    this.orphanRefresh ??= this.refoldOrphans().finally(() => {
+      this.orphanRefresh = null
+    })
+    await this.orphanRefresh
+    return this.snapshot()
+  }
+
+  // The probe + fold behind refreshOrphans. A failed enumeration KEEPS the
+  // cache — a flaky probe must not blank real reattach offers; "no server
+  // running" is an empty enumeration (zero sessions), not a failure.
+  private async refoldOrphans(): Promise<void> {
+    let sessions: string[] = []
+    if (this.tmuxOk) {
+      try {
+        sessions = await this.listDetachedLaneSessions()
+      } catch (err) {
+        console.warn('[spawnService] tmux session enumeration failed:', err)
+        return
+      }
+    }
+    const next = this.foldOrphans(sessions)
+    if (JSON.stringify(next) === JSON.stringify(this.orphans)) return
+    this.orphans = next
+    this.broadcast()
+  }
+
+  // Surviving DETACHED lane-* session names — attachment read from tmux
+  // itself (#{session_attached}), never from optimistic shell bookkeeping: a
+  // session reattached this lifetime (or spawned with its terminal still
+  // open) reports attached ≥ 1 and stays off the orphan list across
+  // re-probes. Throws on a real enumeration failure; "no server running"
+  // (tmux's healthy idle state) is just zero sessions.
+  private async listDetachedLaneSessions(): Promise<string[]> {
     try {
       // Direct client call — needs stdout, harmless pipes (the client exits;
       // see runTmux for why lifecycle calls can't do this).
       const { stdout } = await execFileAsync(
-        this.tmuxBin,
-        ['ls', '-F', '#{session_name}'],
+        this.requireTmuxBin(),
+        ['ls', '-F', '#{session_attached} #{session_name}'],
         { timeout: TERMINAL_TIMEOUT_MS },
       )
-      const sessions = stdout
-        .split('\n')
-        .map((s) => s.trim())
-        .filter((s) => /^lane-/.test(s))
-      if (sessions.length === 0) return
-      const bySession = new Map<string, SpawnRecord>()
-      for (const rec of this.ledger.list()) {
-        if (rec.status === 'spawned' && rec.tmuxSession) bySession.set(rec.tmuxSession, rec)
+      const out: string[] = []
+      for (const line of stdout.split('\n')) {
+        const m = /^(\d+) (lane-\S+)$/.exec(line.trim())
+        if (m && m[1] === '0' && m[2]) out.push(m[2])
       }
-      this.orphans = sessions.map((session) => {
-        const rec = bySession.get(session)
-        return { session, issue: rec?.issue, worktree: rec?.worktree }
-      })
-      console.log(`[spawnService] ${sessions.length} orphaned lane session(s): ${sessions.join(', ')}`)
+      return out
     } catch (err) {
       // No server running is the common, healthy case: tmux exits nonzero
       // with "no server running on …" (older builds: "error connecting to …").
       const stderr = (err as { stderr?: string }).stderr ?? ''
-      if (/no server running|error connecting/i.test(stderr)) return
-      console.warn('[spawnService] tmux session enumeration failed:', err)
+      if (/no server running|error connecting/i.test(stderr)) return []
+      throw err
     }
+  }
+
+  // Fold detached sessions against the ledger (#318). The newest record
+  // claiming a session wins (list() is newest-first; session names recur
+  // across a lane's retries): a live ('spawned') record → an actionable row
+  // carrying its id; a terminal record (closed/dismissed/failed) → the lane's
+  // lifecycle is over, NO row — its cleanup block owns the teardown; no
+  // record at all → a hand-made session, reattach-only row. The in-flight
+  // recipe's own session is skipped: between new-session and its terminal
+  // attaching it is detached-by-construction, not orphaned.
+  private foldOrphans(sessions: string[]): OrphanLane[] {
+    const running = this.running ? this.ledger.find(this.running) : undefined
+    const runningSession = running?.issue != null ? `lane-${running.issue}` : null
+    const bySession = new Map<string, SpawnRecord>()
+    for (const rec of this.ledger.list()) {
+      if (rec.tmuxSession && !bySession.has(rec.tmuxSession)) bySession.set(rec.tmuxSession, rec)
+    }
+    const out: OrphanLane[] = []
+    for (const session of sessions) {
+      if (session === runningSession) continue
+      const rec = bySession.get(session)
+      if (!rec) {
+        out.push({ session })
+      } else if (rec.status === 'spawned') {
+        out.push({ session, issue: rec.issue, worktree: rec.worktree, recordId: rec.id })
+      } else if (rec.status === 'teardown_failed') {
+        // Not terminal (#317: holds capacity, retryable) — a session alive
+        // past a failed kill-session step stays reattachable for post-mortem,
+        // but its closeout is the card's CLOSE OUT retry, never COMPLETE
+        // (complete() refuses non-'spawned' records), so no recordId.
+        out.push({ session, issue: rec.issue, worktree: rec.worktree })
+      }
+    }
+    return out
   }
 
   // Resolve the lane's pane to its immutable %pane_id, once, right after

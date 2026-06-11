@@ -66,6 +66,10 @@ export function LanesApp() {
       if (alive) setSpawnSnap(s);
     });
     const unsub = window.aether.spawn.onChanged((s) => setSpawnSnap(s));
+    // Lanes open is an orphan-freshness trigger (#318): re-probe tmux so
+    // reattach rows reflect sessions as they are NOW, not the boot cache.
+    // Fire-and-forget — a changed list lands via the broadcast above.
+    void window.aether.spawn.refreshOrphans();
     return () => {
       alive = false;
       unsub();
@@ -81,7 +85,11 @@ export function LanesApp() {
           {active} active · {lanes.length} total{data?.stale ? ' · stale' : ''}
         </span>
         <button
-          onClick={refetch}
+          onClick={() => {
+            refetch();
+            // Explicit refresh re-probes the orphan list too (#318).
+            void window.aether.spawn.refreshOrphans();
+          }}
           className="ml-auto text-[var(--holo-muted)] hover:text-[var(--holo-accent)] transition-colors"
           title="Refresh"
         >

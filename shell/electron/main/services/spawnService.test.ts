@@ -516,6 +516,119 @@ test('closeLane with no live lane fails by name and the failure is on the ledger
   }
 })
 
+// ---- pull-based orphan freshness (#318) --------------------------------------
+
+// A ledger holding three session-bearing histories — lane-1 live ('spawned'),
+// lane-2 force-closed (terminal), lane-3 teardown_failed (NOT terminal, #317)
+// — with the tmux enumeration stubbed to the given detached-session list: no
+// tmux server anywhere near the test.
+function orphanFixture(detached: string[]): {
+  svc: SpawnService
+  ledger: SpawnLedger
+  cleanup: () => void
+} {
+  const dir = mkdtempSync(join(tmpdir(), 'spawn-orphans-'))
+  const ledgerPath = join(dir, 'spawns', 'requests.jsonl')
+  const ledger = new SpawnLedger(ledgerPath)
+  const laneLine = (id: string, issue: number): string =>
+    JSON.stringify({
+      id,
+      ts: `2026-06-11T00:0${issue}:00.000Z`,
+      kind: 'lane',
+      batch_id: 'b1',
+      issue,
+      issue_title: 'demo',
+      branch: `lane/issue-${issue}`,
+      worktree: `~/aether-lane-${issue}`,
+      status: 'requested',
+    }) + '\n'
+  appendFileSync(ledgerPath, laneLine('rec-1', 1))
+  appendFileSync(ledgerPath, laneLine('rec-2', 2))
+  appendFileSync(ledgerPath, laneLine('rec-3', 3))
+  ledger.markSpawned('rec-1', join(dir, 'wt1'), 'lane/issue-1', undefined, 'lane-1')
+  ledger.markSpawned('rec-2', join(dir, 'wt2'), 'lane/issue-2', undefined, 'lane-2')
+  ledger.markSpawned('rec-3', join(dir, 'wt3'), 'lane/issue-3', undefined, 'lane-3')
+  ledger.markClosed('rec-2')
+  ledger.markRecordTeardownFailed('rec-3', 'tmux kill-session', 'kill refused')
+  const svc = new SpawnService({ repoRoot: dir, ledgerPath })
+  const open = svc as unknown as {
+    tmuxOk: boolean
+    tmuxHasSession: (session: string) => Promise<boolean>
+    listDetachedLaneSessions: () => Promise<string[]>
+  }
+  open.tmuxOk = true
+  open.tmuxHasSession = async () => true
+  open.listDetachedLaneSessions = async () => detached
+  return { svc, ledger, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
+test('refreshOrphans keeps live-record sessions (with recordId), drops terminal-record sessions, keeps hand-made ones', async () => {
+  const { svc, cleanup } = orphanFixture(['lane-1', 'lane-2', 'lane-3', 'lane-9'])
+  try {
+    const snap = await svc.refreshOrphans()
+    // lane-2's newest record is closed — its lifecycle is over, no row.
+    assert.deepEqual(
+      snap.orphans.map((o) => o.session),
+      ['lane-1', 'lane-3', 'lane-9'],
+    )
+    // The live row is actionable: it names the record the card can complete.
+    assert.equal(snap.orphans[0]?.recordId, 'rec-1')
+    assert.equal(snap.orphans[0]?.issue, 1)
+    // teardown_failed is NOT terminal (#317: retryable, holds capacity) — its
+    // surviving session stays reattachable, but closeout is the card's CLOSE
+    // OUT retry, never COMPLETE: no recordId.
+    assert.equal(snap.orphans[1]?.issue, 3)
+    assert.equal(snap.orphans[1]?.recordId, undefined)
+    // The hand-made session has no record to complete — reattach-only.
+    assert.equal(snap.orphans[2]?.recordId, undefined)
+  } finally {
+    cleanup()
+  }
+})
+
+test('refreshOrphans drops sessions that died since the last probe — no relaunch needed', async () => {
+  const { svc, cleanup } = orphanFixture(['lane-1'])
+  try {
+    const seeded = await svc.refreshOrphans()
+    assert.equal(seeded.orphans.length, 1)
+    // The session is killed in a terminal; the next pull sees it gone.
+    ;(svc as unknown as { listDetachedLaneSessions: () => Promise<string[]> }).listDetachedLaneSessions =
+      async () => []
+    const snap = await svc.refreshOrphans()
+    assert.deepEqual(snap.orphans, [])
+  } finally {
+    cleanup()
+  }
+})
+
+test('a failed enumeration keeps the cache — a flaky probe must not blank real reattach offers', async () => {
+  const { svc, cleanup } = orphanFixture(['lane-1'])
+  try {
+    await svc.refreshOrphans()
+    ;(svc as unknown as { listDetachedLaneSessions: () => Promise<string[]> }).listDetachedLaneSessions =
+      async () => {
+        throw new Error('tmux exploded')
+      }
+    const snap = await svc.refreshOrphans()
+    assert.equal(snap.orphans.length, 1)
+    assert.equal(snap.orphans[0]?.session, 'lane-1')
+  } finally {
+    cleanup()
+  }
+})
+
+test('a forced complete drops the record orphan row synchronously — no re-probe needed', async () => {
+  const { svc, cleanup } = orphanFixture(['lane-1'])
+  try {
+    await svc.refreshOrphans()
+    const res = await svc.complete('rec-1', true)
+    assert.equal(res.ok, true)
+    assert.deepEqual(svc.snapshot().orphans, [])
+  } finally {
+    cleanup()
+  }
+})
+
 test('openLaneTerminal resolves false against a never-resolving dispatch', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'spawn-service-'))
   try {

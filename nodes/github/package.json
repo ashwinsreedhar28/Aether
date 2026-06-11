@@ -1,0 +1,31 @@
+{
+  "name": "@aether/github",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Actor mesh node that files gaps as GitHub issues (create_issue dedups by capability key), serves the open issue board (list_issues), and comments on issues (comment_issue).",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node ./dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "node ./scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@aether/mesh-node-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.18.0",
+    "typescript": "~5.7.0",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}

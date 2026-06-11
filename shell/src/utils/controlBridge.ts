@@ -255,12 +255,22 @@ const handlers: Record<string, ActionHandler> = {
  */
 export function initControlBridge(): void {
   (window as unknown as Record<string, unknown>).__viewerControl = {
+    // Never reject (#300): a rejected promise crossing executeJavaScript can
+    // leave the main-process caller pending FOREVER — the spawn recipe hung
+    // exactly there on an unanswered open-lane-terminal. Every failure
+    // (unknown action included) resolves as a { __controlError } envelope;
+    // executeViewerControl re-throws it main-side, so callers still get a
+    // rejection, deterministically.
     execute: async (action: string, params: Record<string, unknown> = {}) => {
-      const handler = handlers[action];
-      if (!handler) {
-        throw new Error(`Unknown control action: ${action}`);
+      try {
+        const handler = handlers[action];
+        if (!handler) {
+          return { __controlError: `Unknown control action: ${action}` };
+        }
+        return await handler(params);
+      } catch (err) {
+        return { __controlError: err instanceof Error ? err.message : String(err) };
       }
-      return await handler(params);
     },
   };
 

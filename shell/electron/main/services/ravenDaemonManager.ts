@@ -23,6 +23,7 @@ import { app } from 'electron'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
+import { pickBinaryLine } from './shellCapture'
 import { EventEmitter } from 'node:events'
 import { WebSocket } from 'ws'
 import { getRavenMeshConfig, waitForMeshReady } from './mesh'
@@ -284,8 +285,10 @@ export class RavenDaemonManager extends EventEmitter {
       stdio: ['ignore', 'pipe', 'ignore'],
     })
     if (probe.status === 0 && probe.stdout) {
-      // rc files sometimes print banners — take the last non-empty line.
-      const resolved = probe.stdout.trim().split('\n').filter(Boolean).pop()
+      // rc files print banners and noise AROUND the path — last-non-empty-line
+      // loses to noise trailing the path, so extract the last absolute-path
+      // line instead (#302 defect 6; see shellCapture.ts).
+      const resolved = pickBinaryLine(probe.stdout)
       if (resolved && fs.existsSync(resolved)) {
         console.log(`[ravenDaemonManager] resolved ${name} → ${resolved} via ${userShell} -lic`)
         this.binCache.set(name, resolved)

@@ -23,7 +23,19 @@ export function executeViewerControl(
   if (!mainWindow || mainWindow.isDestroyed()) {
     return Promise.reject(new Error('No main window available'))
   }
-  return mainWindow.webContents.executeJavaScript(
-    `window.__viewerControl.execute(${JSON.stringify(action)}, ${JSON.stringify(params)})`,
-  ) as Promise<unknown>
+  // The bridge RESOLVES failures into a { __controlError } envelope instead of
+  // rejecting (#300): a rejected renderer promise is the one executeJavaScript
+  // shape whose transport is unreliable — it can leave this promise pending
+  // forever (the lane recipe hung exactly there, with neither spawned nor
+  // failed written). Unwrap the envelope back into a real rejection so every
+  // caller still sees errors as errors, deterministically.
+  return (
+    mainWindow.webContents.executeJavaScript(
+      `window.__viewerControl.execute(${JSON.stringify(action)}, ${JSON.stringify(params)})`,
+    ) as Promise<unknown>
+  ).then((res) => {
+    const ctrlErr = (res as { __controlError?: unknown } | null | undefined)?.__controlError
+    if (typeof ctrlErr === 'string') throw new Error(ctrlErr)
+    return res
+  })
 }

@@ -180,6 +180,7 @@ export function cleanupBlock(repoRoot: string, worktree: string, branch: string)
     '# deinit is global across worktrees sharing this .git, so the last line',
     "# restores main's submodules (CLAUDE.md §13.12 teardown).",
     `cd ${shq(repoRoot)}`,
+    `rm -f ${shq(join(worktree, '.lane-kickoff.md'))}`,
     `git -C ${shq(worktree)} submodule deinit -f --all`,
     `git worktree remove --force ${shq(worktree)}`,
     `git branch -D ${shq(branch)}`,

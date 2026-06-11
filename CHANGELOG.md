@@ -73,6 +73,37 @@ historical record.
 - `scripts/lane-done.sh` post-merge ritual script; §7-lite micro-lane tier banked in CLAUDE.md.
 
 ### Fixed
+- Lane spawns actually deliver their kickoff (#300): the kickoff prompt is
+  written to `.lane-kickoff.md` in the worktree and the pane runs a FIXED
+  `claude … "$(cat .lane-kickoff.md)"` line (only the session name is
+  interpolated — content no longer transits three quoting layers and arrives
+  empty), with a 5s pane-leaves-the-shell delivery oracle that fails the lane
+  by name instead of recording a ghost. `new-session` — the one call that
+  boots the tmux server — runs the login-shell-resolved binary via
+  `spawn(…, { stdio: 'ignore' })`, resolving on exit: under the capturing
+  `$SHELL -lic` wrapper, duplicate pipe descriptors leak into the daemonized
+  server and the promise waits forever on streams that never close (no per-fd
+  redirect covers it). Every other tmux call runs captured `execFileAsync`
+  against the binary, and pane-target commands (`send-keys`, the oracle's
+  `display -p`) address the resolved immutable `#{pane_id}` — `'='`
+  exact-match is session-typed only (`send-keys` refuses `=`-targets that
+  `display`/`list-panes` accept). The `open-lane-terminal` dispatch is
+  raced against the 30s terminal timeout (a silent renderer can no longer pin
+  the recipe with neither `spawned` nor `failed` written), and the control
+  bridge resolves every failure as a `{ __controlError }` envelope that
+  `executeViewerControl` re-throws main-side — a rejected promise never
+  crosses `executeJavaScript` again. A spawn request landing while a recipe
+  is busy now surfaces its card immediately (busy gates the Approve button,
+  never visibility), and orphan reattach is additive the same way: a spawned
+  card whose tmux session is orphaned gets an inline REATTACH beside MARK
+  COMPLETE, and every other orphan renders as compact reattach rows on
+  whatever card is showing (previously orphans rendered only when no card
+  was up at all). Teardown block gains the kickoff file. Binary paths read
+  from login-shell captures are extracted defensively (`pickBinaryLine` +
+  `existsSync`) — rc files print banners around the probe output (Apple
+  Terminal's restored-session banner poisoned `tmuxBin` in the field), and
+  the same hardening now covers the raven-daemon, node-registry, and mesh
+  python resolvers.
 - "Open the terminal" by voice now spawns a real PTY-backed terminal — the
   `open-app` control action routes `terminal` through `openTerminal()` (the
   manual launcher's path) instead of creating a dead window whose tab pointed

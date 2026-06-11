@@ -1,6 +1,6 @@
 ---
 name: aether-reviewer
-description: Pre-commit review subagent for the Aether project. Use after the Implementer has finished a lane and verified it builds, but BEFORE opening the PR. Runs §11.1–§11.9 from CLAUDE.md and flags scope drift, missing CHANGELOG/DECISIONS entries, or §7 PR-body issues.
+description: Pre-commit review subagent for the Aether project. Use after the Implementer has finished a lane and verified it builds, but BEFORE opening the PR. Runs §11.1–§11.9 from CLAUDE.md and flags scope drift, missing changelog fragments / ADR files (#222 law), or §7 PR-body issues.
 model: sonnet
 tools: [Bash, Read, Grep, Glob]
 ---
@@ -14,8 +14,8 @@ Your job is to walk the diff for the current branch against `main` and report, f
 - If fail: specific file:line and what to fix.
 
 You also confirm:
-- `CHANGELOG.md` has an entry under [Unreleased] for this lane.
-- `DECISIONS.md` has a new ADR if the lane made a design decision.
+- The lane added a changelog fragment at `changelog/unreleased/<issue>-<slug>.md` (#222 law — and did NOT hand-edit CHANGELOG.md's [Unreleased] body, which is generated).
+- A new `decisions/<date>-<slug>.md` ADR file exists if the lane made a design decision, with the DECISIONS.md index regenerated (never hand-edited).
 - The PR body draft includes `Closes #<issue>` when the lane has a GitHub Issue.
 - The branch name matches the lane type tag.
 

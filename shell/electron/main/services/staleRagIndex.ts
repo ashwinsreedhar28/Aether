@@ -30,7 +30,7 @@ import { join } from 'node:path'
 // is nonetheless enforced: staleRagIndex.test.ts parses CORPUS_GLOBS out of
 // rag_lib.py and asserts CORPUS_GLOB_MIRROR (below) matches it, so the *next*
 // CORPUS_GLOBS edit that isn't mirrored here fails a test rather than silently
-// blinding the boot heal. Fixed paths are listed verbatim; the two glob
+// blinding the boot heal. Fixed paths are listed verbatim; the glob
 // patterns are expanded by directory walks in newestCorpusMtimeMs.
 const CORPUS_FIXED_FILES = [
   'docs/governance-log.md',
@@ -45,11 +45,14 @@ const CORPUS_FIXED_FILES = [
   'manifest.yaml',
 ] as const
 
-// The two glob-pattern corpus entries (the * cases CORPUS_FIXED_FILES can't
+// The glob-pattern corpus entries (the * cases CORPUS_FIXED_FILES can't
 // hold). The directory walks in newestCorpusMtimeMs are these patterns'
 // expansion; they live here as strings so the mirror below is the full set.
 const CORPUS_RELEASES_GLOB = 'docs/releases/*.md'
 const CORPUS_NODE_READMES_GLOB = 'nodes/*/README.md'
+// #222: per-lane changelog fragments + one-ADR-per-file split.
+const CORPUS_CHANGELOG_FRAGMENTS_GLOB = 'changelog/unreleased/*.md'
+const CORPUS_DECISIONS_GLOB = 'decisions/*.md'
 
 // The complete glob set this guard mirrors from rag_lib.py CORPUS_GLOBS, order
 // irrelevant (rag_lib notes order is cosmetic). Exported solely for the sync
@@ -58,6 +61,8 @@ export const CORPUS_GLOB_MIRROR: readonly string[] = [
   ...CORPUS_FIXED_FILES,
   CORPUS_RELEASES_GLOB,
   CORPUS_NODE_READMES_GLOB,
+  CORPUS_CHANGELOG_FRAGMENTS_GLOB,
+  CORPUS_DECISIONS_GLOB,
 ]
 
 // Newest mtime (ms) across every existing corpus file under `repoRoot`. Returns
@@ -76,16 +81,22 @@ export function newestCorpusMtimeMs(repoRoot: string): number {
 
   for (const rel of CORPUS_FIXED_FILES) consider(join(repoRoot, rel))
 
-  // docs/releases/*.md
-  const releasesDir = join(repoRoot, 'docs', 'releases')
-  try {
-    for (const entry of readdirSync(releasesDir, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.md')) {
-        consider(join(releasesDir, entry.name))
+  // The flat-directory *.md globs: docs/releases/*.md,
+  // changelog/unreleased/*.md, decisions/*.md (#222).
+  for (const dir of [
+    join(repoRoot, 'docs', 'releases'),
+    join(repoRoot, 'changelog', 'unreleased'),
+    join(repoRoot, 'decisions'),
+  ]) {
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith('.md')) {
+          consider(join(dir, entry.name))
+        }
       }
+    } catch {
+      /* directory missing — skip */
     }
-  } catch {
-    /* no docs/releases — skip */
   }
 
   // nodes/*/README.md

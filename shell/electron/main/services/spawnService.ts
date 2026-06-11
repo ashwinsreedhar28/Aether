@@ -1452,6 +1452,9 @@ export function laneKickoff(issue: number): string {
     `(body plus any ADDENDUM comments) is the contract; do not start from a spec-less issue. ` +
     `CLAUDE.md §7/§11/§13 discipline. RECON before building: read the files the spec names ` +
     `before writing anything. Stop and report options on anything the spec doesn't cover. ` +
+    `Changelog/ADR law (§8): record your entry as changelog/unreleased/${issue}-<slug>.md and ` +
+    `any decision as a new decisions/<date>-<slug>.md (+ regenerated index) — NEVER edit ` +
+    `CHANGELOG.md or DECISIONS.md; both are generated. ` +
     `When done: run the verify suite, then post the FULL gate report as a comment on issue ` +
     `#${issue}, prefixed exactly "GATE REPORT — " (gh issue comment ${issue} --body-file <file>), ` +
     `and stop at the gate. Open the PR only on "clean, proceed," with the full §7 self-review ` +

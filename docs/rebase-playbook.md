@@ -17,6 +17,13 @@ are leased, and you smoke before you rebase and verify after.**
 
 ## CHANGELOG: keep-all
 
+**Mostly retired as of #222:** lanes no longer edit `[Unreleased]` — each lane
+writes its own fragment at `changelog/unreleased/<issue>-<slug>.md` (CLAUDE.md
+§8), so two fragment-era branches add two distinct files and never conflict
+here. The rule below still applies to a rebase involving a pre-#222 branch that
+hand-edited `[Unreleased]` — resolve by converting that branch's bullets into
+fragments, keeping all of them.
+
 When two branches both add bullets under `[Unreleased]`, a rebase conflicts on
 the same region. **Keep both.** A CHANGELOG entry is an *append*, never a
 replacement — the resolution is the union of both branches' bullets, each filed
@@ -27,6 +34,16 @@ typecheck never reads the CHANGELOG). When in doubt, both bullets survive.
 
 This is the canonical answer to *"how do we resolve a CHANGELOG conflict"*:
 concatenate, don't choose.
+
+## DECISIONS.md: regenerate, don't merge
+
+ADRs live one per file under `decisions/` (#222), so two lanes adding decisions
+add two distinct files — no conflict. DECISIONS.md itself is a **generated
+index**: when a rebase conflicts there, don't hand-merge it — take either side
+and run `node scripts/gen-decisions-index.mjs`, which rebuilds it from
+`decisions/` (CI's `--check` catches a stale index). A pre-#222 branch that
+appended an ADR to DECISIONS.md directly gets that entry moved into its own
+`decisions/<date>-<slug>.md` file during the rebase.
 
 ## prompts.json / manifest.yaml: keep-both, distinct sections
 
@@ -96,9 +113,10 @@ collaborator's work. Lease, never bare.
 
 1. **Smoke in isolation** — green-on-my-diff before touching `main` (smoke-then-rebase).
 2. **Rebase** onto the updated `main`.
-3. **Resolve collisions** — keep-all the CHANGELOG; keep-both the distinct
-   `prompts.json` / `manifest.yaml` sections; **recount** any shared scalar (tool
-   count, `N nodes`) from ground truth.
+3. **Resolve collisions** — fragments/ADR files don't collide (regenerate the
+   DECISIONS.md index, keep-all any legacy CHANGELOG bullets as fragments);
+   keep-both the distinct `prompts.json` / `manifest.yaml` sections; **recount**
+   any shared scalar (tool count, `N nodes`) from ground truth.
 4. **Re-verify** — `pnpm install` if packages moved, then the build/verification
    gate, on the *post-rebase* tree.
 5. **Push** with `--force-with-lease`.

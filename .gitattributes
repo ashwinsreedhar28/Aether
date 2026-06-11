@@ -1,0 +1,10 @@
+# DECISIONS.md is a GENERATED one-line-per-ADR index (#222, scripts/
+# gen-decisions-index.mjs). Two parallel lanes that each add an ADR both
+# regenerate it, inserting adjacent single lines — a guaranteed rebase
+# conflict without this. merge=union keeps both lines so the rebase stays
+# conflict-free; if the unioned order drifts from the generator's sort,
+# CI's `gen-decisions-index.mjs --check` fails and the fix is rerunning
+# the generator (docs/rebase-playbook.md "DECISIONS.md: regenerate, don't
+# merge"). Safe ONLY because the file is generated — never extend union
+# merging to hand-written files.
+DECISIONS.md merge=union

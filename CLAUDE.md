@@ -146,21 +146,25 @@ what matters.>
 
 **The self-review is non-negotiable.** A PR without a filled template will be rejected at first review.
 
+Every lane PR's diff also carries its changelog *fragment* (`changelog/unreleased/<issue>-<slug>.md`) and lands any decision as a `decisions/` file — never edits to CHANGELOG.md or DECISIONS.md, which are generated (§8).
+
 ---
 
 ## 8. Decision Records & Changelog
 
-### DECISIONS.md (append-only ADRs)
+**Lanes never edit the two roots (#222).** CHANGELOG.md's `[Unreleased]` body and DECISIONS.md are both *generated*; auto-review flags hand-edits. Lanes write fragments and ADR files instead — parallel lanes touch distinct files, so the rebase-conflict class these two surfaces used to generate is gone.
 
-At repo root. Touch whenever a `MASTER_SYNTHESIS.md §4` conflict gets a verdict, a `MASTER_SYNTHESIS.md §7` open question gets answered, or you discover a constraint mid-implementation that forecloses or commits to a future path.
+### Decision records (`decisions/`, one ADR per file)
 
-Entry format. All six fields are **required**, in this order — `Status`, `Decided by`, `Context`, `Decision`, `Consequences`, `Alternatives considered` (header line `## [YYYY-MM-DD] <Title>`). An ADR missing any gets rejected at review and amended in the same PR. The six fields are the binding shape of an Aether ADR; the rest (prose, sub-bullets, links) is freeform. Fill-in template: `docs/claude-reference.md` §8.
+ADRs live one per file at `decisions/<date>-<slug>.md`, opening with the header line `## [YYYY-MM-DD] <Title>`. Write one whenever a `MASTER_SYNTHESIS.md §4` conflict gets a verdict, a `MASTER_SYNTHESIS.md §7` open question gets answered, or you discover a constraint mid-implementation that forecloses or commits to a future path.
 
-DECISIONS.md is *append-only* — never edit a past entry. If a decision is reversed, add a new entry that supersedes it and update the old entry's status to `superseded by [link]`. Ordering: newest at top within a date; dates descending overall.
+Entry format. All six fields are **required**, in this order — `Status`, `Decided by`, `Context`, `Decision`, `Consequences`, `Alternatives considered` (under the header line). An ADR missing any gets rejected at review and amended in the same PR. The six fields are the binding shape of an Aether ADR; the rest (prose, sub-bullets, links) is freeform. Fill-in template: `docs/claude-reference.md` §8.
 
-### CHANGELOG.md
+The append-only law: never edit a past ADR file. A reversal is a NEW file that supersedes it, plus flipping the old file's `Status:` to `superseded by [link]` — the one permitted edit to an existing ADR. DECISIONS.md is the generated index over `decisions/` — regenerate it with `node scripts/gen-decisions-index.mjs` in the same PR as any `decisions/` change (CI runs `--check`).
 
-Keep-a-Changelog format (`## [Unreleased]` → `### Added / Changed / Fixed / Removed`). Add a single line per PR under `[Unreleased]`; when Architect cuts a tag, `[Unreleased]` rolls into the new version section. Fill-in template: `docs/claude-reference.md` §8.
+### CHANGELOG.md (generated from `changelog/unreleased/` fragments)
+
+Keep-a-Changelog format. Each lane adds ONE fragment, `changelog/unreleased/<issue>-<slug>.md` — its section heading (`### Added / Changed / Fixed / Removed`) plus the entry bullet (house format: `changelog/README.md`) — and never a line in CHANGELOG.md itself. When Architect cuts a tag, the release lane runs `node scripts/roll-changelog.mjs --version X.Y.Z`, which folds the fragments (stable order: ascending issue number) into the new version section and deletes them. Released sections are never rewritten. Fill-in template: `docs/claude-reference.md` §8.
 
 ---
 

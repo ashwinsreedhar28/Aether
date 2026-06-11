@@ -61,6 +61,16 @@ jobs:
       - name: workspace — lint
         run: pnpm -r lint
 
+      # #222: the two roots are generated. Exercise the changelog roll
+      # (dry-run twice, diff — the compile must be deterministic and every
+      # fragment must parse) and prove DECISIONS.md matches its generator.
+      - name: docs — changelog roll dry-run + decisions index check
+        run: |
+          node scripts/roll-changelog.mjs --dry-run > /tmp/roll-a.md
+          node scripts/roll-changelog.mjs --dry-run > /tmp/roll-b.md
+          diff /tmp/roll-a.md /tmp/roll-b.md
+          node scripts/gen-decisions-index.mjs --check
+
       # The SDK's round-trip vitest spawns Python Core. CI installs the
       # three Core deps; the test self-skips if any are missing, but on
       # the runner we want it to actually run.

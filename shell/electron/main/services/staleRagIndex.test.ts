@@ -155,6 +155,8 @@ test('CORPUS_GLOB_MIRROR has the expected entries (tripwire on intentional chang
       'manifest.yaml',
       'docs/releases/*.md',
       'nodes/*/README.md',
+      'changelog/unreleased/*.md',
+      'decisions/*.md',
     ],
   )
 })

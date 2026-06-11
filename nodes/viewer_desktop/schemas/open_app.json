@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "viewer_desktop.open_app",
   "title": "viewer_desktop.open_app",
-  "description": "Open a registered Viewer app in a new window. Params: { appId: string (e.g. 'mesh','lanes','gaps','terminal','calculator'), title?: string }. Returns { ok, appId, windowId }.",
+  "description": "Open a registered Viewer app in a new window. Params: { appId: string (e.g. 'mesh','lanes','gaps','terminal','calculator'), title?: string }. Returns { ok: true, appId, windowId }; an unknown appId returns { ok: false, appId, error, available: string[] } carrying the live registry ids (not a deny) so the caller can resolve and retry.",
   "type": "object",
   "required": ["appId"],
   "additionalProperties": true,

@@ -73,6 +73,15 @@ historical record.
 - `scripts/lane-done.sh` post-merge ritual script; §7-lite micro-lane tier banked in CLAUDE.md.
 
 ### Fixed
+- Voice open-app resolves display names and survives id drift (#243, residue
+  of #245): `APP_HINTS`' two dead ids corrected to the registry's
+  `markdown-viewer`/`text-viewer` (apps *named* "Markdown Editor"/"Text
+  Editor" — a new test pins every hint to the shell registry source),
+  `_open_app` fuzzy-matches against live registry ids AND display names
+  ('text editor' → `text-viewer`), `open_app` accepts `id` as an alias for
+  `app_id` (the prompt's own examples taught `{ id: … }`; examples corrected
+  too), and every failure path — including the empty-id argument error — now
+  carries `available_apps` for in-turn recovery.
 - Lane spawns actually deliver their kickoff (#300): the kickoff prompt is
   written to `.lane-kickoff.md` in the worktree and the pane runs a FIXED
   `claude … "$(cat .lane-kickoff.md)"` line (only the session name is

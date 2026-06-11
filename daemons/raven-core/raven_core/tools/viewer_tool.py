@@ -32,7 +32,10 @@ FUNCTIONS = [
 # a hardcoded mirror here goes stale, which is exactly how 'browser' became
 # invisible to the model). Correctness does not depend on this list:
 # _open_app fuzzy-resolves unknown ids against the live registry, and the
-# error path returns the real id list for in-turn recovery.
+# error path returns the real id list for in-turn recovery. Entries must
+# still be VERBATIM registry ids — two of these drifted to dead ids once
+# ('markdown-editor'/'text-editor' for the -viewer ids, #243) and the model
+# dutifully passed them.
 APP_HINTS = (
     "browser",
     "terminal",
@@ -42,8 +45,8 @@ APP_HINTS = (
     "calculator",
     "settings",
     "kanban-board",
-    "markdown-editor",
-    "text-editor",
+    "markdown-viewer",
+    "text-viewer",
 )
 
 # Mirrors LAYOUT_PRESETS in shell/electron/main/services/viewerNode.ts.
@@ -55,31 +58,59 @@ def _normalize_app_id(s: str) -> str:
     return "".join(c for c in s.lower() if c.isalnum())
 
 
-def _fuzzy_match_app(requested: str, available: list[str]) -> list[str]:
-    """Resolve a spoken/guessed app id against the live registry ids.
+def _fuzzy_match_app(requested: str, apps: list[dict[str, Any]]) -> list[str]:
+    """Resolve a spoken/guessed app id against the live registry.
 
-    Exact normalized match wins outright; otherwise substring containment
-    either way (so 'kanban' finds 'kanban-board' and 'editor of markdown'
-    still lands). Returns ALL candidates — the caller decides whether one
-    match is unambiguous enough to retry with.
+    Matches each app's id AND display name, normalized — the model often
+    passes what an app is *called*, and ids drift from names over time
+    ('Text Editor' registers as 'text-viewer'). Exact normalized match on
+    either wins outright; otherwise substring containment either way (so
+    'kanban' finds 'kanban-board'). Returns ALL candidate ids — the caller
+    decides whether one match is unambiguous enough to retry with.
     """
     want = _normalize_app_id(requested)
     if not want:
         return []
-    exact = [a for a in available if _normalize_app_id(a) == want]
-    if exact:
-        return exact
-    return [
-        a
-        for a in available
-        if want in _normalize_app_id(a) or _normalize_app_id(a) in want
-    ]
+    exact: list[str] = []
+    partial: list[str] = []
+    for app in apps:
+        app_id = app.get("id")
+        if not isinstance(app_id, str) or not app_id:
+            continue
+        keys = [_normalize_app_id(app_id)]
+        name = app.get("name")
+        if isinstance(name, str):
+            keys.append(_normalize_app_id(name))
+        keys = [k for k in keys if k]
+        if any(k == want for k in keys):
+            exact.append(app_id)
+        elif any(want in k or k in want for k in keys):
+            partial.append(app_id)
+    return exact if exact else partial
+
+
+async def _registry_apps() -> list[dict[str, Any]]:
+    """Fetch the live registry ({id, name} dicts) for failure-path resolution."""
+    try:
+        response = await mesh_invoke("viewer_desktop.list_apps", {})
+    except MeshUnavailable:
+        return []
+    return [a for a in (response.get("apps") or []) if isinstance(a, dict)]
 
 
 async def _open_app(app_id: str, title: str) -> dict[str, Any]:
     app_id = (app_id or "").strip()
     if not app_id:
-        return {"error": "bad_app_id", "detail": "app_id is required"}
+        # Even an argument error answers 'what CAN I open' — every
+        # open_app failure carries the valid ids so the model recovers
+        # on the next call instead of declaring defeat.
+        apps = await _registry_apps()
+        return {
+            "ok": False,
+            "error": "bad_app_id",
+            "detail": "app_id is required",
+            "available_apps": [a["id"] for a in apps if a.get("id")] or None,
+        }
 
     async def attempt(target_id: str) -> dict[str, Any]:
         payload: dict[str, Any] = {"appId": target_id}
@@ -92,11 +123,17 @@ async def _open_app(app_id: str, title: str) -> dict[str, Any]:
         # Unknown id: the viewer node returns ok:false with the live
         # registry ids. Fuzzy-resolve and retry once before giving up —
         # the model says 'kanban', the registry says 'kanban-board'.
+        # Resolve against the registry WITH display names when we can
+        # get it ('text editor' must find id 'text-viewer'); fall back
+        # to the bare id list the failure already carries.
         if not response.get("ok", False) and isinstance(
             response.get("available"), list
         ):
             available = [a for a in response["available"] if isinstance(a, str)]
-            candidates = _fuzzy_match_app(app_id, available)
+            apps = await _registry_apps()
+            if not apps:
+                apps = [{"id": a} for a in available]
+            candidates = _fuzzy_match_app(app_id, apps)
             if len(candidates) == 1 and candidates[0] != app_id:
                 resolved = candidates[0]
                 response = await attempt(resolved)
@@ -218,7 +255,8 @@ def get_tools() -> list[types.Tool]:
                     type=types.Type.STRING,
                     description=(
                         "App id to open, e.g. 'browser', 'terminal', 'mesh'. "
-                        "A close guess is fine — it is fuzzy-resolved."
+                        "A close guess is fine — it is fuzzy-resolved against "
+                        "the registry's ids and display names."
                     ),
                 ),
                 "title": types.Schema(
@@ -322,7 +360,10 @@ def get_tools() -> list[types.Tool]:
 async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
     """Async tool handler — awaited by the tool registry."""
     if name == "open_app":
-        return await _open_app(app_id=str(args.get("app_id", "")), title=str(args.get("title", "")))
+        # Accept `id` as an alias for `app_id` — older prompt examples
+        # taught `open_app({ id: ... })` and the model still emits it.
+        raw_id = args.get("app_id") or args.get("id") or ""
+        return await _open_app(app_id=str(raw_id), title=str(args.get("title", "")))
     if name == "list_apps":
         return await _list_apps()
     if name == "list_windows":

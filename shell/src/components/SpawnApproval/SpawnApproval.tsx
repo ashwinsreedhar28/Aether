@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { SpawnSnapshot, SpawnView } from '../../types/aether'
+import type { OrphanLane, SpawnSnapshot, SpawnView } from '../../types/aether'
 import { useSpawnUi } from '../../stores/spawnUi'
 
 // The spawn actor's window — a global modal raised by the shell's SpawnService
@@ -169,6 +169,45 @@ function TmuxWarning(): React.ReactElement {
   )
 }
 
+// Reattach rows for orphaned lane sessions, ADDITIVE to whatever card is
+// showing (#302 defect 7: main seeded orphans after relaunch, but the only
+// rendering path lived behind "no candidate" — lane-232's own SPAWN ACTIVE
+// card shadowed every reattach affordance). Self-contained error state so any
+// card branch can host it without wiring; on success the main side consumes
+// the orphan and broadcasts, so the row disappears with the next snapshot.
+// The full ORPHANED LANES card below still covers the nothing-else-to-show
+// boot.
+function OrphanStrip({ orphans }: { orphans: OrphanLane[] }): React.ReactElement | null {
+  const [error, setError] = useState<string | null>(null)
+  if (orphans.length === 0) return null
+  const reattach = async (session: string): Promise<void> => {
+    setError(null)
+    const res = await window.aether.spawn.reattach(session)
+    if (!res.ok) setError(res.error ?? 'reattach failed')
+  }
+  return (
+    <div className="pt-3 mt-1 space-y-2" style={{ borderTop: '1px solid var(--holo-border)' }}>
+      <div className="text-[10px] tracking-[0.2em]" style={{ color: 'var(--holo-muted)' }}>
+        ORPHANED LANES — alive in tmux, no terminal attached
+      </div>
+      {orphans.map((o) => (
+        <div key={o.session} className="flex items-center justify-between gap-3">
+          <Row
+            label={o.session}
+            value={o.issue ? `issue #${o.issue} — ${o.worktree ?? ''}` : (o.worktree ?? '(no ledger record)')}
+          />
+          <Btn label="REATTACH" onClick={() => void reattach(o.session)} />
+        </div>
+      ))}
+      {error && (
+        <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ---- the card --------------------------------------------------------------
 
 export function SpawnApproval(): React.ReactElement | null {
@@ -305,6 +344,18 @@ export function SpawnApproval(): React.ReactElement | null {
 
   const isRunning = display.id === snap.running || snap.queue.includes(display.id)
 
+  // Orphan affordances are ADDITIVE — never a competing card state (#302
+  // defect 7). The displayed spawned record's own orphan becomes an inline
+  // REATTACH beside MARK COMPLETE; every other orphan (hand-made lane-*
+  // sessions, or records the chain didn't pick) rides as compact rows on
+  // whatever card is showing. The one-candidate chain above stays intact —
+  // requested still outranks everything per the #302 visibility ruling.
+  const displayOrphan =
+    display.status === 'spawned' && display.tmuxSession
+      ? (snap.orphans.find((o) => o.session === display.tmuxSession) ?? null)
+      : null
+  const otherOrphans = snap.orphans.filter((o) => o !== displayOrphan)
+
   // ---- SPAWNING (recipe in flight) ----
   if (isRunning) {
     const runningNow = snap.running ? (spawns.find((s) => s.id === snap.running) ?? display) : display
@@ -322,6 +373,7 @@ export function SpawnApproval(): React.ReactElement | null {
             launch{runningNow.kind === 'lane' ? ' in a detached tmux session with an attached terminal window; the desktop tiles when the whole approval is live' : ' in a Terminal window'}.
             This can take a few minutes on first install.
           </div>
+          <OrphanStrip orphans={otherOrphans} />
         </div>
       </Frame>
     )
@@ -375,6 +427,7 @@ export function SpawnApproval(): React.ReactElement | null {
               {actionError}
             </div>
           )}
+          <OrphanStrip orphans={otherOrphans} />
         </div>
         <div
           className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t"
@@ -413,7 +466,9 @@ export function SpawnApproval(): React.ReactElement | null {
           <Row label="CAPACITY" value={`${snap.liveCount} of ${snap.maxLanes} lanes live`} />
           <div className="text-[11px] font-mono pt-1" style={{ color: 'var(--holo-muted)' }}>
             {display.tmuxSession
-              ? `A Claude Code session is running inside tmux (${display.tmuxSession}) with a terminal window attached. Quitting Aether does NOT stop it — the lane survives detached and offers a reattach on the next boot. To kill it: tmux kill-session -t ${display.tmuxSession}. Mark complete when the lane is done to free its capacity slot.`
+              ? displayOrphan
+                ? `The Claude Code session is alive inside tmux (${display.tmuxSession}) but NO terminal window is attached — the relaunch case. Reattach to bring it back into a terminal window, or kill it: tmux kill-session -t ${display.tmuxSession}. Mark complete when the lane is done to free its capacity slot.`
+                : `A Claude Code session is running inside tmux (${display.tmuxSession}) with a terminal window attached. Quitting Aether does NOT stop it — the lane survives detached and offers a reattach on the next boot. To kill it: tmux kill-session -t ${display.tmuxSession}. Mark complete when the lane is done to free its capacity slot.`
               : display.kind === 'lane'
                 ? 'A Claude Code session is running in a plain terminal pane (tmux is not installed) — quitting Aether KILLS this lane. Mark complete when the session is done.'
                 : 'A Claude Code session is running in its own Terminal window. Closing that window stops the agent (the kill switch). Mark complete when the session is done. You can also minimize this window and reopen it from the Spawns strip.'}
@@ -423,12 +478,24 @@ export function SpawnApproval(): React.ReactElement | null {
               {actionError}
             </div>
           )}
+          <OrphanStrip orphans={otherOrphans} />
         </div>
         <div
           className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t"
           style={{ borderColor: 'var(--holo-border)' }}
         >
-          <Btn label="MARK COMPLETE" variant="accent" onClick={() => void onComplete(display.id)} />
+          {displayOrphan && (
+            <Btn
+              label="REATTACH"
+              variant="accent"
+              onClick={() => void onReattach(displayOrphan.session)}
+            />
+          )}
+          <Btn
+            label="MARK COMPLETE"
+            variant={displayOrphan ? 'ghost' : 'accent'}
+            onClick={() => void onComplete(display.id)}
+          />
         </div>
       </Frame>
     )
@@ -459,6 +526,7 @@ export function SpawnApproval(): React.ReactElement | null {
               {actionError}
             </div>
           )}
+          <OrphanStrip orphans={otherOrphans} />
         </div>
         <div
           className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t"
@@ -495,6 +563,7 @@ export function SpawnApproval(): React.ReactElement | null {
               {display.error ?? '(no detail)'}
             </pre>
           </div>
+          <OrphanStrip orphans={otherOrphans} />
         </div>
         <div
           className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t"
@@ -515,6 +584,7 @@ export function SpawnApproval(): React.ReactElement | null {
         <div className="text-[11px] font-mono pt-1" style={{ color: 'var(--holo-muted)' }}>
           This spawn was dismissed. Nothing to do here.
         </div>
+        <OrphanStrip orphans={otherOrphans} />
       </div>
       <div
         className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t"

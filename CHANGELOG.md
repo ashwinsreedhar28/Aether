@@ -94,7 +94,11 @@ historical record.
   `executeViewerControl` re-throws main-side — a rejected promise never
   crosses `executeJavaScript` again. A spawn request landing while a recipe
   is busy now surfaces its card immediately (busy gates the Approve button,
-  never visibility). Teardown block gains the kickoff file. Binary paths read
+  never visibility), and orphan reattach is additive the same way: a spawned
+  card whose tmux session is orphaned gets an inline REATTACH beside MARK
+  COMPLETE, and every other orphan renders as compact reattach rows on
+  whatever card is showing (previously orphans rendered only when no card
+  was up at all). Teardown block gains the kickoff file. Binary paths read
   from login-shell captures are extracted defensively (`pickBinaryLine` +
   `existsSync`) — rc files print banners around the probe output (Apple
   Terminal's restored-session banner poisoned `tmuxBin` in the field), and

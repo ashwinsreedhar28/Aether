@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import {
   watch,
@@ -134,6 +134,10 @@ export class SpawnService extends EventEmitter {
   // tmux probe results, resolved once in start(). Null until probed; the
   // pty-fallback path treats "unknown" as unavailable.
   private tmuxOk = false
+  // Absolute path of the tmux binary, resolved once in probeTmux through the
+  // login shell (so PATH semantics stay Homebrew-aware). Lifecycle calls run
+  // it DIRECTLY — never under a capturing shell (see runTmux).
+  private tmuxBin: string | null = null
   // lane-* sessions alive in tmux that no terminal window of THIS app lifetime
   // is attached to. Seeded at boot; sessions drop out on spawn/reattach.
   private orphans: OrphanLane[] = []
@@ -444,27 +448,27 @@ export class SpawnService extends EventEmitter {
       // (#300): the kickoff used to transit three quoting layers — sq() inside
       // sq() inside `$SHELL -lic` — and arrived EMPTY, leaving a virgin pane
       // and a hung recipe. Now the content goes to a file no shell touches,
-      // and the line sent to the pane is FIXED (laneSendKeys) — nothing
-      // interpolated but the session name.
+      // and the send-keys argv is FIXED (laneSendKeysArgs) — nothing varies
+      // but the session name.
       setStep('write kickoff')
       writeFileSync(join(worktree, '.lane-kickoff.md'), laneKickoff(issue))
       let tmuxSession: string | undefined
       if (this.tmuxOk) {
+        // Lifecycle calls go through runTmux (binary direct, stdio ignored,
+        // resolve on exit) — running them under the capturing login shell
+        // leaks descriptors into the daemonized tmux server and the promise
+        // never settles; per-fd redirects don't fix it (see runTmux).
         setStep('tmux new-session')
         // A shell under claude, not claude AS the session command: when claude
         // exits, the session survives for post-mortem instead of vanishing.
-        // The FIRST new-session of a boot starts the tmux SERVER, which inherits
-        // this command's stdio. execFile resolves on stream CLOSE, not child exit —
-        // without the redirect the immortal server holds the pipes and the promise
-        // pends forever (the run-1/run-2 field hang; the timeout can't fire because
-        // the child already exited).
-        await this.runShell(`tmux new-session -d -s ${sq(session)} -c ${sq(worktree)} >/dev/null 2>&1`, worktree)
-        await this.runShell(laneSendKeys(session), worktree)
+        await this.runTmux(['new-session', '-d', '-s', session, '-c', worktree])
+        setStep('tmux send-keys')
+        await this.runTmux(laneSendKeysArgs(session))
         // Delivery oracle: a 0-exit send-keys only proves tmux accepted the
         // keystrokes (#219's pane was virgin after one). Wait for the pane to
         // actually leave the bare shell; a throw here is a named markFailed.
         setStep('kickoff delivery')
-        await this.awaitKickoffDelivery(session, worktree)
+        await this.awaitKickoffDelivery(session)
         tmuxSession = session
       }
 
@@ -528,16 +532,20 @@ export class SpawnService extends EventEmitter {
   // until it stops being the bare shell (claude shows up as `claude`/`node`).
   // Past the deadline, THROW — the lane is not live, and a markFailed naming
   // this step beats a ghost lane whose pane sat virgin.
-  private async awaitKickoffDelivery(session: string, worktree: string): Promise<void> {
+  private async awaitKickoffDelivery(session: string): Promise<void> {
     const shellName = basename(process.env.SHELL || '/bin/zsh')
     const deadline = Date.now() + KICKOFF_TIMEOUT_MS
     for (;;) {
-      const pane = (
-        await this.runShellCapture(
-          `tmux display -p -t ${sq('=' + session)} '#{pane_current_command}'`,
-          worktree,
-        )
-      ).trim()
+      // Direct execFileAsync against the resolved binary — needs stdout, and
+      // capture is harmless here: display -p is a short-lived CLIENT of the
+      // already-running server, holding its own pipes until it exits (unlike
+      // the lifecycle calls; see runTmux).
+      const { stdout } = await execFileAsync(
+        this.requireTmuxBin(),
+        ['display', '-p', '-t', '=' + session, '#{pane_current_command}'],
+        { timeout: KICKOFF_TIMEOUT_MS },
+      )
+      const pane = stdout.trim()
       // A login shell can report a leading dash ("-zsh") — still bare.
       if (pane !== '' && pane.replace(/^-/, '') !== shellName) return
       if (Date.now() >= deadline) {
@@ -567,14 +575,18 @@ export class SpawnService extends EventEmitter {
 
   // ---- tmux ------------------------------------------------------------------
 
-  // Resolve tmux availability once (login-shell PATH, same as every recipe
-  // step) and seed the orphan list from surviving lane-* sessions. tmux
-  // absent is a supported degraded mode: the snapshot flags it and the card
-  // names the `brew install tmux` remedy.
+  // Resolve the tmux BINARY once through the login shell (Homebrew shellenv
+  // PATH, same semantics as every recipe step) and seed the orphan list from
+  // surviving lane-* sessions. The path is kept on the instance so every
+  // lifecycle call can run it directly, shell-free (see runTmux). tmux absent
+  // is a supported degraded mode: the snapshot flags it and the card names
+  // the `brew install tmux` remedy.
   private async probeTmux(): Promise<void> {
     if (process.platform !== 'darwin') return
     try {
-      await this.runShell('command -v tmux', this.repoRoot)
+      const bin = (await this.runShellCapture('command -v tmux', this.repoRoot)).trim()
+      if (!bin) throw new Error('command -v tmux printed nothing')
+      this.tmuxBin = bin
       this.tmuxOk = true
     } catch {
       this.tmuxOk = false
@@ -584,12 +596,14 @@ export class SpawnService extends EventEmitter {
       return
     }
     try {
-      // `|| true`: no tmux server running is the common, healthy case.
-      const out = await this.runShellCapture(
-        `tmux ls -F '#{session_name}' 2>/dev/null || true`,
-        this.repoRoot,
+      // Direct client call — needs stdout, harmless pipes (the client exits;
+      // see runTmux for why lifecycle calls can't do this).
+      const { stdout } = await execFileAsync(
+        this.tmuxBin,
+        ['ls', '-F', '#{session_name}'],
+        { timeout: TERMINAL_TIMEOUT_MS },
       )
-      const sessions = out
+      const sessions = stdout
         .split('\n')
         .map((s) => s.trim())
         .filter((s) => /^lane-/.test(s))
@@ -604,6 +618,10 @@ export class SpawnService extends EventEmitter {
       })
       console.log(`[spawnService] ${sessions.length} orphaned lane session(s): ${sessions.join(', ')}`)
     } catch (err) {
+      // No server running is the common, healthy case: tmux exits nonzero
+      // with "no server running on …" (older builds: "error connecting to …").
+      const stderr = (err as { stderr?: string }).stderr ?? ''
+      if (/no server running|error connecting/i.test(stderr)) return
       console.warn('[spawnService] tmux session enumeration failed:', err)
     }
   }
@@ -612,7 +630,7 @@ export class SpawnService extends EventEmitter {
     try {
       // `=` pins exact-name matching — bare -t prefix-matches, so lane-2
       // would otherwise collide with a live lane-27.
-      await this.runShell(`tmux has-session -t ${sq('=' + session)} 2>/dev/null`, this.repoRoot)
+      await this.runTmux(['has-session', '-t', '=' + session])
       return true
     } catch {
       return false
@@ -671,17 +689,55 @@ export class SpawnService extends EventEmitter {
     return { ok: true }
   }
 
+  // Run a tmux LIFECYCLE command (new-session / send-keys / has-session) as
+  // the resolved binary directly: argv array, no shell, stdio fully ignored,
+  // resolution on EXIT code — never on streams. Why (run-2/run-3 field
+  // probes on #302): the first new-session of a boot daemonizes the immortal
+  // tmux SERVER, and the capturing `$SHELL -lic` wrapper holds duplicate
+  // descriptors of Node's pipes above fd 2 that the server inherits — so
+  // execFile, which resolves on stream CLOSE rather than child exit, pends
+  // forever. Per-fd redirects are unwinnable in principle: `>/dev/null 2>&1`
+  // left the promise pending; adding `</dev/null` still left it pending. The
+  // fix removes both the shell and the pipes.
+  private async runTmux(args: string[]): Promise<void> {
+    const bin = this.requireTmuxBin()
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(bin, args, { stdio: 'ignore' })
+      child.once('error', (err) => {
+        reject(new Error(`tmux ${args.join(' ')} — ${err.message}`))
+      })
+      child.once('exit', (code, signal) => {
+        if (code === 0) resolve()
+        else {
+          reject(
+            new Error(
+              `tmux ${args.join(' ')} — exited ${code === null ? `on signal ${signal}` : `with code ${code}`}`,
+            ),
+          )
+        }
+      })
+    })
+  }
+
+  private requireTmuxBin(): string {
+    if (!this.tmuxBin) {
+      throw new Error('tmux binary not resolved — probeTmux must succeed before lifecycle calls')
+    }
+    return this.tmuxBin
+  }
+
   // Run a command through the user's login+interactive shell so the recipe sees
   // the full PATH (Homebrew shellenv, corepack pnpm shim, node) — a GUI-launched
   // Electron main otherwise gets an impoverished PATH. Mirrors
   // ravenDaemonManager.resolveBin's `$SHELL -lic` strategy. cwd is set both via
   // the spawn option and an explicit `cd` so an rc-file `cd` can't relocate us.
+  // NEVER route tmux lifecycle commands through here — see runTmux.
   private async runShell(command: string, cwd: string): Promise<void> {
     await this.runShellCapture(command, cwd)
   }
 
-  // As runShell, but hands back stdout (the tmux session enumeration needs
-  // it). runShell stays the recipe-facing name; both share one error shape.
+  // As runShell, but hands back stdout (the tmux binary probe needs it).
+  // runShell stays the recipe-facing name; both share one error shape.
   private async runShellCapture(command: string, cwd: string): Promise<string> {
     const userShell = process.env.SHELL || '/bin/zsh'
     const full = `cd ${sq(cwd)} && ${command}`
@@ -780,14 +836,17 @@ export function laneKickoff(issue: number): string {
 
 // The fixed lane launch line (#300): claude reads the kickoff from
 // .lane-kickoff.md in the pane's cwd, so the content never transits shell
-// quoting. Must stay single-quote-free — sq() then wraps it verbatim.
-// Exported for tests.
+// quoting. Reaches the pane as ONE raw send-keys argv element (below) — tmux
+// types it literally and the pane's shell expands the $(cat). Also the
+// pty-fallback command. Exported for tests.
 export const LANE_CLAUDE_CMD = 'claude --dangerously-skip-permissions "$(cat .lane-kickoff.md)"'
 
-// The exact line a lane session is sent (#300). The ONLY interpolated value is
-// the session name; kickoff content must never appear here — unit-tested.
-export function laneSendKeys(session: string): string {
-  return `tmux send-keys -t ${sq('=' + session)} ${sq(LANE_CLAUDE_CMD)} Enter`
+// The exact send-keys argv for a lane session — an args array handed straight
+// to the tmux binary (runTmux), zero shell and zero quoting layers between
+// here and the pane. The ONLY varying element is the session name; kickoff
+// content must never appear here — unit-tested. Exported for tests.
+export function laneSendKeysArgs(session: string): string[] {
+  return ['send-keys', '-t', '=' + session, LANE_CLAUDE_CMD, 'Enter']
 }
 
 // Resolve to `p`'s value, or null once `ms` elapses — the timer side never

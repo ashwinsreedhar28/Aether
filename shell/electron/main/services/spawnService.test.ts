@@ -1,7 +1,8 @@
-// Isolated tests for the #300 spawn fixes — the fixed send-keys line (kickoff
-// content never rides the shell again) and the terminal-dispatch race (a
-// renderer reply that never comes degrades to false instead of pinning the
-// recipe). No Electron, no tmux, no live recipe.
+// Isolated tests for the #300 spawn fixes — the fixed send-keys argv (kickoff
+// content never rides a shell; the claude line reaches tmux as one raw
+// element) and the terminal-dispatch race (a renderer reply that never comes
+// degrades to false instead of pinning the recipe). No Electron, no tmux, no
+// live recipe.
 //
 // Run with Node's built-in runner (Node 22 strips types):
 //   node --test shell/electron/main/services/spawnService.test.ts
@@ -16,30 +17,32 @@ import { join } from 'node:path'
 import {
   SpawnService,
   LANE_CLAUDE_CMD,
-  laneSendKeys,
+  laneSendKeysArgs,
   laneKickoff,
   withTimeout,
 } from './spawnService.ts'
 
-// ---- kickoff delivery is file-based: the sent line is FIXED -----------------
+// ---- kickoff delivery is file-based: the send-keys argv is FIXED ------------
 
-test('laneSendKeys interpolates the session name and nothing else', () => {
-  assert.equal(
-    laneSendKeys('lane-300'),
-    `tmux send-keys -t '=lane-300' 'claude --dangerously-skip-permissions "$(cat .lane-kickoff.md)"' Enter`,
-  )
+test('laneSendKeysArgs varies the session name and nothing else', () => {
+  assert.deepEqual(laneSendKeysArgs('lane-300'), [
+    'send-keys',
+    '-t',
+    '=lane-300',
+    'claude --dangerously-skip-permissions "$(cat .lane-kickoff.md)"',
+    'Enter',
+  ])
 })
 
-test('the send-keys line carries zero kickoff content', () => {
-  const cmd = laneSendKeys('lane-219')
-  // The #298 failure mode: kickoff prose riding three quoting layers. No
-  // fragment of laneKickoff may appear in what send-keys transports.
-  assert.ok(!cmd.includes('Implementer'))
-  assert.ok(!cmd.includes(laneKickoff(219).slice(0, 24)))
-})
-
-test('LANE_CLAUDE_CMD stays single-quote-free so sq() wraps it verbatim', () => {
-  assert.ok(!LANE_CLAUDE_CMD.includes(`'`))
+test('the send-keys argv carries zero kickoff content; the claude element is byte-identical to LANE_CLAUDE_CMD', () => {
+  const args = laneSendKeysArgs('lane-219')
+  // The #298 failure mode: kickoff prose riding shell quoting layers. No
+  // fragment of laneKickoff may appear anywhere in the argv, and the line
+  // tmux types into the pane must be exactly the exported constant.
+  const flat = args.join(' ')
+  assert.ok(!flat.includes('Implementer'))
+  assert.ok(!flat.includes(laneKickoff(219).slice(0, 24)))
+  assert.equal(args[3], LANE_CLAUDE_CMD)
 })
 
 // ---- the dispatch race: a silent renderer must not hang the recipe ----------

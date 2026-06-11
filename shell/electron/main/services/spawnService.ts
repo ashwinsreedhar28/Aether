@@ -453,7 +453,12 @@ export class SpawnService extends EventEmitter {
         setStep('tmux new-session')
         // A shell under claude, not claude AS the session command: when claude
         // exits, the session survives for post-mortem instead of vanishing.
-        await this.runShell(`tmux new-session -d -s ${sq(session)} -c ${sq(worktree)}`, worktree)
+        // The FIRST new-session of a boot starts the tmux SERVER, which inherits
+        // this command's stdio. execFile resolves on stream CLOSE, not child exit —
+        // without the redirect the immortal server holds the pipes and the promise
+        // pends forever (the run-1/run-2 field hang; the timeout can't fire because
+        // the child already exited).
+        await this.runShell(`tmux new-session -d -s ${sq(session)} -c ${sq(worktree)} >/dev/null 2>&1`, worktree)
         await this.runShell(laneSendKeys(session), worktree)
         // Delivery oracle: a 0-exit send-keys only proves tmux accepted the
         // keystrokes (#219's pane was virgin after one). Wait for the pane to

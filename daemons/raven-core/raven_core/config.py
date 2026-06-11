@@ -116,6 +116,14 @@ class Config:
     # room noise.
     barge_in_min_rms: int = 1000
 
+    # Gap filing (the gaps.auto_file knob, #255/#258). When True,
+    # report_gap files a gap issue without the spoken confirmation turn
+    # ("want me to file it?"). Set in config.json as
+    # { "gaps": { "auto_file": true } }. The report_gap rate guard still
+    # applies on top: after 5 creates in one session, auto-file is
+    # suspended and every further create needs explicit confirmation.
+    gaps_auto_file: bool = False
+
     @classmethod
     def load(
         cls,
@@ -206,6 +214,9 @@ class Config:
                     config.barge_in_factor = float(user_config["barge_in_factor"])
                 if "barge_in_min_rms" in user_config:
                     config.barge_in_min_rms = int(user_config["barge_in_min_rms"])
+                gaps_config = user_config.get("gaps")
+                if isinstance(gaps_config, dict) and "auto_file" in gaps_config:
+                    config.gaps_auto_file = bool(gaps_config["auto_file"])
 
                 print(f"[CONFIG] Loaded user config from {user_config_path}")
             except (json.JSONDecodeError, OSError) as e:
@@ -242,3 +253,26 @@ class Config:
         if not self.system_instruction:
             errors.append("No system instruction configured")
         return errors
+
+
+# ---------------------------------------------------------------------------
+# Active-config registry. Voice tools are module-level functions discovered
+# by the tool registry at import time — they have no constructor through
+# which to receive a Config. The boot path (main.py) registers the loaded
+# Config here after CLI overrides; a tool that needs a knob (report_gap →
+# gaps_auto_file) reads it back via get_active_config() and treats None
+# (e.g. under pytest, where nothing boots) as all-defaults.
+# ---------------------------------------------------------------------------
+
+_ACTIVE_CONFIG: Config | None = None
+
+
+def set_active_config(config: Config) -> None:
+    """Register the loaded Config for module-level consumers (voice tools)."""
+    global _ACTIVE_CONFIG
+    _ACTIVE_CONFIG = config
+
+
+def get_active_config() -> Config | None:
+    """Return the Config registered at boot, or None if nothing booted."""
+    return _ACTIVE_CONFIG

@@ -41,6 +41,7 @@ shape (user-authored notes), and the two should stay separate.
 from __future__ import annotations
 
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Optional
@@ -125,6 +126,19 @@ class SessionContext:
     last_category: Optional[str] = None
     last_article_list: list[ArticleRef] = field(default_factory=list)
     last_quote_list: list[QuoteRef] = field(default_factory=list)
+
+    # Stable id for this voice session. One raven-core process is one
+    # Gemini Live session, so a process-lifetime id is the session id.
+    # Filed gap issues carry it so a record on the board can be traced
+    # back to the conversation that produced it. 12 hex chars — enough
+    # to be unique per session, short enough for an issue body.
+    session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+
+    # Successful gap filings this session. report_gap's rate guard
+    # reads it: past the soft limit, auto-file is suspended and every
+    # further create needs the spoken confirmation turn (see
+    # tools/report_gap_tool.SESSION_CREATE_SOFT_LIMIT).
+    gap_creates: int = 0
 
     def add_utterance(self, text: str) -> None:
         """Append a transcribed user utterance.
@@ -223,10 +237,16 @@ class SessionContext:
         if cleaned:
             self.last_ticker = cleaned
 
+    def note_gap_create(self) -> int:
+        """Count a successful gap filing; returns the new session total."""
+        self.gap_creates += 1
+        return self.gap_creates
+
     def reset(self) -> None:
         """Clear everything — used by tests; not currently called at
         runtime. raven-core is one-process-per-session, so process
-        restart is the canonical reset."""
+        restart is the canonical reset. A reset is a new session: the
+        session id is re-minted, not preserved."""
         self.utterances.clear()
         self.tool_calls.clear()
         self.last_entity = None
@@ -234,6 +254,8 @@ class SessionContext:
         self.last_category = None
         self.last_article_list = []
         self.last_quote_list = []
+        self.session_id = uuid.uuid4().hex[:12]
+        self.gap_creates = 0
 
     def summarize(self) -> dict[str, Any]:
         """Render a compact summary for injection into FunctionResponse.

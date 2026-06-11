@@ -112,6 +112,13 @@ export const INTENTS_ENTRY: string = join(
   'dist',
   'index.js',
 )
+export const GITHUB_ENTRY: string = join(
+  REPO_ROOT,
+  'nodes',
+  'github',
+  'dist',
+  'index.js',
+)
 
 export function meshRuntimeDir(): string {
   return join(app.getPath('userData'), 'mesh')

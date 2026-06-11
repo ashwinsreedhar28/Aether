@@ -31,6 +31,7 @@ export interface MeshSecrets {
   visualizerSecret: string
   lanesSecret: string
   intentsSecret: string
+  githubSecret: string
   viewerDesktopSecret: string
 }
 
@@ -69,6 +70,7 @@ export function generateMeshSecrets(): MeshSecrets {
     visualizerSecret: getNodeSecret('visualizer'),
     lanesSecret: getNodeSecret('lanes'),
     intentsSecret: getNodeSecret('intents'),
+    githubSecret: getNodeSecret('github'),
     viewerDesktopSecret: getNodeSecret('viewer_desktop'),
   }
 }

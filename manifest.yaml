@@ -424,6 +424,38 @@ nodes:
         invocation_mode: request_response
         schema: nodes/intents/schemas/close.json
 
+  - id: github
+    runtime: local-process
+    category: Actor
+    identity_secret: env:MESH_GITHUB_SECRET
+    metadata:
+      description: |
+        GitHub Actor (the one-rail arc, #255/#256): gaps file as GitHub
+        issues on the configured repo (env AETHER_GITHUB_REPO; auth via
+        AETHER_GITHUB_TOKEN — fine-grained PAT, Issues RW, never logged).
+        create_issue dedups INSIDE the surface: a repeat ask (matching
+        normalized capability key) comments the existing gap issue and
+        returns { deduped: true } instead of filing a duplicate.
+        list_issues serves the open board cache-then-serve (30s TTL,
+        `stale` on last-good-fetch fallback). Token absent = degraded:
+        list_issues serves a clean no-token payload, writes deny with
+        github_no_token, nothing crashes. No close_issue surface by
+        ruling — gaps close through the merge rail ('Closes #n').
+        Supersedes the intents gap ledger (retired in Lane C, #258).
+    surfaces:
+      - name: create_issue
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/github/schemas/create_issue.json
+      - name: list_issues
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/github/schemas/list_issues.json
+      - name: comment_issue
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/github/schemas/comment_issue.json
+
   - id: viewer_desktop
     runtime: local-process
     category: Actor
@@ -799,6 +831,23 @@ relationships:
   # (#136's lesson, restated when #145 granted the shell edge).
   - from: visualizer
     to: intents.list
+
+  # GitHub Actor (one rail, #255/#256): raven files gaps through
+  # github.create_issue — dedup lives INSIDE the surface (a repeat ask
+  # comments the existing issue), so this single write edge is all the voice
+  # path needs to file-or-bump. Lane C (#258) repoints report_gap here.
+  - from: raven
+    to: github.create_issue
+  # raven adds detail to an existing gap issue by number ("add that to the
+  # email gap") — a NEW relationship distinct from create; every
+  # consumer/surface pair needs its own edge (#136's lesson).
+  - from: raven
+    to: github.comment_issue
+  # The Gaps panel (renderer) reads the open issue board through the mesh —
+  # mirrors the shell → lanes.status consume-surface pattern. Lane B (#257)
+  # is pure renderer work on top of this edge.
+  - from: shell
+    to: github.list_issues
 
   # Agenda overlay: the visualizer Mixer reads the calendar to compose the
   # summoned 'agenda' overlay (viz-agenda) — today's full day from calendar.today

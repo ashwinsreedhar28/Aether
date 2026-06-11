@@ -218,6 +218,24 @@ const handlers: Record<string, ActionHandler> = {
     return await window.electron.terminal.write(sessionId, data);
   },
 
+  // Lane terminals (#268): open a named terminal window in the worktree and
+  // run one command in it — `tmux attach -t lane-N` (or the claude invocation
+  // directly on the pty fallback). One atomic action so the SpawnService
+  // never has to round-trip a sessionId across the bridge.
+  'open-lane-terminal': async (params: Record<string, unknown>) => {
+    const cwd = params.cwd as string | undefined;
+    const command = params.command as string;
+    const title = params.title as string | undefined;
+    if (!command) return { ok: false, error: 'missing command' };
+    const store = useWorkspaceStore.getState();
+    const result = await store.openTerminal(undefined, cwd, title);
+    if (!result) {
+      return { ok: false, error: 'terminal create failed (no active workspace or PTY spawn error)' };
+    }
+    await window.electron.terminal.write(result.sessionId, command + '\n');
+    return { ok: true, windowId: result.windowId, sessionId: result.sessionId };
+  },
+
   'apply-layout': (params: Record<string, unknown>) => {
     const preset = params.preset as string;
     const store = useWorkspaceStore.getState();

@@ -412,7 +412,9 @@ nodes:
         normalized capability key) comments the existing gap issue and
         returns { deduped: true } instead of filing a duplicate.
         list_issues serves the open board cache-then-serve (30s TTL,
-        `stale` on last-good-fetch fallback). Token absent = degraded:
+        `stale` on last-good-fetch fallback). get_issue reads ONE issue
+        in full (body + first comment page, uncached) — the spec-guard
+        read behind work_on_issue (#268). Token absent = degraded:
         list_issues serves a clean no-token payload, writes deny with
         github_no_token, nothing crashes. No close_issue surface by
         ruling — gaps close through the merge rail ('Closes #n').
@@ -430,6 +432,10 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/github/schemas/comment_issue.json
+      - name: get_issue
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/github/schemas/get_issue.json
 
   - id: viewer_desktop
     runtime: local-process
@@ -785,6 +791,12 @@ relationships:
   # the shell pre-grant below does not cover raven.
   - from: raven
     to: github.list_issues
+  # The single-issue read (work_on_issue's spec guard, #268): raven fetches
+  # one issue in full — body + comments — to check for the ARCHITECT SPEC
+  # marker and parse Branch:/Worktree: targets before arming a lane spawn.
+  # A NEW relationship distinct from the board list (#136's lesson).
+  - from: raven
+    to: github.get_issue
   # The Gaps panel (renderer) reads the open issue board through the mesh —
   # mirrors the shell → lanes.status consume-surface pattern. Lane B (#257)
   # is pure renderer work on top of this edge.

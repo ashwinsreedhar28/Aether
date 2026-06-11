@@ -536,6 +536,11 @@ export class RavenDaemonManager extends EventEmitter {
         // visible at the spawn site rather than riding implicitly on ...process.env.
         // Empty when unset — request_spawn refuses, and redaction no-ops, on ''.
         AETHER_SPAWN_PHRASE: process.env.AETHER_SPAWN_PHRASE ?? '',
+        // Lane concurrency cap (#268, spawn.max_lanes). Single-sourced from
+        // .env.local so the work_on_issue capacity ask and the shell's
+        // approve gate agree; '' lets the tool fall back to config.json then
+        // its default of 3.
+        AETHER_SPAWN_MAX_LANES: process.env.AETHER_SPAWN_MAX_LANES ?? '',
         // Mesh identity for raven-core. raven_core/mesh_client.py reads
         // these at orchestrator startup and registers with Core. Missing
         // either is a hard error in mesh_client (we always pass both

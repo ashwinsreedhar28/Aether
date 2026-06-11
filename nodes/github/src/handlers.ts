@@ -23,7 +23,7 @@ import {
   extractCapabilityKey,
   normalizeCapabilityKey,
 } from './gap'
-import type { IssueSummary, ListIssuesPayload, RawIssue } from './types'
+import type { IssueDetailPayload, IssueSummary, ListIssuesPayload, RawIssue } from './types'
 
 export interface HandlerDeps {
   /** null ⇔ no token — degraded mode. */
@@ -46,6 +46,10 @@ const LIST_CACHE_TTL_MS = 30_000
 const DEDUP_SCAN_LIMIT = 100
 const COMMENT_BODY_MAX = 4000
 const LABELS_ARG_MAX = 200
+// get_issue serves ONE page of comments, oldest-first. ARCHITECT SPEC
+// addenda land within the first few comments on any sane issue; an issue
+// past 100 comments has outgrown a voice-driven spawn anyway.
+const GET_ISSUE_COMMENTS_LIMIT = 100
 
 interface CreateIssueArgs {
   area?: unknown
@@ -262,6 +266,49 @@ export function makeListIssuesHandler(deps: HandlerDeps) {
           token_available: true,
         }
       }
+      throw toMeshDeny(err)
+    }
+  }
+}
+
+export function makeGetIssueHandler(deps: HandlerDeps) {
+  // No cache: get_issue backs work_on_issue's spec guard, which must read the
+  // CURRENT body + comments (an ARCHITECT SPEC comment may have landed seconds
+  // ago). By-number reads are strongly consistent and the call is human-paced
+  // (one per spawn utterance), so the PAT budget doesn't care.
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
+    const payload = (env.payload ?? {}) as { number?: unknown }
+    const number = payload.number
+    if (typeof number !== 'number' || !Number.isInteger(number) || number < 1) {
+      throw new MeshDeny('github_bad_number', { number })
+    }
+    // Reads need the API too — tokenless deny mirrors create/comment, not
+    // list's degraded payload: a tool call can error, a panel must render.
+    if (!deps.client) throw new MeshDeny('github_no_token', {})
+    try {
+      const issue = await deps.client.getIssue(number)
+      if (issue.pullRequest) {
+        // GET /issues/:n serves PRs too; a lane spawned on a PR number is a
+        // caller mistake, named as such.
+        throw new MeshDeny('github_is_pull_request', { number })
+      }
+      const comments = await deps.client.listComments(number, GET_ISSUE_COMMENTS_LIMIT)
+      const detail: IssueDetailPayload = {
+        ok: true,
+        number: issue.number,
+        title: issue.title,
+        state: issue.state,
+        labels: issue.labels,
+        body: issue.body ?? '',
+        url: issue.url,
+        author: issue.author,
+        created_at: issue.created_at,
+        updated_at: issue.updated_at,
+        comments,
+      }
+      deps.log(`get_issue #${number} (${issue.state}, ${comments.length} comments)`)
+      return detail as unknown as Record<string, unknown>
+    } catch (err) {
       throw toMeshDeny(err)
     }
   }

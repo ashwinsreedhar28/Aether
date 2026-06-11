@@ -25,6 +25,34 @@ export interface RawIssue extends IssueSummary {
   body: string | null
 }
 
+/** One comment as served by github.get_issue — exactly what the spec guard
+ *  needs: the text (to find "ARCHITECT SPEC" / Branch: / Worktree: lines),
+ *  who wrote it, and when. */
+export interface IssueComment {
+  author: string | null
+  body: string
+  /** ISO 8601. Comments are served oldest-first (GitHub's default order). */
+  created_at: string
+}
+
+/** github.get_issue response payload — the full single-issue read backing
+ *  work_on_issue's spec guard. UNLIKE IssueSummary this carries the body and
+ *  comments verbatim: the caller parses spec markers and Branch:/Worktree:
+ *  lines from them. */
+export interface IssueDetailPayload {
+  ok: true
+  number: number
+  title: string
+  state: 'open' | 'closed'
+  labels: string[]
+  body: string
+  url: string
+  author: string | null
+  created_at: string
+  updated_at: string
+  comments: IssueComment[]
+}
+
 /** github.list_issues response payload (mirrors lanes.status shape:
  *  data + fetched_at_ms + stale + availability flag). */
 export interface ListIssuesPayload {

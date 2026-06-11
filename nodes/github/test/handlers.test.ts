@@ -3,6 +3,7 @@ import { MeshDeny, type Envelope } from '@aether/mesh-node-sdk'
 import {
   makeCommentIssueHandler,
   makeCreateIssueHandler,
+  makeGetIssueHandler,
   makeListIssuesHandler,
   type HandlerDeps,
 } from '../src/handlers'
@@ -45,6 +46,14 @@ function fakeClient(over: Partial<IssueClient> = {}): IssueClient {
     createIssue: vi.fn(async () => ({ number: 10, url: 'https://github.com/o/r/issues/10' })),
     createComment: vi.fn(async () => ({ comment_id: 99, url: 'https://github.com/o/r/c/99' })),
     getIssueState: vi.fn(async () => 'open' as const),
+    getIssue: vi.fn(async () => ({
+      ...rawIssue({ body: 'ARCHITECT SPEC\nBranch: lane/issue-1   Worktree: ~/aether-lane-1' }),
+      state: 'open' as const,
+      pullRequest: false,
+    })),
+    listComments: vi.fn(async () => [
+      { author: 'architect', body: 'ADDENDUM: batch semantics', created_at: '2026-06-11T00:00:00Z' },
+    ]),
     ...over,
   }
 }
@@ -281,5 +290,66 @@ describe('comment_issue', () => {
       reason: 'github_bad_number',
     })
     await expect(handler(envelope({ number: 0, body: 'x' }))).rejects.toBeInstanceOf(MeshDeny)
+  })
+})
+
+describe('get_issue (#268 — the work_on_issue spec-guard read)', () => {
+  it('denies github_no_token when degraded (a tool call can error; only panels need a degraded payload)', async () => {
+    const handler = makeGetIssueHandler(deps(null))
+    await expect(handler(envelope({ number: 1 }))).rejects.toMatchObject({
+      reason: 'github_no_token',
+    })
+  })
+
+  it('rejects non-integer numbers', async () => {
+    const handler = makeGetIssueHandler(deps(fakeClient()))
+    await expect(handler(envelope({ number: '7' }))).rejects.toMatchObject({
+      reason: 'github_bad_number',
+    })
+  })
+
+  it('serves the full detail — body and comments verbatim', async () => {
+    const client = fakeClient()
+    const handler = makeGetIssueHandler(deps(client))
+    const result = await handler(envelope({ number: 1 }))
+    expect(result).toMatchObject({
+      ok: true,
+      number: 1,
+      state: 'open',
+      labels: ['gap'],
+    })
+    expect(result.body).toContain('ARCHITECT SPEC')
+    expect(result.body).toContain('Branch: lane/issue-1')
+    expect((result.comments as Array<Record<string, unknown>>)[0]).toMatchObject({
+      author: 'architect',
+      body: 'ADDENDUM: batch semantics',
+    })
+  })
+
+  it('denies github_is_pull_request for a PR number', async () => {
+    const client = fakeClient({
+      getIssue: vi.fn(async () => ({
+        ...rawIssue({ number: 8 }),
+        state: 'open' as const,
+        pullRequest: true,
+      })),
+    })
+    const handler = makeGetIssueHandler(deps(client))
+    await expect(handler(envelope({ number: 8 }))).rejects.toMatchObject({
+      reason: 'github_is_pull_request',
+    })
+  })
+
+  it('maps a 404 to github_api_error with status', async () => {
+    const client = fakeClient({
+      getIssue: vi.fn(async () => {
+        throw new GithubApiError(404, 'Not Found')
+      }),
+    })
+    const handler = makeGetIssueHandler(deps(client))
+    await expect(handler(envelope({ number: 9999 }))).rejects.toMatchObject({
+      reason: 'github_api_error',
+      details: { status: 404 },
+    })
   })
 })

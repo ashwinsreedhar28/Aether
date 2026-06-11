@@ -35,6 +35,26 @@ export interface IssueClient {
   createComment(issueNumber: number, body: string): Promise<{ comment_id: number; url: string }>
   /** Direct by-number read — strongly consistent, unlike the filtered list. */
   getIssueState(issueNumber: number): Promise<'open' | 'closed'>
+  /** Full single-issue read (body included, any state). Throws GithubApiError
+   *  404 for an unknown number; returns `pullRequest: true` for a PR number so
+   *  the handler can deny it cleanly. */
+  getIssue(issueNumber: number): Promise<RawIssueDetail>
+  /** First page of an issue's comments, oldest-first (GitHub default order). */
+  listComments(issueNumber: number, perPage: number): Promise<RawComment[]>
+}
+
+/** github.getIssue's return — RawIssue plus the fields a single-issue read
+ *  adds (real state, PR discriminator). Omit re-widens `state`: the list
+ *  type pins it to 'open' (state=open filter), a by-number read does not. */
+export interface RawIssueDetail extends Omit<RawIssue, 'state'> {
+  state: 'open' | 'closed'
+  pullRequest: boolean
+}
+
+export interface RawComment {
+  author: string | null
+  body: string
+  created_at: string
 }
 
 // GET /repos/:repo/issues returns PRs too — `pull_request` presence is the
@@ -140,5 +160,28 @@ export class GithubClient implements IssueClient {
       `/repos/${this.repo}/issues/${issueNumber}`,
     )
     return issue.state === 'open' ? 'open' : 'closed'
+  }
+
+  async getIssue(issueNumber: number): Promise<RawIssueDetail> {
+    const raw = await this.request<GhIssueRaw & { state: string }>(
+      'GET',
+      `/repos/${this.repo}/issues/${issueNumber}`,
+    )
+    return {
+      ...toRawIssue(raw),
+      state: raw.state === 'open' ? 'open' : 'closed',
+      pullRequest: raw.pull_request !== undefined,
+    }
+  }
+
+  async listComments(issueNumber: number, perPage: number): Promise<RawComment[]> {
+    const raw = await this.request<
+      Array<{ body: string | null; user: { login?: string } | null; created_at: string }>
+    >('GET', `/repos/${this.repo}/issues/${issueNumber}/comments?per_page=${perPage}`)
+    return raw.map((c) => ({
+      author: c.user?.login ?? null,
+      body: c.body ?? '',
+      created_at: c.created_at,
+    }))
   }
 }

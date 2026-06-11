@@ -13,11 +13,13 @@ import { dirname, basename, join } from 'node:path'
 import {
   SpawnLedger,
   targetsForDraft,
+  targetsForLane,
   cleanupBlock,
   pythonCandidates,
   pickFirstCapable,
   type SpawnRecord,
 } from './spawnLedger'
+import type { ControlDispatch } from './viewerControl'
 
 const execFileAsync = promisify(execFile)
 
@@ -31,7 +33,8 @@ const WATCH_DEBOUNCE_MS = 120
 
 // A record enriched for the renderer: the derived target branch/worktree (so the
 // approval card can show them before approval) and, for an actionable 'requested'
-// record, the full draft prompt for preview.
+// record, the full prompt for preview — the draft text (draft kind) or the
+// canonical lane kickoff (lane kind).
 export interface SpawnView extends SpawnRecord {
   targetBranch: string
   targetWorktree: string
@@ -42,6 +45,17 @@ export interface SpawnView extends SpawnRecord {
   cleanup?: string
 }
 
+// A still-alive lane-* tmux session with no terminal window attached in THIS
+// app lifetime — the relaunch-after-quit case (#268: detachment is the point).
+// The card offers a one-tap reattach for each.
+export interface OrphanLane {
+  session: string
+  // From the ledger record whose tmux_session matches, when one exists (a
+  // hand-made lane-* session reattaches against the repo root instead).
+  issue?: number
+  worktree?: string
+}
+
 export interface SpawnSnapshot {
   spawns: SpawnView[]
   // The id of the spawn whose recipe is in flight (between approve and the
@@ -49,9 +63,19 @@ export interface SpawnSnapshot {
   // idle.
   running: string | null
   runningStep: string | null
-  // Concurrency=1 gate: true while a recipe is in flight OR a 'spawned' record is
-  // still open (the Director hasn't marked it complete).
+  // Records queued behind the running one inside the current approval (#268
+  // ruling: a batch's recipes serialize through the single in-flight slot).
+  queue: string[]
+  // Gate (#268 ruling): true while a recipe is in flight OR live spawned
+  // records have reached the max_lanes cap.
   busy: boolean
+  // Capacity, for the card's "k of n lanes live" line and approve gating.
+  liveCount: number
+  maxLanes: number
+  // false ⇔ tmux is not installed: lanes fall back to a plain pty (app quit
+  // kills them) and the card shows the `brew install tmux` remedy.
+  tmuxAvailable: boolean
+  orphans: OrphanLane[]
 }
 
 export interface SpawnServiceConfig {
@@ -62,40 +86,66 @@ export interface SpawnServiceConfig {
   // $AETHER_DATA_DIR/spawns/requests.jsonl — the same ledger the raven
   // request_spawn tool appends to.
   ledgerPath: string
+  // Lane concurrency cap (#268, spawn.max_lanes — AETHER_SPAWN_MAX_LANES in
+  // .env.local). Live spawned records, both kinds, count against it.
+  maxLanes?: number
+  // Reaches the renderer control bridge (open-lane-terminal, apply-layout).
+  // Injected like viewerNode's — absent in tests; lane spawns then skip the
+  // terminal/tiling steps but tmux still owns the process.
+  dispatch?: ControlDispatch
 }
 
 /**
  * The spawn actor (shell side). Watches the append-only spawn ledger; raises the
  * approval card (via the 'changed' event → IPC broadcast) when a request lands;
- * and, on the Director's approval, runs the CLAUDE.md §13.12 worktree recipe and
- * launches a visible Terminal.app session running Claude Code against the draft.
+ * and, on the Director's approval, runs the CLAUDE.md §13.12 worktree recipe.
+ * Draft-kind spawns then launch a visible Terminal.app session against the
+ * draft; lane-kind spawns (#268) hand the Claude Code process to a detached
+ * tmux session (`lane-<issue>`), open an Aether terminal window attached to
+ * it, and tile the desktop — app quit never kills a lane, and orphaned
+ * sessions get one-tap reattach offers on the next boot.
  *
  * Human-gated by construction: the voice tool only RECORDS a request; nothing
- * spawns until the Director presses Approve here. Concurrency is capped at one
- * live spawn. Closing the spawned Terminal window is the kill switch.
+ * spawns until the Director presses Approve here. Concurrency (#268 ruling):
+ * recipes serialize through the single in-flight slot; up to max_lanes spawned
+ * records (both kinds) may be live at once.
  */
 export class SpawnService extends EventEmitter {
   private readonly repoRoot: string
   private readonly ledgerPath: string
   private readonly ledger: SpawnLedger
+  private readonly maxLanes: number
+  private readonly dispatch: ControlDispatch | null
   private watcher: FSWatcher | null = null
   private debounce: NodeJS.Timeout | null = null
   // In-process gate covering the window between approve() and the spawned/failed
   // line — the ledger doesn't show 'spawned' yet, so this prevents a double-approve.
   private running: string | null = null
   private runningStep: string | null = null
+  // The rest of the approved batch, drained serially behind `running`.
+  private queue: SpawnRecord[] = []
+  // tmux probe results, resolved once in start(). Null until probed; the
+  // pty-fallback path treats "unknown" as unavailable.
+  private tmuxOk = false
+  // lane-* sessions alive in tmux that no terminal window of THIS app lifetime
+  // is attached to. Seeded at boot; sessions drop out on spawn/reattach.
+  private orphans: OrphanLane[] = []
 
   constructor(cfg: SpawnServiceConfig) {
     super()
     this.repoRoot = cfg.repoRoot
     this.ledgerPath = cfg.ledgerPath
+    this.maxLanes = cfg.maxLanes && cfg.maxLanes >= 1 ? cfg.maxLanes : 3
+    this.dispatch = cfg.dispatch ?? null
     // Ledger ctor mkdirs the spawns dir, so the watcher below can attach even
     // before the first request is written.
     this.ledger = new SpawnLedger(cfg.ledgerPath)
   }
 
   /** Attach the file watcher and push an initial snapshot. Idempotent-ish: a
-   * second call replaces the watcher. */
+   * second call replaces the watcher. Also probes tmux and enumerates
+   * orphaned lane-* sessions (#268: lanes outlive the app; relaunch offers
+   * reattach) — async, off the return; the snapshot updates when it lands. */
   start(): void {
     const dir = dirname(this.ledgerPath)
     const file = basename(this.ledgerPath)
@@ -108,6 +158,7 @@ export class SpawnService extends EventEmitter {
       console.error('[spawnService] watch failed:', err)
     }
     this.broadcast()
+    void this.probeTmux().then(() => this.broadcast())
   }
 
   stop(): void {
@@ -126,51 +177,121 @@ export class SpawnService extends EventEmitter {
       spawns: this.ledger.list().map((r) => this.toView(r)),
       running: this.running,
       runningStep: this.runningStep,
+      queue: this.queue.map((r) => r.id),
       busy: this.isBusy(),
+      liveCount: this.ledger.liveCount(),
+      maxLanes: this.maxLanes,
+      tmuxAvailable: this.tmuxOk,
+      orphans: [...this.orphans],
     }
   }
 
+  /** #268 ruling: busy ⇔ a recipe is in flight OR live spawned records have
+   * reached the cap. Live-but-under-cap no longer blocks an approve. */
   isBusy(): boolean {
-    return this.running !== null || this.ledger.busy()
+    return this.running !== null || this.ledger.liveCount() >= this.maxLanes
   }
 
   /**
-   * Approve a requested spawn: run the recipe and (on success) launch the
-   * Terminal. Returns immediately — the recipe runs off the return because pnpm
-   * install can take minutes; progress is reported through the ledger + the
-   * 'changed' broadcast. Refuses if the record isn't awaiting approval or a spawn
-   * is already running (concurrency=1).
+   * Approve a requested spawn — or, for a lane record / batch id, the WHOLE
+   * batch (#268 addendum: one card, single approve spawns all). Returns
+   * immediately — recipes run off the return because pnpm install can take
+   * minutes; progress reports through the ledger + the 'changed' broadcast.
+   * A batch's recipes drain serially through the single in-flight slot; the
+   * batch is refused whole when it cannot fit under max_lanes (never a
+   * silent partial spawn).
    */
   async approve(id: string): Promise<{ ok: boolean; error?: string }> {
-    const rec = this.ledger.find(id)
-    if (!rec) return { ok: false, error: 'unknown spawn' }
-    if (rec.status !== 'requested') {
-      return { ok: false, error: `spawn is ${rec.status}, not awaiting approval` }
+    const unit = this.resolveApprovalUnit(id)
+    if (unit.length === 0) return { ok: false, error: 'unknown spawn' }
+    const notRequested = unit.find((r) => r.status !== 'requested')
+    if (notRequested) {
+      return { ok: false, error: `spawn is ${notRequested.status}, not awaiting approval` }
     }
-    if (this.isBusy()) {
-      return { ok: false, error: 'a spawn is already running — mark it complete first' }
+    if (this.running !== null) {
+      return { ok: false, error: 'a spawn recipe is already running — let it finish first' }
     }
-    this.running = id
+    const live = this.ledger.liveCount()
+    if (live + unit.length > this.maxLanes) {
+      return {
+        ok: false,
+        error:
+          `approving ${unit.length} lane(s) would exceed the cap ` +
+          `(${live} live, max ${this.maxLanes}) — mark a spawn complete first`,
+      }
+    }
+    this.running = unit[0]?.id ?? null
     this.runningStep = 'starting'
+    this.queue = unit.slice(1)
     this.broadcast()
-    void this.runRecipe(rec).finally(() => {
+    void this.drainApproval(unit).finally(() => {
       this.running = null
       this.runningStep = null
+      this.queue = []
       this.broadcast()
     })
     return { ok: true }
   }
 
-  /** Dismiss a requested or failed spawn (appends 'dismissed'). */
-  dismiss(id: string): { ok: boolean; error?: string } {
-    const rec = this.ledger.find(id)
-    if (!rec) return { ok: false, error: 'unknown spawn' }
-    if (rec.status === 'requested' || rec.status === 'failed') {
-      this.ledger.markDismissed(id)
-      this.broadcast()
-      return { ok: true }
+  // One approval = one serial drain (#268 ruling) closed by ONE apply-layout
+  // tile once the last lane is live (#268 addendum 3) — the card reports
+  // per-lane progress meanwhile. A mid-batch failure is recorded on ITS
+  // record and the drain carries on: the Director approved every lane, so the
+  // survivors still spawn; the failed card stays up for acknowledgement.
+  private async drainApproval(unit: SpawnRecord[]): Promise<void> {
+    let anyLive = false
+    for (let i = 0; i < unit.length; i++) {
+      const rec = unit[i]
+      if (!rec) continue
+      this.running = rec.id
+      this.queue = unit.slice(i + 1)
+      const tag = unit.length > 1 ? ` (${i + 1}/${unit.length})` : ''
+      const ok =
+        rec.kind === 'lane'
+          ? await this.runLaneRecipe(rec, tag)
+          : await this.runRecipe(rec).then(
+              () => this.ledger.find(rec.id)?.status === 'spawned',
+            )
+      anyLive = anyLive || ok
     }
-    return { ok: false, error: `cannot dismiss a ${rec.status} spawn` }
+    if (anyLive && this.dispatch && unit.some((r) => r.kind === 'lane')) {
+      try {
+        await this.dispatch('apply-layout', { preset: 'tile' })
+      } catch (err) {
+        // Tiling is presentation; the lanes are already alive. Never fail here.
+        console.warn('[spawnService] apply-layout after spawn failed:', err)
+      }
+    }
+  }
+
+  // The approval unit behind an id: a lane batch (every still-requested record
+  // sharing the batch id — `id` may be the batch id itself or any member's
+  // record id), or the single record otherwise.
+  private resolveApprovalUnit(id: string): SpawnRecord[] {
+    const batch = this.ledger.requestedBatch(id)
+    if (batch.length > 0) return batch
+    const rec = this.ledger.find(id)
+    if (!rec) return []
+    if (rec.kind === 'lane' && rec.batchId) {
+      const siblings = this.ledger.requestedBatch(rec.batchId)
+      if (siblings.length > 0) return siblings
+    }
+    return [rec]
+  }
+
+  /** Dismiss a requested or failed spawn (appends 'dismissed'). For a lane
+   * record or batch id this dismisses the WHOLE batch — cancel spawns none
+   * (#268 addendum 1). */
+  dismiss(id: string): { ok: boolean; error?: string } {
+    const unit = this.resolveApprovalUnit(id)
+    if (unit.length === 0) return { ok: false, error: 'unknown spawn' }
+    const blocked = unit.find((r) => r.status !== 'requested' && r.status !== 'failed')
+    if (blocked) {
+      return { ok: false, error: `cannot dismiss a ${blocked.status} spawn` }
+    }
+    for (const rec of unit) this.ledger.markDismissed(rec.id)
+    this.broadcast()
+    return { ok: true }
   }
 
   /** Mark a live spawn complete (appends 'closed'), releasing the concurrency
@@ -256,6 +377,187 @@ export class SpawnService extends EventEmitter {
     }
   }
 
+  // ---- lane recipes (#268) ---------------------------------------------------
+
+  // The §13.12 recipe again, then the lane choreography: a detached tmux
+  // session owns the Claude Code process (app quit never kills a lane), an
+  // Aether terminal window attaches to it, and the caller tiles once the
+  // whole approval has drained. Returns true ⇔ the lane went live.
+  private async runLaneRecipe(rec: SpawnRecord, tag: string): Promise<boolean> {
+    if (process.platform !== 'darwin') {
+      this.ledger.markFailed(rec.id, 'platform', 'spawn launch is macOS-only')
+      return false
+    }
+    const issue = rec.issue ?? 0
+    // Fold already sanitized these; re-deriving through targetsForLane keeps
+    // one code path for the both-fields-garbled fallback.
+    const { branch, worktree } = targetsForLane(issue, rec.laneBranch, rec.laneWorktree)
+    const session = `lane-${issue}`
+    const setStep = (s: string): void => {
+      this.runningStep = `${s}${tag}`
+      this.broadcast()
+    }
+
+    try {
+      // Worktree hygiene per standing law (#268 pre-decision 6): never spawn
+      // into an existing path — collision is a clean error naming it. Same
+      // for a leftover tmux session wearing this lane's name.
+      setStep('preflight')
+      if (existsSync(worktree)) {
+        throw new Error(`worktree path already exists: ${worktree}`)
+      }
+      if (this.tmuxOk && (await this.tmuxHasSession(session))) {
+        throw new Error(`tmux session already exists: ${session} (lane-done it or tmux kill-session first)`)
+      }
+
+      setStep('git fetch origin')
+      await this.runShell('git fetch origin', this.repoRoot)
+
+      setStep('git worktree add')
+      await this.runShell(
+        `git worktree add ${sq(worktree)} -b ${sq(branch)} origin/main`,
+        this.repoRoot,
+      )
+
+      setStep('git submodule update')
+      await this.runShell('git submodule update --init --recursive', worktree)
+
+      setStep('cp .env.local')
+      const envSrc = join(this.repoRoot, '.env.local')
+      if (existsSync(envSrc)) copyFileSync(envSrc, join(worktree, '.env.local'))
+
+      setStep('pnpm install')
+      await this.runShell('pnpm install', worktree)
+
+      const rag = await this.bootstrapRag(worktree, setStep)
+
+      // No LANE.md for lane kind: the contract lives on the issue, and the
+      // kickoff (whose first action is `gh issue view N --comments`) is
+      // delivered as the session's first prompt.
+      const claudeCmd = `claude --dangerously-skip-permissions ${sq(laneKickoff(issue))}`
+      let tmuxSession: string | undefined
+      if (this.tmuxOk) {
+        setStep('tmux new-session')
+        // A shell under claude, not claude AS the session command: when claude
+        // exits, the session survives for post-mortem instead of vanishing.
+        await this.runShell(`tmux new-session -d -s ${sq(session)} -c ${sq(worktree)}`, worktree)
+        await this.runShell(`tmux send-keys -t ${sq('=' + session)} ${sq(claudeCmd)} Enter`, worktree)
+        tmuxSession = session
+      }
+
+      setStep('open terminal')
+      const paneCmd = tmuxSession ? `tmux attach -t ${sq('=' + session)}` : claudeCmd
+      const opened = await this.openLaneTerminal(worktree, paneCmd, `Lane #${issue}`)
+      if (!opened && !tmuxSession) {
+        // pty fallback (#268 pre-decision 4): the terminal pane IS the process
+        // home — no window means no lane.
+        throw new Error('terminal window could not be opened (and tmux is not installed)')
+      }
+      if (!opened && tmuxSession) {
+        // The lane is alive, just detached — surface it as a reattach offer.
+        this.orphans.push({ session, issue, worktree })
+      }
+
+      this.ledger.markSpawned(rec.id, worktree, branch, rag, tmuxSession)
+      console.log(
+        `[spawnService] spawned lane #${issue} → ${worktree}` +
+          (tmuxSession ? ` (tmux ${session})` : ' (pty fallback — app quit kills it)'),
+      )
+      return true
+    } catch (err) {
+      const step = this.runningStep ?? 'lane recipe'
+      const msg = err instanceof Error ? err.message : String(err)
+      this.ledger.markFailed(rec.id, step, msg.slice(0, 2000))
+      console.error(`[spawnService] lane #${issue} failed at ${step}:`, msg)
+      return false
+    }
+  }
+
+  // Open an Aether terminal window running `command` in `cwd` via the
+  // renderer control bridge. Returns false instead of throwing — the caller
+  // decides whether the window is load-bearing (pty fallback) or presentation
+  // (tmux lanes, which stay alive detached).
+  private async openLaneTerminal(cwd: string, command: string, title: string): Promise<boolean> {
+    if (!this.dispatch) return false
+    try {
+      const res = (await this.dispatch('open-lane-terminal', { cwd, command, title })) as {
+        ok?: boolean
+      } | null
+      return res?.ok === true
+    } catch (err) {
+      console.warn('[spawnService] open-lane-terminal failed:', err)
+      return false
+    }
+  }
+
+  /** One-tap reattach for an orphaned lane session (#268 pre-decision 4):
+   * opens an Aether terminal window running `tmux attach` against it. */
+  async reattach(session: string): Promise<{ ok: boolean; error?: string }> {
+    const orphan = this.orphans.find((o) => o.session === session)
+    if (!orphan) return { ok: false, error: 'unknown orphan session' }
+    const cwd = orphan.worktree ?? this.repoRoot
+    const title = orphan.issue ? `Lane #${orphan.issue}` : orphan.session
+    const opened = await this.openLaneTerminal(cwd, `tmux attach -t ${sq('=' + session)}`, title)
+    if (!opened) return { ok: false, error: 'terminal window could not be opened' }
+    this.orphans = this.orphans.filter((o) => o.session !== session)
+    this.broadcast()
+    return { ok: true }
+  }
+
+  // ---- tmux ------------------------------------------------------------------
+
+  // Resolve tmux availability once (login-shell PATH, same as every recipe
+  // step) and seed the orphan list from surviving lane-* sessions. tmux
+  // absent is a supported degraded mode: the snapshot flags it and the card
+  // names the `brew install tmux` remedy.
+  private async probeTmux(): Promise<void> {
+    if (process.platform !== 'darwin') return
+    try {
+      await this.runShell('command -v tmux', this.repoRoot)
+      this.tmuxOk = true
+    } catch {
+      this.tmuxOk = false
+      console.warn(
+        '[spawnService] tmux not found — lane spawns fall back to plain ptys that die with the app (remedy: brew install tmux)',
+      )
+      return
+    }
+    try {
+      // `|| true`: no tmux server running is the common, healthy case.
+      const out = await this.runShellCapture(
+        `tmux ls -F '#{session_name}' 2>/dev/null || true`,
+        this.repoRoot,
+      )
+      const sessions = out
+        .split('\n')
+        .map((s) => s.trim())
+        .filter((s) => /^lane-/.test(s))
+      if (sessions.length === 0) return
+      const bySession = new Map<string, SpawnRecord>()
+      for (const rec of this.ledger.list()) {
+        if (rec.status === 'spawned' && rec.tmuxSession) bySession.set(rec.tmuxSession, rec)
+      }
+      this.orphans = sessions.map((session) => {
+        const rec = bySession.get(session)
+        return { session, issue: rec?.issue, worktree: rec?.worktree }
+      })
+      console.log(`[spawnService] ${sessions.length} orphaned lane session(s): ${sessions.join(', ')}`)
+    } catch (err) {
+      console.warn('[spawnService] tmux session enumeration failed:', err)
+    }
+  }
+
+  private async tmuxHasSession(session: string): Promise<boolean> {
+    try {
+      // `=` pins exact-name matching — bare -t prefix-matches, so lane-2
+      // would otherwise collide with a live lane-27.
+      await this.runShell(`tmux has-session -t ${sq('=' + session)} 2>/dev/null`, this.repoRoot)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   // Best-effort RAG bootstrap inside the new worktree's daemons/aether-rag:
   // pick an extension-capable interpreter, create the venv from it, install
   // requirements, and reindex the corpus. Each step is surfaced on the card via
@@ -314,15 +616,22 @@ export class SpawnService extends EventEmitter {
   // ravenDaemonManager.resolveBin's `$SHELL -lic` strategy. cwd is set both via
   // the spawn option and an explicit `cd` so an rc-file `cd` can't relocate us.
   private async runShell(command: string, cwd: string): Promise<void> {
+    await this.runShellCapture(command, cwd)
+  }
+
+  // As runShell, but hands back stdout (the tmux session enumeration needs
+  // it). runShell stays the recipe-facing name; both share one error shape.
+  private async runShellCapture(command: string, cwd: string): Promise<string> {
     const userShell = process.env.SHELL || '/bin/zsh'
     const full = `cd ${sq(cwd)} && ${command}`
     try {
-      await execFileAsync(userShell, ['-lic', full], {
+      const { stdout } = await execFileAsync(userShell, ['-lic', full], {
         cwd,
         timeout: STEP_TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,
         env: process.env,
       })
+      return stdout
     } catch (err) {
       const e = err as { stderr?: string; stdout?: string; message?: string }
       const detail = (e.stderr || e.stdout || e.message || String(err)).trim()
@@ -347,6 +656,16 @@ export class SpawnService extends EventEmitter {
   // ---- views / broadcast ----------------------------------------------------
 
   private toView(r: SpawnRecord): SpawnView {
+    // Lane records carry their own targets (sanitized at fold time) and
+    // preview the exact kickoff the spawned session will receive — no draft
+    // file exists for them.
+    if (r.kind === 'lane') {
+      const targets = targetsForLane(r.issue ?? 0, r.laneBranch, r.laneWorktree)
+      const view: SpawnView = { ...r, targetBranch: targets.branch, targetWorktree: targets.worktree }
+      if (r.status === 'requested') view.preview = laneKickoff(r.issue ?? 0)
+      if (r.worktree && r.branch) view.cleanup = cleanupBlock(this.repoRoot, r.worktree, r.branch)
+      return view
+    }
     // Read the draft only for the actionable request (where the card shows the
     // preview AND the to-be targets). For settled records the recipe already
     // recorded the real branch/worktree, so re-reading a possibly-moved draft
@@ -380,6 +699,22 @@ export class SpawnService extends EventEmitter {
   private broadcast(): void {
     this.emit('changed', this.snapshot())
   }
+}
+
+// The canonical lane kickoff (#268 pre-decision 3) — the first prompt the
+// spawned implementer receives. One template, shell-side only: the issue is
+// the contract (first action reads it), so the kickoff stays issue-agnostic
+// boilerplate plus the number. Exported for the card preview and tests.
+export function laneKickoff(issue: number): string {
+  return (
+    `You are the Implementer for Aether issue #${issue}. ` +
+    `FIRST ACTION: gh issue view ${issue} --comments — the issue's ARCHITECT SPEC ` +
+    `(body plus any ADDENDUM comments) is the contract; do not start from a spec-less issue. ` +
+    `CLAUDE.md §7/§11/§13 discipline. RECON before building: read the files the spec names ` +
+    `before writing anything. Stop and report options on anything the spec doesn't cover. ` +
+    `When done: run the verify suite and report the gate; open the PR only on "clean, proceed," ` +
+    `with the full §7 self-review body, ending Closes #${issue}.`
+  )
 }
 
 // POSIX single-quote a value for safe embedding in a shell command string.

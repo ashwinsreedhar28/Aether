@@ -58,7 +58,13 @@ export interface MeshStatus {
 
 // ---- Spawn (the self-build loop's approval surface) ------------------------
 
-export type SpawnStatus = 'requested' | 'spawned' | 'closed' | 'dismissed' | 'failed'
+export type SpawnStatus =
+  | 'requested'
+  | 'spawned'
+  | 'closed'
+  | 'dismissed'
+  | 'failed'
+  | 'teardown_failed'
 
 export interface SpawnView {
   id: string
@@ -106,6 +112,23 @@ export interface RelayRecord {
   error?: string
 }
 
+/** A folded guarded teardown (#317) — voice close_lane or the card's CLOSE
+ * OUT; the shell runs the canonical cleanup block and records the outcome. */
+export type TeardownStatus = 'requested' | 'done' | 'failed'
+export type TeardownGuardCode = 'pr-open' | 'dirty' | 'lane-busy'
+
+export interface TeardownRecord {
+  id: string
+  ts: string
+  requestedTs: string
+  issue: number
+  force: boolean
+  status: TeardownStatus
+  code?: TeardownGuardCode
+  step?: string
+  error?: string
+}
+
 export interface SpawnSnapshot {
   spawns: SpawnView[]
   running: string | null
@@ -117,6 +140,7 @@ export interface SpawnSnapshot {
   tmuxAvailable: boolean
   orphans: OrphanLane[]
   relays: RelayRecord[]
+  teardowns: TeardownRecord[]
 }
 
 export interface SpawnActionResult {
@@ -124,7 +148,9 @@ export interface SpawnActionResult {
   error?: string
   // 'live-session' (#305): complete() refused because the record's tmux
   // session is still alive — re-call with force after an explicit warning.
-  code?: 'live-session'
+  // 'pr-open' / 'dirty' / 'lane-busy' (#317): closeLane guard outcomes —
+  // only 'dirty' is force-overridable (the warn card's CLOSE ANYWAY).
+  code?: 'live-session' | TeardownGuardCode
 }
 
 type Unsub = () => void
@@ -158,6 +184,7 @@ export interface AetherBridge {
     complete: (id: string, force?: boolean) => Promise<SpawnActionResult>
     reattach: (session: string) => Promise<SpawnActionResult>
     proceed: (issue: number) => Promise<SpawnActionResult>
+    closeLane: (issue: number, force?: boolean) => Promise<SpawnActionResult>
     onChanged: (cb: (snap: SpawnSnapshot) => void) => Unsub
   }
   shell: {

@@ -8,6 +8,7 @@ import {
   copyFileSync,
   writeFileSync,
   readFileSync,
+  rmSync,
 } from 'node:fs'
 import { dirname, basename, join } from 'node:path'
 import {
@@ -20,6 +21,8 @@ import {
   RELAY_TEXT,
   type SpawnRecord,
   type RelayRecord,
+  type TeardownRecord,
+  type TeardownGuardCode,
   // .ts extension so `node --test` can load this module (same rule as the
   // test files; tsconfig sets allowImportingTsExtensions).
 } from './spawnLedger.ts'
@@ -90,6 +93,10 @@ export interface SpawnSnapshot {
   // Folded relay records (#310), newest first — the card shows a lane's last
   // relay outcome (relayed/failed) so a voice "proceed lane N" is observable.
   relays: RelayRecord[]
+  // Folded teardown records (#317), newest first — the card shows a lane's
+  // last teardown outcome (pending/done/failed) so a voice "close out lane N"
+  // is observable, and the warn/refusal codes drive its CLOSE ANYWAY state.
+  teardowns: TeardownRecord[]
 }
 
 export interface SpawnServiceConfig {
@@ -156,6 +163,14 @@ export class SpawnService extends EventEmitter {
   // Relays execute only after the boot sweep has settled crash leftovers —
   // see armRelays(). Until then the drain is a no-op.
   private relaysArmed = false
+  // The teardown id executing RIGHT NOW (#317) — teardowns are exclusive:
+  // they mutate the main checkout (worktree remove, submodule update), so a
+  // second teardown OR a spawn recipe must never run concurrently. Approve
+  // checks this; executeTeardown checks `running`.
+  private teardownRunning: string | null = null
+  // Teardowns execute only after the boot sweep has settled crash leftovers —
+  // see armTeardowns(). Until then the drain is a no-op.
+  private teardownsArmed = false
 
   constructor(cfg: SpawnServiceConfig) {
     super()
@@ -186,6 +201,7 @@ export class SpawnService extends EventEmitter {
     this.broadcast()
     void this.probeTmux().then(() => {
       this.armRelays()
+      this.armTeardowns()
       this.broadcast()
     })
   }
@@ -213,6 +229,7 @@ export class SpawnService extends EventEmitter {
       tmuxAvailable: this.tmuxOk,
       orphans: [...this.orphans],
       relays: this.ledger.listRelays(),
+      teardowns: this.ledger.listTeardowns(),
     }
   }
 
@@ -240,6 +257,11 @@ export class SpawnService extends EventEmitter {
     }
     if (this.running !== null) {
       return { ok: false, error: 'a spawn recipe is already running — let it finish first' }
+    }
+    if (this.teardownRunning !== null) {
+      // Same exclusivity, mirrored (#317): a teardown mutates the main
+      // checkout (worktree remove, submodule update) — never under a recipe.
+      return { ok: false, error: 'a lane teardown is in flight — approve when it finishes' }
     }
     const live = this.ledger.liveCount()
     if (live + unit.length > this.maxLanes) {
@@ -717,6 +739,312 @@ export class SpawnService extends EventEmitter {
     }
   }
 
+  // ---- guarded teardown (#317) -------------------------------------------------
+
+  /** The card's CLOSE OUT path: record a teardown request for `issue` (force
+   * rides only the warn card's CLOSE ANYWAY) and execute it immediately. Same
+   * ledger line the close_lane voice tool writes — one path, one audit trail —
+   * but the card gets the outcome (and the guard code) back on the return. */
+  async closeLane(
+    issue: number,
+    force = false,
+  ): Promise<{ ok: boolean; error?: string; code?: TeardownGuardCode }> {
+    if (!Number.isInteger(issue) || issue < 1) {
+      return { ok: false, error: 'bad issue number' }
+    }
+    const rec = this.ledger.requestTeardown(issue, force)
+    return this.executeTeardown(rec.id)
+  }
+
+  // The boot sweep — armRelays' sibling: a teardown still 'requested' at
+  // startup is a crash leftover. Fail it by name instead of destroying a
+  // worktree minutes after the words were spoken; teardowns execute only when
+  // their request lands while the service is live. Anything else would be
+  // auto-closeout, which the human-gated posture rules out.
+  private armTeardowns(): void {
+    for (const td of this.ledger.pendingTeardowns()) {
+      this.ledger.markTeardownFailed(
+        td.id,
+        'found pending at shell boot — never auto-executed; say it again or press CLOSE OUT',
+      )
+    }
+    this.teardownsArmed = true
+  }
+
+  // Drain pending teardowns FIFO — invoked from the ledger watcher, so a
+  // request appended by the voice tool executes within the debounce window.
+  // Serial on purpose: teardowns mutate the main checkout.
+  private async drainTeardowns(): Promise<void> {
+    if (!this.teardownsArmed) return
+    for (const td of this.ledger.pendingTeardowns()) {
+      await this.executeTeardown(td.id)
+    }
+  }
+
+  // Execute one recorded teardown: guards first — pr-open refuse, lane-busy
+  // refuse, then the dirty/ahead warn unless forced (refusals run BEFORE the
+  // warn so a CLOSE ANYWAY can never land on a subsequent hard refusal) —
+  // then the canonical cleanup block's steps, shell-executed in its exact
+  // order. Every exit writes a teardown outcome line; the spawn RECORD gets
+  // 'closed' only after ALL steps succeed, or 'teardown_failed' naming the
+  // failing step (capacity is freed only by 'closed'). Steps are
+  // precondition-guarded so a retry after a partial failure resumes cleanly.
+  private async executeTeardown(
+    id: string,
+  ): Promise<{ ok: boolean; error?: string; code?: TeardownGuardCode }> {
+    const td = this.ledger.findTeardown(id)
+    if (!td || td.status !== 'requested') {
+      return { ok: false, error: 'unknown or already-settled teardown' }
+    }
+    if (this.teardownRunning !== null) {
+      return { ok: false, error: 'a teardown is already in flight — let it finish first' }
+    }
+    this.teardownRunning = id
+    const fail = (
+      error: string,
+      code?: TeardownGuardCode,
+      step?: string,
+    ): { ok: false; error: string; code?: TeardownGuardCode } => {
+      this.ledger.markTeardownFailed(id, error, { code, step })
+      this.broadcast()
+      return { ok: false, error, code }
+    }
+    try {
+      if (this.running !== null) {
+        return fail('a spawn recipe is in flight — close out when it finishes')
+      }
+      // Newest live lane record for the issue: 'spawned', or 'teardown_failed'
+      // (the retry path — destruction is resumable). The RECORDED worktree and
+      // branch are the only targets the executor will touch (the cleanupBlock
+      // law: never a re-derivation).
+      const lane = this.ledger
+        .list()
+        .find(
+          (r) =>
+            r.kind === 'lane' &&
+            r.issue === td.issue &&
+            (r.status === 'spawned' || r.status === 'teardown_failed'),
+        )
+      if (!lane) return fail(`no live lane record for issue #${td.issue}`)
+      const { worktree, branch } = lane
+      if (!worktree || !branch) {
+        return fail(
+          `lane #${td.issue} recorded no worktree/branch — nothing the executor can safely destroy`,
+        )
+      }
+      if (worktree === this.repoRoot) {
+        return fail('recorded worktree IS the main checkout — refusing')
+      }
+
+      // GUARD 1 — pr-open (no force path): an open PR on the record's branch
+      // means review is mid-flight; merge or close it first. Fail-closed: a
+      // probe error refuses too — never destroy on unverified PR state.
+      let pr: { number?: number; url?: string } | null
+      try {
+        pr = await this.probeOpenPr(branch)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return fail(
+          `could not verify PR state for ${branch} (${msg.slice(0, 300)}) — ` +
+            'refusing to close out while PR state is unknown',
+        )
+      }
+      if (pr) {
+        return fail(`PR #${pr.number ?? '?'} is open on ${branch} — merge or close it first`, 'pr-open')
+      }
+
+      // GUARD 2 — lane-busy (no force path): the pane's foreground-command
+      // probe (#300's delivery oracle, inverted). A pane that has left the
+      // bare shell is still running its session — killing it destroys live
+      // context. Probe errors refuse fail-closed.
+      let busy: string | null
+      try {
+        busy = await this.paneBusyCommand(lane.tmuxSession)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return fail(`could not probe lane #${td.issue}'s pane (${msg.slice(0, 300)}) — refusing`)
+      }
+      if (busy) {
+        return fail(
+          `lane #${td.issue}'s pane is still running ${busy} — let it finish (or exit the session) first`,
+          'lane-busy',
+        )
+      }
+
+      // GUARD 3 — dirty/ahead (the #308 warn-and-force law): uncommitted or
+      // unpushed work draws the warn; only an explicit CLOSE ANYWAY (force)
+      // proceeds past it. Probe errors refuse fail-closed.
+      if (!td.force) {
+        try {
+          const dirty = await this.worktreeDirty(worktree)
+          if (dirty) {
+            return fail(
+              `worktree has uncommitted changes (${dirty}) — CLOSE ANYWAY discards them`,
+              'dirty',
+            )
+          }
+          const unpushed = await this.branchUnpushed(branch)
+          if (unpushed > 0) {
+            return fail(
+              `${branch} has ${unpushed} commit(s) on no remote — CLOSE ANYWAY deletes them`,
+              'dirty',
+            )
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          return fail(`could not verify the worktree is clean (${msg.slice(0, 300)}) — refusing`)
+        }
+      }
+
+      // EXECUTE — the canonical cleanup block's exact order (cleanupBlock in
+      // spawnLedger.ts), each step precondition-guarded for retry idempotency.
+      let step = 'tmux kill-session'
+      try {
+        if (lane.tmuxSession && this.tmuxOk && (await this.tmuxHasSession(lane.tmuxSession))) {
+          await execFileAsync(
+            this.requireTmuxBin(),
+            ['kill-session', '-t', '=' + lane.tmuxSession],
+            { timeout: TERMINAL_TIMEOUT_MS },
+          )
+        }
+        step = 'rm .lane-kickoff.md'
+        if (existsSync(worktree)) rmSync(join(worktree, '.lane-kickoff.md'), { force: true })
+        step = 'git submodule deinit'
+        if (existsSync(worktree)) await this.runShell('git submodule deinit -f --all', worktree)
+        step = 'git worktree remove'
+        if (existsSync(worktree)) {
+          await this.runShell(`git worktree remove --force ${sq(worktree)}`, this.repoRoot)
+        }
+        step = 'git branch -D'
+        if (await this.branchExists(branch)) {
+          await this.runShell(`git branch -D ${sq(branch)}`, this.repoRoot)
+        }
+        // deinit is GLOBAL across worktrees sharing this .git (§13.12) — the
+        // closing step restores the main checkout's submodules.
+        step = 'git submodule update'
+        await this.runShell('git submodule update --init --recursive', this.repoRoot)
+      } catch (err) {
+        const msg = (err instanceof Error ? err.message : String(err)).slice(0, 2000)
+        this.ledger.markRecordTeardownFailed(lane.id, step, msg)
+        console.error(`[spawnService] teardown of lane #${td.issue} failed at ${step}:`, msg)
+        return fail(`${step} — ${msg}`, undefined, step)
+      }
+
+      this.ledger.markClosed(lane.id)
+      this.ledger.markTeardownDone(id)
+      // The session is gone — a stale orphan offer for it must not survive.
+      if (lane.tmuxSession) {
+        this.orphans = this.orphans.filter((o) => o.session !== lane.tmuxSession)
+      }
+      this.broadcast()
+      console.log(
+        `[spawnService] closed out lane #${td.issue} — ${worktree} removed, ${branch} deleted`,
+      )
+      return { ok: true }
+    } finally {
+      this.teardownRunning = null
+    }
+  }
+
+  // ---- teardown guard probes ---------------------------------------------------
+
+  // Is a PR open with `branch` as head? Probed through the gh CLI in the main
+  // checkout (login-shell PATH — the toolchain the lane itself ships with).
+  // Returns the first open PR or null; THROWS on a probe failure (gh missing,
+  // unauthenticated, offline) so the caller refuses fail-closed. NOTE: a
+  // deliberate, ADR-flagged exception to the #310 "GitHub access lives in the
+  // github node" posture — the node has no PR-by-head-branch surface and this
+  // guard runs main-side at execution time (see the #317 ADR + PR notes).
+  private async probeOpenPr(branch: string): Promise<{ number?: number; url?: string } | null> {
+    const out = await this.runShellCapture(
+      `gh pr list --head ${sq(branch)} --state open --json number,url --limit 1`,
+      this.repoRoot,
+    )
+    // -lic capture hygiene (the pickBinaryLine lesson): rc files may write
+    // banner lines, so scan for the line that parses as the JSON array gh
+    // emits (compact, single-line) instead of trusting the whole capture.
+    for (const line of out.split('\n').reverse()) {
+      const t = line.trim()
+      if (!t.startsWith('[')) continue
+      try {
+        const arr = JSON.parse(t) as Array<{ number?: number; url?: string }>
+        return arr[0] ?? null
+      } catch {
+        /* keep scanning */
+      }
+    }
+    throw new Error(`gh pr list returned no JSON (got ${JSON.stringify(out.slice(0, 200))})`)
+  }
+
+  // The lane-busy probe: the pane's foreground command, or null when idle.
+  // tmux-unprobeable states (no recorded session, binary missing, session
+  // already dead) read as idle — there is no live process a kill-session
+  // could destroy in any of them.
+  private async paneBusyCommand(session: string | undefined): Promise<string | null> {
+    if (!session || !this.tmuxOk) return null
+    if (!(await this.tmuxHasSession(session))) return null
+    const paneId = await this.resolveLanePaneId(session)
+    const { stdout } = await execFileAsync(
+      this.requireTmuxBin(),
+      ['display', '-p', '-t', paneId, '#{pane_current_command}'],
+      { timeout: TERMINAL_TIMEOUT_MS },
+    )
+    const pane = stdout.trim()
+    // A login shell can report a leading dash ("-zsh") — still bare (the same
+    // normalization as awaitKickoffDelivery).
+    const shellName = basename(process.env.SHELL || '/bin/zsh')
+    if (pane === '' || pane.replace(/^-/, '') === shellName) return null
+    return pane
+  }
+
+  // First real dirty line of `git status --porcelain`, or null for a clean
+  // (or already-removed) worktree. The recipe's own kickoff file is excluded:
+  // .lane-kickoff.md sits untracked in EVERY lane worktree, so counting it
+  // would draw the warn card on every closeout.
+  private async worktreeDirty(worktree: string): Promise<string | null> {
+    if (!existsSync(worktree)) return null
+    const out = await this.runShellCapture('git status --porcelain', worktree)
+    for (const line of out.split('\n')) {
+      // Porcelain shape: two status chars + space + path (-lic banner hygiene:
+      // anything else in the capture is not a status line).
+      if (!/^[ MTADRCU?!]{2} /.test(line)) continue
+      const path = line.slice(3).trim()
+      if (path === '.lane-kickoff.md') continue
+      return line.trim()
+    }
+    return null
+  }
+
+  // Commits reachable from `branch` but from NO remote ref — covers both a
+  // never-pushed branch and one ahead of its pushed counterpart (a normal
+  // shipped lane was pushed for its PR, so its tip is on origin and counts 0).
+  // A branch already deleted (the retry path) counts 0 too.
+  private async branchUnpushed(branch: string): Promise<number> {
+    if (!(await this.branchExists(branch))) return 0
+    const out = await this.runShellCapture(
+      `git rev-list --count ${sq(branch)} --not --remotes`,
+      this.repoRoot,
+    )
+    // -lic banner hygiene: the count is the last purely numeric line.
+    for (const line of out.split('\n').reverse()) {
+      const t = line.trim()
+      if (/^\d+$/.test(t)) return parseInt(t, 10)
+    }
+    return 0
+  }
+
+  private async branchExists(branch: string): Promise<boolean> {
+    try {
+      await this.runShell(
+        `git show-ref --verify --quiet ${sq('refs/heads/' + branch)}`,
+        this.repoRoot,
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
   // ---- tmux ------------------------------------------------------------------
 
   // Resolve the tmux BINARY once through the login shell (Homebrew shellenv
@@ -999,10 +1327,12 @@ export class SpawnService extends EventEmitter {
     if (this.debounce) return
     this.debounce = setTimeout(() => {
       this.debounce = null
-      // The watcher is also the relay trigger (#310): a request line appended
-      // by the voice tool executes here, off the broadcast tick. Off the
-      // return — the snapshot push must not wait on tmux.
+      // The watcher is also the relay (#310) and teardown (#317) trigger: a
+      // request line appended by the voice tool executes here, off the
+      // broadcast tick. Off the return — the snapshot push must not wait on
+      // tmux or git.
       void this.drainRelays()
+      void this.drainTeardowns()
       this.broadcast()
     }, WATCH_DEBOUNCE_MS)
   }

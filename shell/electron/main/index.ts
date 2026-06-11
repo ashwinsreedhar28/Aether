@@ -635,6 +635,13 @@ ipcMain.handle('spawn:reattach', (_e, session: unknown) => spawnService.reattach
 // against the lane working `issue` — the same ledger path raven's
 // lane_proceed tool writes, so voice and card relays share one audit trail.
 ipcMain.handle('spawn:proceed', (_e, issue: unknown) => spawnService.proceed(Number(issue)))
+// The card's CLOSE OUT button (#317): record + execute a guarded teardown of
+// the lane working `issue` — the same ledger path raven's close_lane tool
+// writes. `force` rides only the warn card's CLOSE ANYWAY (the #308
+// warn-and-force law); pr-open and lane-busy refusals have no force path.
+ipcMain.handle('spawn:close-lane', (_e, issue: unknown, force: unknown) =>
+  spawnService.closeLane(Number(issue), force === true),
+)
 
 app.whenReady().then(() => {
   // macOS dev mode: set Dock icon explicitly. In packaged builds the .icns

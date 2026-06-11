@@ -70,9 +70,10 @@ def _normalize_number(value: Any) -> int | None:
 def _lane_status(issue: int) -> str | None:
     """Fold the ledger for the NEWEST lane record bound to `issue` and return
     its current status, or None when no lane record names that issue. Relay
-    lines are skipped wholesale (every one carries kind: "relay") — they share
-    the log but never describe a lane. The shell re-validates against live
-    state at execution time; this fold only shapes the spoken answer."""
+    (#310) and teardown (#317) lines are skipped wholesale by their kind tag —
+    they share the log but never describe a lane. The shell re-validates
+    against live state at execution time; this fold only shapes the spoken
+    answer."""
     ledger = _ledger_path()
     if not ledger.is_file():
         return None
@@ -90,7 +91,7 @@ def _lane_status(issue: int) -> str | None:
             obj = json.loads(line)
         except ValueError:
             continue
-        if obj.get("kind") == "relay":
+        if obj.get("kind") in ("relay", "teardown"):
             continue
         rec_id = obj.get("id")
         if not isinstance(rec_id, str):

@@ -1,6 +1,4 @@
 import type {
-  GapRecord,
-  GapsResult,
   LaneInfo,
   LanesStatus,
   MeshNodeInfo,
@@ -31,10 +29,6 @@ export const PANEL_MESH_OVERLAY = 'viz-mesh'
 // Lanes: a third always-present backdrop (dashboard.*) + a summoned overlay.
 export const PANEL_LANES_BACKDROP = 'dashboard.lanes'
 export const PANEL_LANES_OVERLAY = 'viz-lanes'
-// Gaps: a summoned overlay only (no backdrop — the gap log is summoned on
-// demand, not an always-present dashboard fixture). Stable non-dashboard id so a
-// repeat "show me your gaps" updates it in place rather than stacking copies.
-export const PANEL_GAPS_OVERLAY = 'viz-gaps'
 
 // Canonical four-category vocabulary order (roadmap architectural anchor #1).
 // Semantic ordering, not alphabetical (CLAUDE.md §11.1).
@@ -324,69 +318,6 @@ export function renderLanesOverlayPanels(status: LanesStatus | null): ScenePanel
   ]
 }
 
-// ── 'gaps' summoned overlay ───────────────────────────────────────────────────
-
-// Relative age of a recorded gap from its ISO 8601 timestamp. Reuses formatAge
-// (s/m/h ladder) for dashboard consistency; sidesteps its "just now" string
-// reading as "just now ago" by suffixing " ago" only for elapsed buckets. A
-// malformed/missing ts (the store stores '' for an unparseable line) reads as
-// 'unknown time' rather than a bogus age.
-function gapWhen(ts: string): string {
-  const parsed = Date.parse(ts)
-  if (Number.isNaN(parsed)) return 'unknown time'
-  const age = formatAge(Date.now() - parsed)
-  return age === 'just now' ? age : `${age} ago`
-}
-
-function gapLine(gap: GapRecord): string {
-  return `- **${gapWhen(gap.ts)}** — ${gap.text}`
-}
-
-// Header tally line. Uses the whole-log `counts` when the intents node provides
-// them ("2 open · 3 closed"), so the panel shows the lifecycle at a glance even
-// though the body lists only open gaps. Falls back to the shown-gap count for an
-// older intents node that doesn't return counts.
-function gapsHeader(result: GapsResult, openShown: number): string {
-  const counts = result.counts
-  if (counts) {
-    return `**${counts.open} open** · ${counts.closed} closed`
-  }
-  return `**${openShown} open**`
-}
-
-// `result` is nullable on purpose: when the gap sensor (intents node) is
-// unavailable the overlay still renders — with an explicit unavailable note —
-// rather than the summon failing silently (mirrors lanesMarkdown's resilience).
-// A non-null result with no OPEN gaps is the distinct "nothing open" case and
-// gets the friendlier "No open gaps" (with the closed count still in the header
-// when known — the log isn't empty, everything's just been answered).
-function gapsMarkdown(result: GapsResult | null): string {
-  if (!result) {
-    return ['## Capability Gaps', '', '_gap sensor unavailable_'].join('\n')
-  }
-  // The body lists OPEN gaps only (intents.list was queried status:'open',
-  // newest-first — render in array order).
-  const gaps = result.gaps ?? []
-  const header = gapsHeader(result, gaps.length)
-  if (gaps.length === 0) {
-    return ['## Capability Gaps', '', header, '', '_No open gaps_'].join('\n')
-  }
-  return ['## Capability Gaps', '', header, '', gaps.map(gapLine).join('\n')].join('\n')
-}
-
-// Summoned gaps overlay (stable viz-gaps id; a repeat summon updates in place).
-export function renderGapsPanels(result: GapsResult | null): ScenePanel[] {
-  return [
-    makeMarkdownPanel(
-      PANEL_GAPS_OVERLAY,
-      gapsMarkdown(result),
-      transformAt(0, 1.2),
-      { width: 0.7, height: 0.5 },
-      'gaps-overlay',
-    ),
-  ]
-}
-
 // ── 'agenda' summoned overlay ─────────────────────────────────────────────────
 // Self-contained region (own type import below) so it rebases cleanly against
 // the parallel lifecycle lane, which edits the regions above.
@@ -540,7 +471,7 @@ function agendaMarkdown(data: AgendaData): string {
 }
 
 // Summoned agenda overlay (stable viz-agenda id; a repeat summon updates in
-// place). Same single-panel shape as the mesh/lanes/gaps overlays.
+// place). Same single-panel shape as the mesh/lanes overlays.
 export function renderAgendaPanels(data: AgendaData): ScenePanel[] {
   return [
     makeMarkdownPanel(

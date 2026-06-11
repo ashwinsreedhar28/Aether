@@ -105,13 +105,6 @@ export const LANES_ENTRY: string = join(
   'dist',
   'index.js',
 )
-export const INTENTS_ENTRY: string = join(
-  REPO_ROOT,
-  'nodes',
-  'intents',
-  'dist',
-  'index.js',
-)
 export const GITHUB_ENTRY: string = join(
   REPO_ROOT,
   'nodes',

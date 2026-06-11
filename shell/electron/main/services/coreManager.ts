@@ -162,11 +162,6 @@ export class CoreManager {
       // nodeManager can inject the same value into the child's env. No
       // ADMIN_TOKEN: lanes reads only local git state, no broker endpoint.
       MESH_LANES_SECRET: this.secrets.lanesSecret,
-      // intents is a TypeScript Sensor node (the gap sensor, spawned by
-      // nodeManager). Same env contract — Core resolves env:MESH_INTENTS_SECRET
-      // at manifest load so nodeManager can inject the same value into the
-      // child's env. No ADMIN_TOKEN: it persists gaps locally, no broker endpoint.
-      MESH_INTENTS_SECRET: this.secrets.intentsSecret,
       // github is a TypeScript Actor node (spawned by nodeManager). Same env
       // contract — Core resolves env:MESH_GITHUB_SECRET at manifest load so
       // nodeManager can inject the same value into the child's env. No

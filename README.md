@@ -44,12 +44,13 @@ Four things make it what it is today:
   private back channel.
 - **A signed mesh.** Every cross-system interaction travels as an HMAC-signed
   envelope that a single [`manifest.yaml`](manifest.yaml) edge graph
-  authorizes — currently **20 nodes and 80 authorized edges**, each node
+  authorizes — currently **20 nodes and 79 authorized edges**, each node
   classed as a **Sensor / Actor / Mixer / Planner**. Edge present = permitted;
   edge absent = denied. The manifest is the single, auditable answer to "what
   can talk to what."
-- **A self-building loop — human-gated.** Aether records its own missing
-  capabilities to a durable gap ledger, proposes concrete next builds when
+- **A self-building loop — human-gated.** Aether files its own missing
+  capabilities as issues on the GitHub gap board (voice-confirmed, deduped —
+  repeat asks accrue as +1 comments), proposes concrete next builds when
   asked, and drafts paste-ready lane prompts. The loop runs
   `gaps → proposals → drafts → lanes`, and a human presses every merge. In the
   last arc, a bug noticed by voice at midnight was root-caused, specced, built
@@ -142,13 +143,13 @@ the first time the relevant nodes spawn.
   ┌────────────────────────────────────────────────────┐
   │        RAVEN_MESH Core — the broker                │      authorized by
   │        HMAC-signed envelopes · SSE delivery        │◄──── manifest.yaml
-  └──────────────────────────┬─────────────────────────┘      20 nodes · 80 edges
+  └──────────────────────────┬─────────────────────────┘      20 nodes · 79 edges
                              │ dispatch
                              ▼
   mesh nodes — one process each, classed Sensor / Actor / Mixer / Planner
   news_feeds · finance · weather · digest · clipboard_history · macos_mail
   macos_messages · calendar · reminders · system_info · time · vision
-  host_notifications · mesh_introspection · lanes · intents
+  host_notifications · mesh_introspection · lanes · github
 ```
 
 The mesh is the load-bearing primitive: there is no privileged back channel.

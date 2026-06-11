@@ -18,7 +18,7 @@ import asyncio
 import sys
 
 from raven_core.audio_devices import list_devices_formatted
-from raven_core.config import Config
+from raven_core.config import Config, set_active_config
 from raven_core.orchestrator import Orchestrator
 from raven_core.json_logger import JsonLogger
 
@@ -132,6 +132,11 @@ Configuration:
             config.audio_output_device = int(args.audio_output)
         except ValueError:
             config.audio_output_device = args.audio_output
+
+    # Register the final (post-CLI-override) config for module-level
+    # consumers — voice tools read knobs like gaps.auto_file through
+    # get_active_config().
+    set_active_config(config)
 
     # Validate configuration
     errors = config.validate()

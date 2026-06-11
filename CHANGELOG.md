@@ -10,6 +10,16 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- raven files gaps on the issue board (Lane C of #255, #258): `report_gap` is
+  voice-gated two-turn ("I can't do that yet — want me to file it?") into
+  `github.create_issue` with a `gaps.auto_file` knob (default false), a
+  5-per-session rate guard, and a per-session uuid on every filed record;
+  `review_gaps` reads the live board via `github.list_issues` (new raven read
+  edge); `close_gap` retired (gaps close via the merge rail); the intents node
+  fully retired (package, manifest entry, five edges, shell wiring) and its
+  visualizer overlay stripped; one-time backfill script
+  (`nodes/github/scripts/backfill-gap-ledger.mjs`) files the open ledger gaps
+  and archives `gaps.jsonl` in place.
 - Gaps panel reads the live issue board (Lane B of #255, #257): `GapsApp`
   rewritten from the intents ledger to `github.list_issues` — open issues
   newest-first, gap label chip visually distinct, gap-only filter (client-side

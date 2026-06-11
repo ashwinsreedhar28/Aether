@@ -59,30 +59,6 @@ export interface LanesStatus {
   fetched_at_ms?: number
 }
 
-// ── Inbound: gap records (intents.list payload) ───────────────────────────────
-
-// One recorded capability gap — a thing Aether could not do. Mirrors the gap
-// sensor's GapRecord shape (nodes/intents/src/storage.ts): `ts` is an ISO 8601
-// UTC timestamp, `context` a string or null, `status` 'open' | 'closed'.
-// `unknown`-tolerant like the topology/lanes types above.
-export interface GapRecord {
-  id: string
-  ts: string
-  text: string
-  context: string | null
-  status: string // 'open' | 'closed'
-}
-
-// intents.list returns gaps newest-first (the store walks its append-only log
-// bottom-up), so the template renders them in array order — no client sort.
-// `counts` reflects the WHOLE log (open + closed) regardless of the status
-// filter, so the panel header can read "N open · M closed" while the body shows
-// only open gaps. Optional for tolerance against an older intents node.
-export interface GapsResult {
-  gaps: GapRecord[]
-  counts?: { open: number; closed: number }
-}
-
 // ── Inbound: calendar events (calendar.today / calendar.upcoming payload) ──────
 
 // One calendar event. Mirrors the calendar node's format_event shape

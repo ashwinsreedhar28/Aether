@@ -399,31 +399,6 @@ nodes:
         invocation_mode: request_response
         schema: nodes/lanes/schemas/status.json
 
-  - id: intents
-    runtime: local-process
-    category: Sensor
-    identity_secret: env:MESH_INTENTS_SECRET
-    metadata:
-      description: |
-        The gap sensor. Records what Aether cannot do — gaps with no
-        tool, surface, or data behind them. Gaps have an open/closed
-        lifecycle: intents.record logs one (fsync'd JSONL), intents.list
-        reads them, intents.close marks them done. First brick of the
-        self-building arc.
-    surfaces:
-      - name: record
-        type: tool
-        invocation_mode: request_response
-        schema: nodes/intents/schemas/record.json
-      - name: list
-        type: tool
-        invocation_mode: request_response
-        schema: nodes/intents/schemas/list.json
-      - name: close
-        type: tool
-        invocation_mode: request_response
-        schema: nodes/intents/schemas/close.json
-
   - id: github
     runtime: local-process
     category: Actor
@@ -792,46 +767,6 @@ relationships:
   - from: lanes
     to: host_notifications.notify
 
-  # Gap sensor (the self-building arc, first brick): when raven cannot fulfil a
-  # request it records the gap via the report_gap voice tool →
-  # mesh.invoke('intents.record', { text }). This is the write edge.
-  - from: raven
-    to: intents.record
-  # The read edge (Architect v0): when the user asks "what should we build
-  # next" raven calls the review_gaps voice tool → mesh.invoke('intents.list')
-  # → clusters its own recorded gaps into 1–3 concrete lane proposals. raven
-  # could already WRITE gaps (the edge above); reading them is a NEW
-  # relationship, and every consumer needs its own edge (#136's lesson — the
-  # shell pre-grant below does not cover raven). Proposing only; building stays
-  # human-gated.
-  - from: raven
-    to: intents.list
-  # The close edge (gap lifecycle): when the user says a capability now exists
-  # ("the email one is done", "mark that closed") raven calls the close_gap
-  # voice tool → mesh.invoke('intents.close', { id | match }) → the matching
-  # gap(s) move open → closed. A NEW relationship distinct from record (write a
-  # gap) and list (read them); every consumer needs its own edge (#136). This
-  # closes the loop the gap sensor opened — Aether noticing when it CAN now do
-  # what it once couldn't.
-  - from: raven
-    to: intents.close
-  # The shell edge is a DELIBERATE PRE-GRANT (Architect decision). The
-  # gap-visibility view — the renderer surface that lists what Aether couldn't
-  # do — is the named next lane, and #136 (mesh graph view) taught us every
-  # renderer consumer needs its own edge before it can read a surface. Granting
-  # shell → intents.list now means the next lane is pure renderer work with no
-  # manifest round-trip. Same reserved-edge pattern the news/finance/digest
-  # shell edges use; not consumed by any renderer code in THIS PR.
-  - from: shell
-    to: intents.list
-  # The visualizer Mixer reads the gap log through the mesh to compose the
-  # summoned 'gaps' overlay (viz-gaps) — same consume-surface pattern as its
-  # mesh_introspection.topology / lanes.status edges above. The shell pre-grant
-  # above does NOT cover the visualizer: every consumer needs its own edge
-  # (#136's lesson, restated when #145 granted the shell edge).
-  - from: visualizer
-    to: intents.list
-
   # GitHub Actor (one rail, #255/#256): raven files gaps through
   # github.create_issue — dedup lives INSIDE the surface (a repeat ask
   # comments the existing issue), so this single write edge is all the voice
@@ -843,6 +778,13 @@ relationships:
   # consumer/surface pair needs its own edge (#136's lesson).
   - from: raven
     to: github.comment_issue
+  # The read edge (the "what can't you do yet" voice affordance, #255 ruling
+  # 4): review_gaps pulls the open gap-labeled issues back for raven to
+  # cluster into build proposals. A NEW relationship distinct from create /
+  # comment — every consumer/surface pair needs its own edge (#136's lesson);
+  # the shell pre-grant below does not cover raven.
+  - from: raven
+    to: github.list_issues
   # The Gaps panel (renderer) reads the open issue board through the mesh —
   # mirrors the shell → lanes.status consume-surface pattern. Lane B (#257)
   # is pure renderer work on top of this edge.

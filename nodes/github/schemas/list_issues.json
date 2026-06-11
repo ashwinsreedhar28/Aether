@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "github.list_issues",
+  "title": "github.list_issues",
+  "description": "Return the OPEN issue board of the configured repo, newest-first, pull requests filtered out. Params: { labels?: string (GitHub comma-separated label filter — issues must carry ALL listed labels, e.g. 'gap'), limit?: number (default 50, max 100) }. Returns { issues: [{ number, title, labels, state, created_at, updated_at, comments, url, author }], fetched_at_ms, stale, token_available } — labels is a plain string[] of label NAMES (GitHub's REST label objects are flattened to their name strings; empties dropped), created_at is ISO 8601 (the panel derives age), comments is the +1 demand signal on deduped gaps, url is the html click-through target. Cache-then-serve with a 30s TTL per (labels, limit) pair; when GitHub is unreachable the last good fetch is served with stale: true (the offline render). AETHER_GITHUB_TOKEN absent = the clean degraded payload { issues: [], fetched_at_ms: 0, stale: false, token_available: false } — no deny, nothing crashes. Denies only when the token is present but GitHub is unreachable with NOTHING cached: github_api_error { status, reason } or github_unreachable { reason }.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "labels": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+  }
+}

@@ -10,6 +10,15 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- `github` Actor node (`nodes/github`, Lane A of #255): gaps file as GitHub
+  issues. Three surfaces — `create_issue` (dedup inside: a repeat ask comments
+  the existing gap issue and returns `{ deduped: true }`), `list_issues` (the
+  open board, cache-then-serve, clean no-token degraded payload), and
+  `comment_issue`. Auth via `AETHER_GITHUB_TOKEN` (fine-grained PAT, Issues RW,
+  never logged); target repo via `AETHER_GITHUB_REPO` (default
+  `ashwinsreedhar28/Aether`). Edges: `raven → create/comment`,
+  `shell → list_issues`. Unblocks the panel rewrite (#257) and the raven
+  filing flow (#258).
 - Post-arc docs refresh: README rewritten front-facing for the post-Viewer-merge
   reality (window manager + ~25 apps, raven voice layer, signed S/A/M/P mesh,
   the human-gated self-building loop, build-process story); the viewer-arc

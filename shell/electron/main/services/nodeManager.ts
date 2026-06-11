@@ -5,6 +5,7 @@ import {
   CLIPBOARD_HISTORY_ENTRY,
   DIGEST_ENTRY,
   FINANCE_ENTRY,
+  GITHUB_ENTRY,
   HOST_NOTIFICATIONS_ENTRY,
   INTENTS_ENTRY,
   LANES_ENTRY,
@@ -85,6 +86,7 @@ export class NodeManager {
       // history), not rebuilding the node.
       this.spawnLanes(),
       this.spawnIntents(),
+      this.spawnGithub(),
     ])
   }
 
@@ -319,6 +321,27 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/intents build`',
       secretEnvName: 'MESH_INTENTS_SECRET',
       secretValue: this.secrets.intentsSecret,
+      extraEnv: {
+        AETHER_DATA_DIR: dataDir,
+      },
+    })
+  }
+
+  private async spawnGithub(): Promise<void> {
+    // github Actor — files gaps as GitHub issues (create_issue dedups inside)
+    // and serves the open issue board (list_issues). AETHER_GITHUB_TOKEN and
+    // AETHER_GITHUB_REPO ride the inherited process env (.env.local via
+    // env-loader); a missing token is handled by the node itself (degraded
+    // no-token mode), so the spawn is unconditional. AETHER_DATA_DIR is the
+    // writable root for the running marker, matching the data-node pattern.
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'github',
+      entry: GITHUB_ENTRY,
+      buildHint: '`pnpm --filter @aether/github build`',
+      secretEnvName: 'MESH_GITHUB_SECRET',
+      secretValue: this.secrets.githubSecret,
       extraEnv: {
         AETHER_DATA_DIR: dataDir,
       },

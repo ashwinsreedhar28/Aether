@@ -10,6 +10,18 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Soft mute — mute no longer kills the Gemini session (#219). Muting gates
+  mic-frame forwarding inside the live orchestrator (sticky `_muted` flag next
+  to the echo gate; frames are read and dropped, never replaced with silence,
+  and can't trigger barge-in) via a `{"type":"set_muted"}` stdin envelope and
+  a new daemon `POST /listen/set-muted`; `/listen/stop` is reserved for
+  shutdown. Unmute is instant and the conversation context survives a
+  mute/unmute cycle. The shell's `voice:set-muted` IPC calls the new endpoint
+  instead of stop/respawn, plus an intentional-stop latch so ambient
+  auto-listen never resurrects a deliberately stopped mic. UX: the floating
+  mute button expands into a red "MUTED" pill and the ⌘/ palette mic tracks
+  the shared mute flag (red MicOff + "Muted" status) — both read as sticky
+  mute state, not push-to-talk.
 - Voice-spawned implementer lanes (#268): `work_on_issue(number | numbers[])`
   (alias `spawn_lane`, card-gated — no passphrase, by ruling on the issue)
   fetches issues through the new read-only `github.get_issue` surface (new

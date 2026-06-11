@@ -19,23 +19,26 @@ import {
   LANE_CLAUDE_CMD,
   laneSendKeysArgs,
   laneKickoff,
+  parsePaneId,
   withTimeout,
 } from './spawnService.ts'
 
 // ---- kickoff delivery is file-based: the send-keys argv is FIXED ------------
 
-test('laneSendKeysArgs varies the session name and nothing else', () => {
-  assert.deepEqual(laneSendKeysArgs('lane-300'), [
+test('laneSendKeysArgs varies the pane id and nothing else', () => {
+  // %pane_id, not '='+session: run-4 field matrix — send-keys refuses the
+  // '=' exact-match targets that display -p and list-panes accept.
+  assert.deepEqual(laneSendKeysArgs('%0'), [
     'send-keys',
     '-t',
-    '=lane-300',
+    '%0',
     'claude --dangerously-skip-permissions "$(cat .lane-kickoff.md)"',
     'Enter',
   ])
 })
 
 test('the send-keys argv carries zero kickoff content; the claude element is byte-identical to LANE_CLAUDE_CMD', () => {
-  const args = laneSendKeysArgs('lane-219')
+  const args = laneSendKeysArgs('%3')
   // The #298 failure mode: kickoff prose riding shell quoting layers. No
   // fragment of laneKickoff may appear anywhere in the argv, and the line
   // tmux types into the pane must be exactly the exported constant.
@@ -43,6 +46,16 @@ test('the send-keys argv carries zero kickoff content; the claude element is byt
   assert.ok(!flat.includes('Implementer'))
   assert.ok(!flat.includes(laneKickoff(219).slice(0, 24)))
   assert.equal(args[3], LANE_CLAUDE_CMD)
+})
+
+test('parsePaneId takes the first line and enforces the %N shape', () => {
+  assert.equal(parsePaneId('%0\n', 'lane-300'), '%0')
+  assert.equal(parsePaneId('%12\n%13\n', 'lane-300'), '%12')
+  // Anything that is not an immutable pane id is a named throw — never a
+  // garbage target handed to send-keys.
+  assert.throws(() => parsePaneId('', 'lane-300'), /no usable pane id/)
+  assert.throws(() => parsePaneId('lane-300\n', 'lane-300'), /no usable pane id/)
+  assert.throws(() => parsePaneId('%abc\n', 'lane-300'), /no usable pane id/)
 })
 
 // ---- the dispatch race: a silent renderer must not hang the recipe ----------

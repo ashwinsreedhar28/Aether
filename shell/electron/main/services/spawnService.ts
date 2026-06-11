@@ -454,21 +454,30 @@ export class SpawnService extends EventEmitter {
       writeFileSync(join(worktree, '.lane-kickoff.md'), laneKickoff(issue))
       let tmuxSession: string | undefined
       if (this.tmuxOk) {
-        // Lifecycle calls go through runTmux (binary direct, stdio ignored,
-        // resolve on exit) — running them under the capturing login shell
-        // leaks descriptors into the daemonized tmux server and the promise
-        // never settles; per-fd redirects don't fix it (see runTmux).
+        // new-session — the one call that may BOOT the server — goes through
+        // runTmux (binary direct, stdio ignored, resolve on exit): under the
+        // capturing login shell, descriptors leak into the daemonized server
+        // and the promise never settles; per-fd redirects don't fix it (see
+        // runTmux). Everything AFTER it runs captured execFileAsync — the
+        // server is up, short-lived clients hold their own pipes, and a
+        // failure carries tmux's stderr instead of a bare exit code.
         setStep('tmux new-session')
         // A shell under claude, not claude AS the session command: when claude
         // exits, the session survives for post-mortem instead of vanishing.
         await this.runTmux(['new-session', '-d', '-s', session, '-c', worktree])
+        // Pane-target commands address the immutable %pane_id, never the
+        // session name (run-4 matrix; see resolveLanePaneId).
+        setStep('resolve pane')
+        const paneId = await this.resolveLanePaneId(session)
         setStep('tmux send-keys')
-        await this.runTmux(laneSendKeysArgs(session))
+        await execFileAsync(this.requireTmuxBin(), laneSendKeysArgs(paneId), {
+          timeout: TERMINAL_TIMEOUT_MS,
+        })
         // Delivery oracle: a 0-exit send-keys only proves tmux accepted the
         // keystrokes (#219's pane was virgin after one). Wait for the pane to
         // actually leave the bare shell; a throw here is a named markFailed.
         setStep('kickoff delivery')
-        await this.awaitKickoffDelivery(session)
+        await this.awaitKickoffDelivery(session, paneId)
         tmuxSession = session
       }
 
@@ -532,17 +541,18 @@ export class SpawnService extends EventEmitter {
   // until it stops being the bare shell (claude shows up as `claude`/`node`).
   // Past the deadline, THROW — the lane is not live, and a markFailed naming
   // this step beats a ghost lane whose pane sat virgin.
-  private async awaitKickoffDelivery(session: string): Promise<void> {
+  private async awaitKickoffDelivery(session: string, paneId: string): Promise<void> {
     const shellName = basename(process.env.SHELL || '/bin/zsh')
     const deadline = Date.now() + KICKOFF_TIMEOUT_MS
     for (;;) {
       // Direct execFileAsync against the resolved binary — needs stdout, and
       // capture is harmless here: display -p is a short-lived CLIENT of the
       // already-running server, holding its own pipes until it exits (unlike
-      // the lifecycle calls; see runTmux).
+      // new-session; see runTmux). Pane-typed target ⇒ %pane_id (run-4
+      // matrix; see resolveLanePaneId).
       const { stdout } = await execFileAsync(
         this.requireTmuxBin(),
-        ['display', '-p', '-t', '=' + session, '#{pane_current_command}'],
+        ['display', '-p', '-t', paneId, '#{pane_current_command}'],
         { timeout: KICKOFF_TIMEOUT_MS },
       )
       const pane = stdout.trim()
@@ -626,11 +636,36 @@ export class SpawnService extends EventEmitter {
     }
   }
 
+  // Resolve the lane's pane to its immutable %pane_id, once, right after
+  // new-session. Run-4 field matrix (#302): send-keys against `-t =lane-232`
+  // failed with the verbatim error `can't find pane: =lane-232` (reproduced
+  // manually), while `display -p` and `list-panes` ACCEPTED the same
+  // =-target, and send-keys against the bare name or the %pane_id both exit
+  // 0 — '=' exact-match is parsed per command and is session-typed only.
+  // Rule going forward, rather than litigating =-semantics per command:
+  // pane-target commands (send-keys, display -p) address #{pane_id}; '='
+  // stays only on session-typed targets (has-session, attach, kill-session);
+  // pipes are forbidden only across a server boot (new-session — see
+  // runTmux).
+  private async resolveLanePaneId(session: string): Promise<string> {
+    const { stdout } = await execFileAsync(
+      this.requireTmuxBin(),
+      ['list-panes', '-s', '-t', '=' + session, '-F', '#{pane_id}'],
+      { timeout: TERMINAL_TIMEOUT_MS },
+    )
+    return parsePaneId(stdout, session)
+  }
+
   private async tmuxHasSession(session: string): Promise<boolean> {
     try {
       // `=` pins exact-name matching — bare -t prefix-matches, so lane-2
-      // would otherwise collide with a live lane-27.
-      await this.runTmux(['has-session', '-t', '=' + session])
+      // would otherwise collide with a live lane-27. Session-typed target,
+      // where '=' is proven working (run-4 matrix; see resolveLanePaneId).
+      // Captured execFileAsync, not runTmux: has-session never boots a
+      // server (no server ⇒ fast nonzero exit), so pipes are harmless.
+      await execFileAsync(this.requireTmuxBin(), ['has-session', '-t', '=' + session], {
+        timeout: TERMINAL_TIMEOUT_MS,
+      })
       return true
     } catch {
       return false
@@ -689,16 +724,19 @@ export class SpawnService extends EventEmitter {
     return { ok: true }
   }
 
-  // Run a tmux LIFECYCLE command (new-session / send-keys / has-session) as
-  // the resolved binary directly: argv array, no shell, stdio fully ignored,
-  // resolution on EXIT code — never on streams. Why (run-2/run-3 field
-  // probes on #302): the first new-session of a boot daemonizes the immortal
-  // tmux SERVER, and the capturing `$SHELL -lic` wrapper holds duplicate
-  // descriptors of Node's pipes above fd 2 that the server inherits — so
-  // execFile, which resolves on stream CLOSE rather than child exit, pends
-  // forever. Per-fd redirects are unwinnable in principle: `>/dev/null 2>&1`
-  // left the promise pending; adding `</dev/null` still left it pending. The
-  // fix removes both the shell and the pipes.
+  // Run new-session — and ONLY new-session — as the resolved binary directly:
+  // argv array, no shell, stdio fully ignored, resolution on EXIT code, never
+  // on streams. Why (run-2/run-3 field probes on #302): the first new-session
+  // of a boot daemonizes the immortal tmux SERVER, and the capturing
+  // `$SHELL -lic` wrapper holds duplicate descriptors of Node's pipes above
+  // fd 2 that the server inherits — so execFile, which resolves on stream
+  // CLOSE rather than child exit, pends forever. Per-fd redirects are
+  // unwinnable in principle: `>/dev/null 2>&1` left the promise pending;
+  // adding `</dev/null` still left it pending. The fix removes both the shell
+  // and the pipes. The no-pipes law is boot-scoped: every other tmux call
+  // talks to the already-running server through captured execFileAsync —
+  // stdio:'ignore' here costs the stderr (run 4's send-keys failure arrived
+  // as a bare exit code), a price only the boot call has to pay.
   private async runTmux(args: string[]): Promise<void> {
     const bin = this.requireTmuxBin()
     await new Promise<void>((resolve, reject) => {
@@ -841,12 +879,27 @@ export function laneKickoff(issue: number): string {
 // pty-fallback command. Exported for tests.
 export const LANE_CLAUDE_CMD = 'claude --dangerously-skip-permissions "$(cat .lane-kickoff.md)"'
 
-// The exact send-keys argv for a lane session — an args array handed straight
-// to the tmux binary (runTmux), zero shell and zero quoting layers between
-// here and the pane. The ONLY varying element is the session name; kickoff
+// The exact send-keys argv for a lane pane — an args array handed straight
+// to the tmux binary, zero shell and zero quoting layers between here and
+// the pane. Targets the immutable %pane_id, not the session name: run-4
+// proved send-keys refuses '='-targets that display -p and list-panes accept
+// (see resolveLanePaneId). The ONLY varying element is the pane id; kickoff
 // content must never appear here — unit-tested. Exported for tests.
-export function laneSendKeysArgs(session: string): string[] {
-  return ['send-keys', '-t', '=' + session, LANE_CLAUDE_CMD, 'Enter']
+export function laneSendKeysArgs(paneId: string): string[] {
+  return ['send-keys', '-t', paneId, LANE_CLAUDE_CMD, 'Enter']
+}
+
+// First line of `list-panes -F '#{pane_id}'` output, validated against the
+// immutable %N shape — a named throw beats handing send-keys a garbage
+// target. Exported for tests.
+export function parsePaneId(stdout: string, session: string): string {
+  const first = (stdout.split('\n')[0] ?? '').trim()
+  if (!/^%\d+$/.test(first)) {
+    throw new Error(
+      `list-panes for ${session} returned no usable pane id (got ${JSON.stringify(first)})`,
+    )
+  }
+  return first
 }
 
 // Resolve to `p`'s value, or null once `ms` elapses — the timer side never

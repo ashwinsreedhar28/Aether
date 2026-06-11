@@ -78,13 +78,16 @@ historical record.
   `claude … "$(cat .lane-kickoff.md)"` line (only the session name is
   interpolated — content no longer transits three quoting layers and arrives
   empty), with a 5s pane-leaves-the-shell delivery oracle that fails the lane
-  by name instead of recording a ghost. tmux lifecycle commands
-  (`new-session` / `send-keys` / `has-session`) run the login-shell-resolved
-  binary directly via `spawn(…, { stdio: 'ignore' })`, resolving on exit —
-  under the capturing `$SHELL -lic` wrapper, duplicate pipe descriptors leak
-  into the daemonized tmux server and the promise waits forever on streams
-  that never close (no per-fd redirect covers it). The `open-lane-terminal`
-  dispatch is
+  by name instead of recording a ghost. `new-session` — the one call that
+  boots the tmux server — runs the login-shell-resolved binary via
+  `spawn(…, { stdio: 'ignore' })`, resolving on exit: under the capturing
+  `$SHELL -lic` wrapper, duplicate pipe descriptors leak into the daemonized
+  server and the promise waits forever on streams that never close (no per-fd
+  redirect covers it). Every other tmux call runs captured `execFileAsync`
+  against the binary, and pane-target commands (`send-keys`, the oracle's
+  `display -p`) address the resolved immutable `#{pane_id}` — `'='`
+  exact-match is session-typed only (`send-keys` refuses `=`-targets that
+  `display`/`list-panes` accept). The `open-lane-terminal` dispatch is
   raced against the 30s terminal timeout (a silent renderer can no longer pin
   the recipe with neither `spawned` nor `failed` written), and the control
   bridge resolves every failure as a `{ __controlError }` envelope that

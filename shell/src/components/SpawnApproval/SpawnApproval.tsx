@@ -4,8 +4,11 @@ import { useSpawnUi } from '../../stores/spawnUi'
 
 // The spawn actor's window — a global modal raised by the shell's SpawnService
 // when a spawn request lands in the ledger (raven's request_spawn tool wrote it
-// after a correct passphrase). The Director approves or dismisses here; nothing
-// spawns until Approve is pressed. Concurrency is capped at one live spawn.
+// after a correct passphrase, or work_on_issue wrote a card-gated lane batch,
+// #268). The Director approves or dismisses here; nothing spawns until Approve
+// is pressed. A lane batch shares ONE card — single approve spawns all, cancel
+// spawns none. Concurrency (#268 ruling): recipes serialize; up to max_lanes
+// spawned records live at once. Orphaned tmux lanes get reattach offers here.
 //
 // Lifecycle vs. window. Mark-complete is a LIFECYCLE action (it closes the
 // spawn) — it is no longer the only way to dismiss the window. Every card can be
@@ -139,6 +142,33 @@ function ragLabel(v: SpawnView): string {
   return '—'
 }
 
+// The card's LANE line: lane records (#268) are named by their issue, draft
+// records by the draft name.
+function laneLabel(v: SpawnView): string {
+  if (v.kind === 'lane') {
+    return `#${v.issue ?? '?'}${v.issueTitle ? ` — ${v.issueTitle}` : ''}`
+  }
+  return v.draftName
+}
+
+// The identity the approve/dismiss IPC acts on: a lane batch approves as one
+// unit (#268 addendum — single approve spawns all), so the batch id stands in
+// for the record id when present.
+function actionId(v: SpawnView): string {
+  return v.kind === 'lane' && v.batchId ? v.batchId : v.id
+}
+
+// The tmux-missing caution, shown wherever a lane is about to (or did) run on
+// the pty fallback.
+function TmuxWarning(): React.ReactElement {
+  return (
+    <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
+      tmux is not installed — lanes will run in a plain terminal and DIE when
+      Aether quits. Remedy: brew install tmux.
+    </div>
+  )
+}
+
 // ---- the card --------------------------------------------------------------
 
 export function SpawnApproval(): React.ReactElement | null {
@@ -196,6 +226,12 @@ export function SpawnApproval(): React.ReactElement | null {
     }
   }, [])
 
+  const onReattach = useCallback(async (session: string) => {
+    setActionError(null)
+    const res = await window.aether.spawn.reattach(session)
+    if (!res.ok) setActionError(res.error ?? 'reattach failed')
+  }, [])
+
   if (!snap) return null
   const spawns = snap.spawns
 
@@ -215,9 +251,43 @@ export function SpawnApproval(): React.ReactElement | null {
   // any minimize (open() clears minimizedKey, so an opened card never matches it).
   const openedRec = openedId ? (spawns.find((s) => s.id === openedId) ?? null) : null
   const display = openedRec ?? candidate
-  if (!display) return null
 
-  const cardKey = `${display.id}:${display.status}`
+  // Orphaned lanes (#268): lane-* tmux sessions that survived an app quit.
+  // With nothing else to show, the reattach offers get their own card.
+  if (!display) {
+    if (snap.orphans.length === 0) return null
+    const orphanKey = `orphans:${snap.orphans.map((o) => o.session).join(',')}`
+    if (minimizedKey === orphanKey) return null
+    return (
+      <Frame heading="ORPHANED LANES" onMinimize={() => minimize(orphanKey)}>
+        <div className="px-5 py-5 space-y-3">
+          <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
+            These lane sessions are still alive in tmux from a previous run.
+            Reattach to bring one back into a terminal window — its Claude Code
+            session kept working while Aether was closed.
+          </div>
+          {snap.orphans.map((o) => (
+            <div key={o.session} className="flex items-center justify-between gap-3">
+              <Row
+                label={o.session}
+                value={o.issue ? `issue #${o.issue} — ${o.worktree ?? ''}` : (o.worktree ?? '(no ledger record)')}
+              />
+              <Btn label="REATTACH" variant="accent" onClick={() => void onReattach(o.session)} />
+            </div>
+          ))}
+          {actionError && (
+            <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
+              {actionError}
+            </div>
+          )}
+        </div>
+      </Frame>
+    )
+  }
+
+  // Batch-stable identity: every member of a lane batch shares one card, and
+  // a status transition still re-raises a minimized card.
+  const cardKey = `${actionId(display)}:${display.status}`
   if (minimizedKey === cardKey) return null
   const onMinimize = (): void => {
     setActionError(null)
@@ -225,19 +295,24 @@ export function SpawnApproval(): React.ReactElement | null {
     minimize(cardKey)
   }
 
-  const isRunning = display.id === snap.running
+  const isRunning = display.id === snap.running || snap.queue.includes(display.id)
 
   // ---- SPAWNING (recipe in flight) ----
   if (isRunning) {
+    const runningNow = snap.running ? (spawns.find((s) => s.id === snap.running) ?? display) : display
     return (
       <Frame heading="SPAWNING" onMinimize={onMinimize}>
         <div className="px-5 py-5 space-y-3">
-          <Row label="LANE" value={display.draftName} />
+          <Row label="LANE" value={laneLabel(runningNow)} />
           <Row label="STEP" value={snap.runningStep ?? 'starting'} />
+          {snap.queue.length > 0 && (
+            <Row label="QUEUED" value={`${snap.queue.length} more lane(s) in this approval — recipes run one at a time`} />
+          )}
           <div className="text-[11px] font-mono pt-1" style={{ color: 'var(--holo-muted)' }}>
             Running the worktree recipe — fetch, worktree, submodules, install, then the
-            aether-rag bootstrap (so the session's /mcp is warm) and a Terminal running
-            Claude Code against the lane. This can take a few minutes on first install.
+            aether-rag bootstrap (so the session's /mcp is warm) and the Claude Code
+            launch{runningNow.kind === 'lane' ? ' in a detached tmux session with an attached terminal window; the desktop tiles when the whole approval is live' : ' in a Terminal window'}.
+            This can take a few minutes on first install.
           </div>
         </div>
       </Frame>
@@ -246,17 +321,34 @@ export function SpawnApproval(): React.ReactElement | null {
 
   // ---- SPAWN REQUEST (awaiting approval) ----
   if (display.status === 'requested') {
-    const blocked = snap.busy // an active spawn is holding the gate
+    // A lane batch shares ONE card (#268 addendum): every still-requested
+    // sibling is enumerated; the single approve spawns all, dismiss cancels all.
+    const batch =
+      display.kind === 'lane' && display.batchId
+        ? spawns.filter((s) => s.batchId === display.batchId && s.status === 'requested')
+        : [display]
+    const wouldExceed = snap.liveCount + batch.length > snap.maxLanes
+    const blocked = snap.running !== null || wouldExceed
+    const blockedReason =
+      snap.running !== null
+        ? 'A spawn recipe is already running — approve again when it finishes.'
+        : `Approving ${batch.length} lane(s) would exceed the cap (${snap.liveCount} live, max ${snap.maxLanes}). Mark a spawn complete first.`
     return (
-      <Frame heading="SPAWN REQUEST" onMinimize={onMinimize}>
+      <Frame heading={batch.length > 1 ? `LANE SPAWN REQUEST — ${batch.length} LANES` : 'SPAWN REQUEST'} onMinimize={onMinimize}>
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
-          <Row label="LANE" value={display.draftName} />
-          <Row label="BRANCH" value={display.targetBranch} />
-          <Row label="WORKTREE" value={display.targetWorktree} />
-          <Row label="DRAFT" value={display.draftPath} />
+          {batch.map((lane) => (
+            <div key={lane.id} className="space-y-1">
+              <Row label="LANE" value={laneLabel(lane)} />
+              <Row label="BRANCH" value={lane.targetBranch} />
+              <Row label="WORKTREE" value={lane.targetWorktree} />
+              {lane.kind !== 'lane' && <Row label="DRAFT" value={lane.draftPath} />}
+            </div>
+          ))}
+          <Row label="CAPACITY" value={`${snap.liveCount} of ${snap.maxLanes} lanes live`} />
+          {!snap.tmuxAvailable && display.kind === 'lane' && <TmuxWarning />}
           <div className="pt-2">
             <div className="text-[10px] tracking-[0.2em] mb-1.5" style={{ color: 'var(--holo-muted)' }}>
-              FULL PROMPT
+              {display.kind === 'lane' ? 'KICKOFF PROMPT (per lane, issue number varies)' : 'FULL PROMPT'}
             </div>
             <pre
               className="text-[11px] font-mono whitespace-pre-wrap break-words rounded p-3 max-h-[34vh] overflow-y-auto"
@@ -267,8 +359,7 @@ export function SpawnApproval(): React.ReactElement | null {
           </div>
           {blocked && (
             <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
-              A spawn is already running{active ? ` in ${active.targetWorktree}` : ''}. Approve is
-              disabled until you mark it complete.
+              {blockedReason}
             </div>
           )}
           {actionError && (
@@ -281,16 +372,20 @@ export function SpawnApproval(): React.ReactElement | null {
           className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t"
           style={{ borderColor: 'var(--holo-border)' }}
         >
-          {blocked && active && (
+          {wouldExceed && active && (
             <Btn label="MARK COMPLETE" onClick={() => void onComplete(active.id)} />
           )}
-          <Btn label="DISMISS" variant="danger" onClick={() => void act(() => window.aether.spawn.dismiss(display.id))} />
           <Btn
-            label="APPROVE & SPAWN"
+            label={batch.length > 1 ? 'DISMISS ALL' : 'DISMISS'}
+            variant="danger"
+            onClick={() => void act(() => window.aether.spawn.dismiss(actionId(display)))}
+          />
+          <Btn
+            label={batch.length > 1 ? `APPROVE & SPAWN ${batch.length} LANES` : 'APPROVE & SPAWN'}
             variant="accent"
             disabled={blocked}
-            title={blocked ? 'A spawn is already running' : undefined}
-            onClick={() => void act(() => window.aether.spawn.approve(display.id))}
+            title={blocked ? blockedReason : undefined}
+            onClick={() => void act(() => window.aether.spawn.approve(actionId(display)))}
           />
         </div>
       </Frame>
@@ -302,15 +397,18 @@ export function SpawnApproval(): React.ReactElement | null {
     return (
       <Frame heading="SPAWN ACTIVE" onMinimize={onMinimize}>
         <div className="px-5 py-5 space-y-3">
-          <Row label="LANE" value={display.draftName} />
+          <Row label="LANE" value={laneLabel(display)} />
           <Row label="BRANCH" value={display.branch ?? display.targetBranch} />
           <Row label="WORKTREE" value={display.worktree ?? display.targetWorktree} />
+          {display.tmuxSession && <Row label="TMUX" value={display.tmuxSession} />}
           <Row label="RAG" value={ragLabel(display)} />
+          <Row label="CAPACITY" value={`${snap.liveCount} of ${snap.maxLanes} lanes live`} />
           <div className="text-[11px] font-mono pt-1" style={{ color: 'var(--holo-muted)' }}>
-            A Claude Code session is running in its own Terminal window. Closing that
-            window stops the agent (the kill switch). Mark complete when the session is
-            done — only one spawn runs at a time. You can also minimize this window and
-            reopen it from the Spawns strip.
+            {display.tmuxSession
+              ? `A Claude Code session is running inside tmux (${display.tmuxSession}) with a terminal window attached. Quitting Aether does NOT stop it — the lane survives detached and offers a reattach on the next boot. To kill it: tmux kill-session -t ${display.tmuxSession}. Mark complete when the lane is done to free its capacity slot.`
+              : display.kind === 'lane'
+                ? 'A Claude Code session is running in a plain terminal pane (tmux is not installed) — quitting Aether KILLS this lane. Mark complete when the session is done.'
+                : 'A Claude Code session is running in its own Terminal window. Closing that window stops the agent (the kill switch). Mark complete when the session is done. You can also minimize this window and reopen it from the Spawns strip.'}
           </div>
           {actionError && (
             <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
@@ -334,7 +432,7 @@ export function SpawnApproval(): React.ReactElement | null {
     return (
       <Frame heading="SPAWN COMPLETE" onMinimize={onMinimize}>
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
-          <Row label="LANE" value={display.draftName} />
+          <Row label="LANE" value={laneLabel(display)} />
           <Row label="BRANCH" value={display.branch ?? display.targetBranch} />
           <Row label="WORKTREE" value={display.worktree ?? display.targetWorktree} />
           <div className="pt-2">
@@ -376,7 +474,7 @@ export function SpawnApproval(): React.ReactElement | null {
     return (
       <Frame heading="SPAWN FAILED" onMinimize={onMinimize}>
         <div className="px-5 py-5 space-y-3">
-          <Row label="LANE" value={display.draftName} />
+          <Row label="LANE" value={laneLabel(display)} />
           <Row label="STEP" value={display.step ?? '—'} />
           <div className="pt-1">
             <div className="text-[10px] tracking-[0.2em] mb-1.5" style={{ color: 'var(--holo-muted)' }}>
@@ -404,7 +502,7 @@ export function SpawnApproval(): React.ReactElement | null {
   return (
     <Frame heading="SPAWN DISMISSED" onMinimize={onMinimize}>
       <div className="px-5 py-5 space-y-3">
-        <Row label="LANE" value={display.draftName} />
+        <Row label="LANE" value={laneLabel(display)} />
         <Row label="STATUS" value={display.status} />
         <div className="text-[11px] font-mono pt-1" style={{ color: 'var(--holo-muted)' }}>
           This spawn was dismissed. Nothing to do here.

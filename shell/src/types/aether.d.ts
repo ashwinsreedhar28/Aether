@@ -64,8 +64,14 @@ export interface SpawnView {
   id: string
   ts: string
   requestedTs: string
+  /** Absent/'draft' = draft-prompt spawn; 'lane' = issue-bound lane (#268). */
+  kind?: 'draft' | 'lane'
   draftName: string
   draftPath: string
+  issue?: number
+  issueTitle?: string
+  batchId?: string
+  tmuxSession?: string
   status: SpawnStatus
   worktree?: string
   branch?: string
@@ -79,11 +85,23 @@ export interface SpawnView {
   cleanup?: string
 }
 
+/** A lane-* tmux session alive with no terminal attached this app lifetime. */
+export interface OrphanLane {
+  session: string
+  issue?: number
+  worktree?: string
+}
+
 export interface SpawnSnapshot {
   spawns: SpawnView[]
   running: string | null
   runningStep: string | null
+  queue: string[]
   busy: boolean
+  liveCount: number
+  maxLanes: number
+  tmuxAvailable: boolean
+  orphans: OrphanLane[]
 }
 
 export interface SpawnActionResult {
@@ -120,6 +138,7 @@ export interface AetherBridge {
     approve: (id: string) => Promise<SpawnActionResult>
     dismiss: (id: string) => Promise<SpawnActionResult>
     complete: (id: string) => Promise<SpawnActionResult>
+    reattach: (session: string) => Promise<SpawnActionResult>
     onChanged: (cb: (snap: SpawnSnapshot) => void) => Unsub
   }
 }

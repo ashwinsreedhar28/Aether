@@ -124,6 +124,15 @@ class Config:
     # suspended and every further create needs explicit confirmation.
     gaps_auto_file: bool = False
 
+    # Lane concurrency cap (the spawn.max_lanes knob, #268). How many
+    # implementer lanes may hold capacity at once — live worktrees plus
+    # pending approval cards. Set in config.json as
+    # { "spawn": { "max_lanes": 3 } }. Under the shell the
+    # AETHER_SPAWN_MAX_LANES env var (sourced from .env.local and shared
+    # with the shell's approve gate) takes precedence — see
+    # tools/work_on_issue_tool.py.
+    spawn_max_lanes: int = 3
+
     @classmethod
     def load(
         cls,
@@ -217,6 +226,12 @@ class Config:
                 gaps_config = user_config.get("gaps")
                 if isinstance(gaps_config, dict) and "auto_file" in gaps_config:
                     config.gaps_auto_file = bool(gaps_config["auto_file"])
+                spawn_config = user_config.get("spawn")
+                if isinstance(spawn_config, dict) and "max_lanes" in spawn_config:
+                    try:
+                        config.spawn_max_lanes = max(1, int(spawn_config["max_lanes"]))
+                    except (TypeError, ValueError):
+                        pass
 
                 print(f"[CONFIG] Loaded user config from {user_config_path}")
             except (json.JSONDecodeError, OSError) as e:

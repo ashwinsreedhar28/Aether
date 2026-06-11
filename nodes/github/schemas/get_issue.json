@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "github.get_issue",
+  "title": "github.get_issue",
+  "description": "Read ONE issue in full — body and first comment page included — by number. The spec-guard read behind raven's work_on_issue (#268): the caller searches body + comments for the 'ARCHITECT SPEC' marker and parses Branch:/Worktree: lines from the spec text. Params: { number: integer ≥ 1 }. Returns { ok: true, number, title, state ('open'|'closed'), labels: string[] (names), body, url, author, created_at, updated_at, comments: [{ author, body, created_at }] } — comments are the first page (≤100), oldest-first, bodies verbatim. Read-only and uncached: by-number reads are strongly consistent, and the guard must see a spec comment that landed seconds ago. Denies: github_bad_number (not a positive integer), github_is_pull_request (the number is a PR — lanes spawn from issues), github_no_token (AETHER_GITHUB_TOKEN absent — unlike list_issues there is no degraded payload; a tool call can error, a panel must render), github_api_error { status, reason } (404 = no such issue), github_unreachable { reason }.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["number"],
+  "properties": {
+    "number": { "type": "integer", "minimum": 1 }
+  }
+}

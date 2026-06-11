@@ -25,14 +25,20 @@ import { homedir } from 'node:os'
 // path because both resolve $userData/data (AETHER_DATA_DIR).
 //
 // Two line families share the log, folded oldest → newest:
-//   • a REQUEST line  — { id, ts, draft_path, draft_name, status:'requested' }
+//   • a REQUEST line — draft kind:
+//       { id, ts, draft_path, draft_name, status:'requested' }
+//     or lane kind (#268, written by raven's work_on_issue tool):
+//       { id, ts, kind:'lane', batch_id, issue, issue_title, branch, worktree,
+//         status:'requested' }
 //   • a LIFECYCLE event — { id, ts, status:'spawned'|'closed'|'dismissed'|'failed',
-//                           worktree?, branch?, step?, error? }
-// Discriminator: a line with a string `draft_path` is a request; any other line
+//                           worktree?, branch?, step?, error?, tmux_session? }
+// Discriminator: a line with a string `draft_path` is a draft request; a line
+// with kind === 'lane' and a numeric `issue` is a lane request; any other line
 // with `id` + `status` is a lifecycle event flipping that request's state. Folding
 // forward lets a crash leave a partial log that still reads correctly, and lets
 // the human-gated states (requested → spawned → closed, or → dismissed/failed) be
-// reconstructed without ever rewriting a line.
+// reconstructed without ever rewriting a line. Lane requests sharing a batch_id
+// form ONE approval unit (#268 addendum): one card, approve-all or cancel-all.
 
 export type SpawnStatus = 'requested' | 'spawned' | 'closed' | 'dismissed' | 'failed'
 
@@ -42,8 +48,24 @@ export interface SpawnRecord {
   id: string
   ts: string
   requestedTs: string
+  // Absent/'draft' = the original draft-prompt spawn; 'lane' = an issue-bound
+  // lane (#268). Lane records carry issue/batchId and have empty draft fields.
+  kind?: 'draft' | 'lane'
   draftName: string
   draftPath: string
+  // Lane kind only: the GitHub issue this lane works, its title (for the
+  // card), and the batch this request belongs to (one card per batch).
+  issue?: number
+  issueTitle?: string
+  batchId?: string
+  // Lane kind only: the request's own targets, sanitized at fold time. For
+  // draft records these stay on the draft (THE SLUG CONTRACT); for lane
+  // records the request line itself is the source of truth.
+  laneBranch?: string
+  laneWorktree?: string
+  // The tmux session owning a spawned lane's process (recorded on 'spawned';
+  // absent on pty-fallback spawns where the terminal pane owns the process).
+  tmuxSession?: string
   status: SpawnStatus
   // Present once the recipe has launched a worktree (status 'spawned').
   worktree?: string
@@ -126,6 +148,24 @@ export function targetsForDraft(
   return {
     branch: parsed.branch ?? `feat/${slug}`,
     worktree: parsed.worktree ?? join(homedir(), `aether-${slug}`),
+  }
+}
+
+// Lane-kind sibling of targetsForDraft (#268). The request line's own
+// branch/worktree win (the raven tool parsed them from the issue's ARCHITECT
+// SPEC); a missing or unsanitizable value falls back to the ONE documented
+// lane derivation — lane/issue-N and ~/aether-lane-N — so a garbled line
+// still folds into something the card can show and the recipe can refuse
+// cleanly. Sanitization here is the enforcement point: the Python tool
+// records what it parsed, this side runs the commands.
+export function targetsForLane(
+  issue: number,
+  rawBranch?: string,
+  rawWorktree?: string,
+): { branch: string; worktree: string } {
+  return {
+    branch: sanitizeBranch(rawBranch) ?? `lane/issue-${issue}`,
+    worktree: sanitizeWorktree(rawWorktree) ?? join(homedir(), `aether-lane-${issue}`),
   }
 }
 
@@ -228,6 +268,7 @@ export class SpawnLedger {
     worktree: string,
     branch: string,
     rag?: { ok: boolean; step?: string },
+    tmuxSession?: string,
   ): void {
     const event: Record<string, unknown> = {
       id,
@@ -240,6 +281,7 @@ export class SpawnLedger {
       event.rag_bootstrap = rag.ok ? 'ok' : 'failed'
       if (!rag.ok && rag.step) event.rag_step = rag.step
     }
+    if (tmuxSession) event.tmux_session = tmuxSession
     this.append(event)
   }
 
@@ -265,13 +307,24 @@ export class SpawnLedger {
     return this.fold().get(id)
   }
 
-  /** Concurrency=1 gate: true while any record sits in the non-terminal 'spawned'
-   * state (a live worktree the Director hasn't marked complete). */
-  busy(): boolean {
+  /** How many records sit in the non-terminal 'spawned' state — live
+   * worktrees the Director hasn't marked complete. The service compares this
+   * against the max_lanes cap (#268 ruling: live count, both kinds, is what
+   * holds capacity; recipes serialize separately through the in-flight slot). */
+  liveCount(): number {
+    let live = 0
     for (const rec of this.fold().values()) {
-      if (rec.status === 'spawned') return true
+      if (rec.status === 'spawned') live++
     }
-    return false
+    return live
+  }
+
+  /** Every still-'requested' record in a batch, oldest request first — the
+   * approval unit (#268 addendum): one card, approve-all or cancel-all. */
+  requestedBatch(batchId: string): SpawnRecord[] {
+    return [...this.fold().values()]
+      .filter((rec) => rec.batchId === batchId && rec.status === 'requested')
+      .sort((a, b) => a.requestedTs.localeCompare(b.requestedTs))
   }
 
   // Fold the whole log into current-state records, oldest → newest. A malformed
@@ -326,6 +379,45 @@ export class SpawnLedger {
         continue
       }
 
+      // Lane request line (#268) — carries the issue identity and its own
+      // targets, sanitized HERE (the ledger is plain JSONL on disk; a garbled
+      // or hand-edited line must not reach the recipe's shell commands).
+      if (obj.kind === 'lane' && typeof obj.issue === 'number' && Number.isInteger(obj.issue) && obj.issue >= 1) {
+        const existing = byId.get(id)
+        const targets = targetsForLane(
+          obj.issue,
+          typeof obj.branch === 'string' ? obj.branch : undefined,
+          typeof obj.worktree === 'string' ? obj.worktree : undefined,
+        )
+        byId.set(id, {
+          id,
+          ts,
+          requestedTs: ts,
+          kind: 'lane',
+          draftName: '',
+          draftPath: '',
+          issue: obj.issue,
+          issueTitle: typeof obj.issue_title === 'string' ? obj.issue_title : '',
+          batchId: typeof obj.batch_id === 'string' ? obj.batch_id : undefined,
+          laneBranch: targets.branch,
+          laneWorktree: targets.worktree,
+          status: 'requested',
+          // Preserve any lifecycle already folded if a request line arrives late.
+          ...(existing
+            ? {
+                ts: existing.ts || ts,
+                status: existing.status,
+                worktree: existing.worktree,
+                branch: existing.branch,
+                step: existing.step,
+                error: existing.error,
+                tmuxSession: existing.tmuxSession,
+              }
+            : {}),
+        })
+        continue
+      }
+
       // Lifecycle event — flips the status of an existing (or stub) record.
       const status = obj.status
       if (typeof status !== 'string' || !isSpawnStatus(status)) continue
@@ -349,6 +441,7 @@ export class SpawnLedger {
         existing.ragBootstrap = obj.rag_bootstrap
       }
       if (typeof obj.rag_step === 'string') existing.ragStep = obj.rag_step
+      if (typeof obj.tmux_session === 'string') existing.tmuxSession = obj.tmux_session
       byId.set(id, existing)
     }
 

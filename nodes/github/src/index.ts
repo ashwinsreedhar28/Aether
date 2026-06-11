@@ -5,15 +5,18 @@ import { GithubClient } from './github'
 import {
   makeCommentIssueHandler,
   makeCreateIssueHandler,
+  makeGetIssueHandler,
   makeListIssuesHandler,
 } from './handlers'
 
 // github is the mesh's GitHub Actor (the one-rail arc, #255/#256): gaps file
 // as GitHub issues instead of a local ledger, and the open issue board is the
-// work queue every surface reads. Three surfaces: create_issue (dedup inside —
+// work queue every surface reads. Four surfaces: create_issue (dedup inside —
 // a repeat ask comments the existing gap issue and returns { deduped: true }),
 // list_issues (the board, cache-then-serve), comment_issue (add detail by
-// number). Auth is a fine-grained PAT in AETHER_GITHUB_TOKEN (Issues RW only);
+// number), get_issue (read-only single-issue detail — body + comments — the
+// spec-guard read behind work_on_issue, #268). Auth is a fine-grained PAT in
+// AETHER_GITHUB_TOKEN (Issues RW only);
 // the token is read once at boot and NEVER logged — presence only. Token
 // absent = degraded mode: the node still boots and registers, list_issues
 // serves a clean no-token payload, writes deny with github_no_token.
@@ -66,6 +69,7 @@ async function main(): Promise<void> {
   node.on('create_issue', makeCreateIssueHandler(deps))
   node.on('list_issues', makeListIssuesHandler(deps))
   node.on('comment_issue', makeCommentIssueHandler(deps))
+  node.on('get_issue', makeGetIssueHandler(deps))
   await node.start()
   log(
     `registered with core at ${CORE_URL}; repo ${repo}; token ${

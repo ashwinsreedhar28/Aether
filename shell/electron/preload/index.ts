@@ -101,8 +101,16 @@ export interface SpawnView {
   id: string
   ts: string
   requestedTs: string
+  // Absent/'draft' = draft-prompt spawn; 'lane' = issue-bound lane (#268).
+  kind?: 'draft' | 'lane'
   draftName: string
   draftPath: string
+  // Lane kind only: the worked issue, its title, the approval batch, and the
+  // tmux session owning the spawned process (absent on pty-fallback spawns).
+  issue?: number
+  issueTitle?: string
+  batchId?: string
+  tmuxSession?: string
   status: SpawnStatus
   worktree?: string
   branch?: string
@@ -114,18 +122,36 @@ export interface SpawnView {
   // Derived target for the card (before the worktree exists).
   targetBranch: string
   targetWorktree: string
-  // Full draft prompt, attached only to an actionable 'requested' record.
+  // Full prompt for an actionable 'requested' record — the draft text (draft
+  // kind) or the canonical lane kickoff (lane kind).
   preview?: string
   // Copyable teardown block for a worktree we actually created (recorded
   // branch + worktree); present on 'spawned'/'closed' records.
   cleanup?: string
 }
 
+// A lane-* tmux session still alive with no terminal attached this app
+// lifetime (the relaunch case) — the card offers one-tap reattach.
+export interface OrphanLane {
+  session: string
+  issue?: number
+  worktree?: string
+}
+
 export interface SpawnSnapshot {
   spawns: SpawnView[]
   running: string | null
   runningStep: string | null
+  // Records queued behind `running` inside the current approval (#268:
+  // batch recipes serialize through the single in-flight slot).
+  queue: string[]
   busy: boolean
+  liveCount: number
+  maxLanes: number
+  // false ⇔ tmux missing: lanes fall back to ptys that die with the app;
+  // the card names the `brew install tmux` remedy.
+  tmuxAvailable: boolean
+  orphans: OrphanLane[]
 }
 
 export interface SpawnActionResult {
@@ -237,6 +263,9 @@ const spawn = {
   approve: (id: string): Promise<SpawnActionResult> => ipcRenderer.invoke('spawn:approve', id),
   dismiss: (id: string): Promise<SpawnActionResult> => ipcRenderer.invoke('spawn:dismiss', id),
   complete: (id: string): Promise<SpawnActionResult> => ipcRenderer.invoke('spawn:complete', id),
+  // Reattach an orphaned lane-* tmux session into a fresh terminal window.
+  reattach: (session: string): Promise<SpawnActionResult> =>
+    ipcRenderer.invoke('spawn:reattach', session),
   // Push on every ledger change (request landed, approved, spawned, failed, …).
   onChanged: (cb: (snap: SpawnSnapshot) => void): Unsubscribe => subscribe('spawn:changed', cb),
 }

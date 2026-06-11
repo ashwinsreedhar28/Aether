@@ -10,6 +10,21 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- Voice-spawned implementer lanes (#268): `work_on_issue(number | numbers[])`
+  (alias `spawn_lane`, card-gated — no passphrase, by ruling on the issue)
+  fetches issues through the new read-only `github.get_issue` surface (new
+  raven edge), guards on the ARCHITECT SPEC marker (spoken override only),
+  and arms `kind:"lane"` spawn-ledger requests; a multi-issue utterance is
+  one call → ONE approval card → single approve spawns all. SpawnService lane
+  choreography: §13.12 worktree recipe, Claude Code seeded with the canonical
+  kickoff inside a detached tmux session (`lane-N`; pty fallback with a
+  `brew install tmux` warning when absent), an Aether terminal window
+  attached, one `apply-layout` tile per approval. Recipes serialize; up to
+  `spawn.max_lanes` (`AETHER_SPAWN_MAX_LANES`, default 3) lanes live at once,
+  draft spawns included. App quit leaves lanes running; boot enumerates
+  orphaned `lane-*` sessions and offers one-tap reattach. prompts.json
+  teaches the batch, incremental, capacity-ask, spec-override, and
+  file-then-work-on-it chain shapes.
 - raven files gaps on the issue board (Lane C of #255, #258): `report_gap` is
   voice-gated two-turn ("I can't do that yet — want me to file it?") into
   `github.create_issue` with a `gaps.auto_file` knob (default false), a

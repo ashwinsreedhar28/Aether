@@ -567,14 +567,20 @@ calendar.on('availability', (a) => broadcastToRenderers('calendar:availability-c
 reminders.on('availability', (a) => broadcastToRenderers('reminders:availability-changed', a))
 
 // Spawn actor — watches the append-only spawn ledger (written by raven's
-// request_spawn tool), raises the approval card via the 'spawn:changed' push,
-// and runs the §13.12 worktree recipe + Terminal launch on the Director's
-// approval. Human-gated by construction: nothing spawns until Approve is
-// pressed; concurrency is capped at one. REPO_ROOT is the single registered
-// repo (the recipe is otherwise repo-agnostic).
+// request_spawn + work_on_issue tools), raises the approval card via the
+// 'spawn:changed' push, and runs the §13.12 worktree recipe on the Director's
+// approval (draft kind: Terminal.app; lane kind: detached tmux + an attached
+// Aether terminal + tiling, #268). Human-gated by construction: nothing
+// spawns until Approve is pressed; recipes serialize, up to
+// AETHER_SPAWN_MAX_LANES (spawn.max_lanes, default 3) lanes live at once.
+// REPO_ROOT is the single registered repo (the recipe is otherwise
+// repo-agnostic).
+const maxLanesEnv = parseInt(process.env.AETHER_SPAWN_MAX_LANES ?? '', 10)
 const spawnService = new SpawnService({
   repoRoot: REPO_ROOT,
   ledgerPath: spawnsLedgerPath(),
+  maxLanes: Number.isFinite(maxLanesEnv) && maxLanesEnv >= 1 ? maxLanesEnv : undefined,
+  dispatch: (action, params) => executeViewerControl(mainWindow, action, params),
 })
 spawnService.on('changed', (snap) => broadcastToRenderers('spawn:changed', snap))
 spawnService.start()
@@ -587,6 +593,7 @@ ipcMain.handle('spawn:list', () => spawnService.snapshot())
 ipcMain.handle('spawn:approve', (_e, id: unknown) => spawnService.approve(String(id)))
 ipcMain.handle('spawn:dismiss', (_e, id: unknown) => spawnService.dismiss(String(id)))
 ipcMain.handle('spawn:complete', (_e, id: unknown) => spawnService.complete(String(id)))
+ipcMain.handle('spawn:reattach', (_e, session: unknown) => spawnService.reattach(String(session)))
 
 app.whenReady().then(() => {
   // macOS dev mode: set Dock icon explicitly. In packaged builds the .icns

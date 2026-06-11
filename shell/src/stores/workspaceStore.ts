@@ -73,8 +73,9 @@ export interface WorkspaceStore {
   // Terminal actions. Returns the hosting window + PTY session ids so
   // programmatic callers (the viewer_desktop mesh node driving voice
   // commands) can hand back a windowId for later focus/close; null when
-  // no workspace is active or the PTY spawn failed.
-  openTerminal: (windowId?: string, cwd?: string) => Promise<{ windowId: string; sessionId: string } | null>;
+  // no workspace is active or the PTY spawn failed. `title` overrides the
+  // default "Terminal N" (lane terminals are named "Lane #<issue>", #268).
+  openTerminal: (windowId?: string, cwd?: string, title?: string) => Promise<{ windowId: string; sessionId: string } | null>;
 
   // File system actions for active workspace
   setExpandedDirs: (dirs: Set<string>) => void;
@@ -1183,7 +1184,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   // Terminal actions
-  openTerminal: async (windowId?: string, cwd?: string) => {
+  openTerminal: async (windowId?: string, cwd?: string, title?: string) => {
     const { activeWorkspaceId, workspaces, addTab, focusWindow, openWindow } = get();
     if (!activeWorkspaceId) return null;
 
@@ -1203,7 +1204,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         }),
       }));
 
-      const terminalTitle = `Terminal ${terminalNumber}`;
+      const terminalTitle = title || `Terminal ${terminalNumber}`;
 
       if (windowId) {
         addTab(windowId, result.sessionId, 'terminal', terminalTitle);

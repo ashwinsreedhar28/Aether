@@ -1,4 +1,4 @@
-// Isolated test for the spawn ledger — fold + lifecycle + concurrency gate,
+// Isolated test for the spawn ledger — fold + lifecycle + capacity counting,
 // exercised against a throwaway temp ledger. No Electron, no spawn recipe.
 //
 // Run with Node's built-in runner (Node 22 strips types):
@@ -16,6 +16,7 @@ import {
   slugForName,
   parseDraftTargets,
   targetsForDraft,
+  targetsForLane,
   cleanupBlock,
   pythonCandidates,
   pickFirstCapable,
@@ -34,7 +35,7 @@ test('slugForName matches the Python tool shape', () => {
   assert.equal(slugForName('Smart-Home Control'), 'smart-home-control')
 })
 
-test('request → requested, not busy', () => {
+test('request → requested, nothing live', () => {
   const { ledger, cleanup } = freshLedger()
   try {
     const rec = ledger.request('smart-home', '/drafts/smart-home-X.md')
@@ -43,14 +44,14 @@ test('request → requested, not busy', () => {
     assert.equal(list[0]?.status, 'requested')
     assert.equal(list[0]?.draftName, 'smart-home')
     assert.equal(list[0]?.draftPath, '/drafts/smart-home-X.md')
-    assert.equal(ledger.busy(), false)
+    assert.equal(ledger.liveCount(), 0)
     assert.equal(ledger.find(rec.id)?.status, 'requested')
   } finally {
     cleanup()
   }
 })
 
-test('spawned sets busy + carries worktree/branch; closed releases it', () => {
+test('spawned counts live + carries worktree/branch; closed releases it', () => {
   const { ledger, cleanup } = freshLedger()
   try {
     const rec = ledger.request('timers', '/drafts/timers-X.md')
@@ -59,20 +60,20 @@ test('spawned sets busy + carries worktree/branch; closed releases it', () => {
     assert.equal(folded?.status, 'spawned')
     assert.equal(folded?.worktree, '/Users/x/aether-timers')
     assert.equal(folded?.branch, 'feat/timers')
-    assert.equal(ledger.busy(), true)
+    assert.equal(ledger.liveCount(), 1)
 
     ledger.markClosed(rec.id)
     folded = ledger.find(rec.id)
     assert.equal(folded?.status, 'closed')
     // draft identity survives the fold across lifecycle events
     assert.equal(folded?.draftName, 'timers')
-    assert.equal(ledger.busy(), false)
+    assert.equal(ledger.liveCount(), 0)
   } finally {
     cleanup()
   }
 })
 
-test('failed carries step + error and does NOT keep the gate busy', () => {
+test('failed carries step + error and does NOT count live', () => {
   const { ledger, cleanup } = freshLedger()
   try {
     const rec = ledger.request('news', '/drafts/news-X.md')
@@ -81,19 +82,19 @@ test('failed carries step + error and does NOT keep the gate busy', () => {
     assert.equal(folded?.status, 'failed')
     assert.equal(folded?.step, 'pnpm install')
     assert.equal(folded?.error, 'exit 1')
-    assert.equal(ledger.busy(), false)
+    assert.equal(ledger.liveCount(), 0)
   } finally {
     cleanup()
   }
 })
 
-test('dismissed is terminal and non-busy', () => {
+test('dismissed is terminal and not live', () => {
   const { ledger, cleanup } = freshLedger()
   try {
     const rec = ledger.request('voice', '/drafts/voice-X.md')
     ledger.markDismissed(rec.id)
     assert.equal(ledger.find(rec.id)?.status, 'dismissed')
-    assert.equal(ledger.busy(), false)
+    assert.equal(ledger.liveCount(), 0)
   } finally {
     cleanup()
   }
@@ -131,15 +132,15 @@ test('list is newest-request-first across multiple spawns', async () => {
   }
 })
 
-test('concurrency gate: one spawned blocks busy regardless of other requests', () => {
+test('liveCount tracks live spawns only — requests and closures do not count', () => {
   const { ledger, cleanup } = freshLedger()
   try {
     const a = ledger.request('a', '/drafts/a.md')
     ledger.request('b', '/drafts/b.md') // a second pending request
     ledger.markSpawned(a.id, '/wt/a', 'feat/a')
-    assert.equal(ledger.busy(), true) // the live spawn holds the gate
+    assert.equal(ledger.liveCount(), 1) // one live lane holds one capacity slot
     ledger.markClosed(a.id)
-    assert.equal(ledger.busy(), false) // gate released; b can now be approved
+    assert.equal(ledger.liveCount(), 0) // slot released; b can now be approved
   } finally {
     cleanup()
   }
@@ -247,7 +248,7 @@ test('markSpawned records a failed rag bootstrap with the failing step', () => {
     const folded = ledger.find(rec.id)
     // The spawn still landed (status spawned, busy) — RAG is best-effort.
     assert.equal(folded?.status, 'spawned')
-    assert.equal(ledger.busy(), true)
+    assert.equal(ledger.liveCount(), 1)
     assert.equal(folded?.ragBootstrap, 'failed')
     assert.equal(folded?.ragStep, 'rag: pip install')
   } finally {
@@ -288,4 +289,123 @@ test('pythonCandidates falls back to homebrew + PATH when the repo has no rag ve
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// ---- lane-kind records (#268): fold, sanitize, batch, tmux session ----------
+
+// The exact on-disk shape raven's work_on_issue tool appends — keep in sync
+// with daemons/raven-core/raven_core/tools/work_on_issue_tool.py.
+function laneLine(over: Record<string, unknown> = {}): string {
+  return (
+    JSON.stringify({
+      id: Math.random().toString(16).slice(2, 18),
+      ts: new Date().toISOString(),
+      kind: 'lane',
+      batch_id: 'batch-1',
+      issue: 271,
+      issue_title: 'gap(smart-home): dim the lights',
+      branch: 'lane/issue-271',
+      worktree: '~/aether-lane-271',
+      status: 'requested',
+      ...over,
+    }) + '\n'
+  )
+}
+
+test('lane request line folds with issue identity and expanded targets', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    appendFileSync(path, laneLine({ id: 'lane-a' }))
+    const rec = ledger.find('lane-a')
+    assert.equal(rec?.kind, 'lane')
+    assert.equal(rec?.status, 'requested')
+    assert.equal(rec?.issue, 271)
+    assert.equal(rec?.issueTitle, 'gap(smart-home): dim the lights')
+    assert.equal(rec?.batchId, 'batch-1')
+    assert.equal(rec?.laneBranch, 'lane/issue-271')
+    assert.equal(rec?.laneWorktree, join(homedir(), 'aether-lane-271'))
+  } finally {
+    cleanup()
+  }
+})
+
+test('garbled lane targets fall back to the documented lane derivation', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    // Shell-meta branch and an outside-$HOME worktree must not survive the fold.
+    appendFileSync(
+      path,
+      laneLine({ id: 'lane-bad', issue: 280, branch: 'x;rm -rf', worktree: '/etc' }),
+    )
+    const rec = ledger.find('lane-bad')
+    assert.equal(rec?.laneBranch, 'lane/issue-280')
+    assert.equal(rec?.laneWorktree, join(homedir(), 'aether-lane-280'))
+  } finally {
+    cleanup()
+  }
+})
+
+test('requestedBatch returns only still-requested members, oldest first', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    appendFileSync(path, laneLine({ id: 'b1', issue: 1, ts: '2026-06-11T00:00:01Z' }))
+    appendFileSync(path, laneLine({ id: 'b2', issue: 2, ts: '2026-06-11T00:00:02Z' }))
+    appendFileSync(path, laneLine({ id: 'other', issue: 9, batch_id: 'batch-2' }))
+    assert.deepEqual(
+      ledger.requestedBatch('batch-1').map((r) => r.id),
+      ['b1', 'b2'],
+    )
+    // A spawned member leaves the approval unit; the sibling remains.
+    ledger.markSpawned('b1', join(homedir(), 'aether-lane-1'), 'lane/issue-1')
+    assert.deepEqual(
+      ledger.requestedBatch('batch-1').map((r) => r.id),
+      ['b2'],
+    )
+  } finally {
+    cleanup()
+  }
+})
+
+test('lane spawned event records the tmux session and counts live with drafts', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    appendFileSync(path, laneLine({ id: 'lane-t', issue: 271 }))
+    ledger.markSpawned(
+      'lane-t',
+      join(homedir(), 'aether-lane-271'),
+      'lane/issue-271',
+      { ok: true },
+      'lane-271',
+    )
+    const rec = ledger.find('lane-t')
+    assert.equal(rec?.status, 'spawned')
+    assert.equal(rec?.tmuxSession, 'lane-271')
+    // lane identity survives the lifecycle fold
+    assert.equal(rec?.issue, 271)
+    assert.equal(rec?.kind, 'lane')
+    // both kinds hold capacity slots (#268 ruling)
+    const draft = ledger.request('draft-x', '/drafts/x.md')
+    ledger.markSpawned(draft.id, '/wt/x', 'feat/x')
+    assert.equal(ledger.liveCount(), 2)
+  } finally {
+    cleanup()
+  }
+})
+
+test('targetsForLane sanitizes and defaults like the draft path does', () => {
+  assert.deepEqual(targetsForLane(42, 'lane/issue-42', '~/aether-lane-42'), {
+    branch: 'lane/issue-42',
+    worktree: join(homedir(), 'aether-lane-42'),
+  })
+  // Spec-supplied targets win (the #268 Branch:/Worktree: contract).
+  assert.equal(targetsForLane(268, 'feat/spawn-lanes', '~/aether-spawn').branch, 'feat/spawn-lanes')
+  assert.equal(
+    targetsForLane(268, 'feat/spawn-lanes', '~/aether-spawn').worktree,
+    join(homedir(), 'aether-spawn'),
+  )
+  // Hostile values fall back to the derivation.
+  assert.deepEqual(targetsForLane(7, 'bad;branch', '/etc/passwd'), {
+    branch: 'lane/issue-7',
+    worktree: join(homedir(), 'aether-lane-7'),
+  })
 })

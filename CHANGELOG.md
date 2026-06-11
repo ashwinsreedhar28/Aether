@@ -10,6 +10,29 @@ historical record.
 ## [Unreleased]
 
 ### Added
+- The v0.11.0 release cut (#297): CHANGELOG `[Unreleased]` rolled into
+  `[0.11.0] - 2026-06-11` (lossless — heading change plus a headline note, per
+  the #182 cut precedent), narrative release notes at
+  `docs/releases/v0.11.0.md`, the Atlas living map recounted against
+  post-#268 main and re-snapshotted into `docs/atlas/history/` (the
+  flip-book's first cut-time page), README fully re-counted from source
+  (23 apps exact, 49 voice functions, 20 nodes / 81 edges) with the
+  self-staffing build-process chapter and `AETHER_GITHUB_TOKEN` /
+  `AETHER_GITHUB_REPO` named in the quickstart, and tag commands prepared
+  for the Director's cut: the v0.10.0 retro-tag (the heading existed since
+  #182 with no tag behind it) plus v0.11.0.
+
+## [0.11.0] - 2026-06-11
+
+*The release where the Viewer became the shell and the loop learned to staff
+itself: the Viewer × Aether capability merge landed (one window manager, one
+assistant, one mesh SDK — plus barge-in, session resumption, and voice desktop
+control), the gap ledger moved onto the live GitHub issue board — gaps file
+themselves as issues and the board is the only rail — and accepted work now
+spawns its own implementer lanes by voice (`work_on_issue`), tmux-detached and
+human-gated end to end.*
+
+### Added
 - Soft mute — mute no longer kills the Gemini session (#219). Muting gates
   mic-frame forwarding inside the live orchestrator (sticky `_muted` flag next
   to the echo gate; frames are read and dropped, never replaced with silence,

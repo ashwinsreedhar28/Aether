@@ -55,12 +55,14 @@ Per-sprint retros, then per-arc retros under `retros/`. (Sprint 3 has no standal
 - [sprint-4-retrospective.md](sprint-4-retrospective.md)
 - [sprint-5-retrospective.md](sprint-5-retrospective.md)
 - [retros/2026-06-viewer-arc.md](retros/2026-06-viewer-arc.md) — the Viewer × Aether capability merge
+- [retros/2026-06-self-building-arc.md](retros/2026-06-self-building-arc.md) — the spawn rail's shakedown cruise: gaps file as issues, lanes spawn by voice
 
 ## Releases
 
 Per-release narrative notes (the human-readable companion to the CHANGELOG).
 
 - [releases/v0.10.0.md](releases/v0.10.0.md) — The Cockpit & the Self-Building Loop
+- [releases/v0.11.0.md](releases/v0.11.0.md) — The Viewer Merge & the System That Staffs Itself
 
 ## Branding
 

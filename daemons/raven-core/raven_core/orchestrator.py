@@ -93,6 +93,16 @@ class Orchestrator:
         # detector below decides the user is talking over Raven.
         self._playback_until: float = 0.0
 
+        # User-requested soft mute (see listen_audio). While True, mic
+        # frames are read and DROPPED — never forwarded to the API and
+        # never replaced with silence — so raven stops hearing without
+        # the live session (and its conversation context) being torn
+        # down. Sticky: lives on the orchestrator, not the session, so
+        # it survives live-session reconnects. Flipped only by the
+        # {"type": "set_muted"} stdin envelope (see send_text); the
+        # daemon's /listen/stop remains the shutdown path.
+        self._muted: bool = False
+
         # Barge-in detector state (see listen_audio / _is_barge_in).
         # The echo EMA tracks how loud Raven's own voice is at the mic
         # during a playback window; a streak of chunks well above that
@@ -225,6 +235,17 @@ class Orchestrator:
             text = line
             try:
                 envelope = json.loads(line)
+                if isinstance(envelope, dict) and envelope.get("type") == "set_muted":
+                    # Soft-mute control message, not a user turn: flip the
+                    # sticky mic gate (listen_audio drops frames while set)
+                    # and swallow the line. The live session stays up — that
+                    # is the entire point of soft mute.
+                    self._muted = bool(envelope.get("muted"))
+                    print(
+                        f"[ORCHESTRATOR] Soft mute "
+                        f"{'engaged — mic frames dropped' if self._muted else 'released — mic frames forwarded'}"
+                    )
+                    continue
                 if isinstance(envelope, dict) and envelope.get("type") == "text":
                     text = str(envelope.get("text", ""))
             except (ValueError, TypeError):
@@ -304,12 +325,23 @@ class Orchestrator:
         kwargs = {"exception_on_overflow": False} if __debug__ else {}
         chunk_count = 0
         muted_count = 0
+        soft_mute_dropped = 0
 
         while True:
             data = await asyncio.to_thread(self._audio_stream.read, CHUNK_SIZE, **kwargs)
             chunk_count += 1
             if chunk_count % 100 == 0:
                 print(f"[AUDIO] Captured {chunk_count} audio chunks from microphone")
+            # User soft mute: keep reading (the device stream stays hot so
+            # unmute is instant) but drop the frame before ANY downstream
+            # processing — no forwarding, no silence substitute, and no
+            # barge-in detection (a muted mic must never interrupt raven).
+            # Checked before the echo gate so the two gates stay independent.
+            if self._muted:
+                soft_mute_dropped += 1
+                if soft_mute_dropped % 100 == 0 and not JsonLogger.is_enabled():
+                    print(f"[AUDIO] Soft mute — dropped {soft_mute_dropped} mic chunks")
+                continue
             # Echo gate: drop mic chunks while we're playing audio. Without
             # this, the speaker output feeds back into the mic, Gemini Live
             # treats it as user input, generates a response, plays it,

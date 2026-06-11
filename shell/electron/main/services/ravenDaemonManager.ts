@@ -751,6 +751,16 @@ export class RavenDaemonManager extends EventEmitter {
   }
 
   /**
+   * POST /listen/set-muted — soft-mute the live session's mic. The Python
+   * child (and its Gemini conversation context) survives; only mic-frame
+   * forwarding is gated inside the orchestrator. Rejects with
+   * Error('no_session') (daemon 409) when no child is up to mute.
+   */
+  async setMuted(muted: boolean): Promise<unknown> {
+    return this.request('POST', '/listen/set-muted', { muted })
+  }
+
+  /**
    * POST /text — route a typed user turn to raven (the same brain as voice).
    * Resolves with the daemon's {ok:true} ack on accept; rejects with
    * Error('no_session') when nothing is listening (daemon 409) so the caller

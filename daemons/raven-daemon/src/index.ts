@@ -27,7 +27,13 @@
  *                        while a child is listening), lastTranscript /
  *                        lastToolCall
  *   POST /listen/start   spawn the Python child and begin listening
- *   POST /listen/stop    stop the Python child
+ *   POST /listen/stop    stop the Python child (shutdown only — mute goes
+ *                        through /listen/set-muted so the session survives)
+ *   POST /listen/set-muted
+ *                        soft-mute: {"muted":bool} gates mic-frame forwarding
+ *                        inside the live child WITHOUT killing it. 202
+ *                        {ok:true} on accept, 409 {error:'no_session'} when
+ *                        no child is up to mute
  *   POST /text           inject a typed user turn into the live session
  *                        (same brain as voice). 202 {ok:true} on accept,
  *                        409 {error:'no_session'} when nothing is listening
@@ -163,6 +169,23 @@ async function handleRequest(
     if (pathname === '/listen/stop' && method === 'POST') {
       const state = await ravenManager.stop();
       sendJson(res, 200, state);
+      return;
+    }
+
+    if (pathname === '/listen/set-muted' && method === 'POST') {
+      const body = await parseBody<{ muted?: unknown }>(req);
+      if (typeof body.muted !== 'boolean') {
+        sendError(res, 400, 'muted (boolean) required');
+        return;
+      }
+      // Acceptance only, like /text: the envelope is written to the child's
+      // stdin and the orchestrator applies it asynchronously. The session
+      // stays alive either way — mute is a gate, not a stop.
+      if (!ravenManager.setMuted(body.muted)) {
+        sendError(res, 409, 'no_session');
+        return;
+      }
+      sendJson(res, 202, { ok: true, muted: body.muted });
       return;
     }
 

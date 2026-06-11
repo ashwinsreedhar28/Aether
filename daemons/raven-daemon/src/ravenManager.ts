@@ -197,6 +197,26 @@ export class RavenManager extends EventEmitter {
   }
 
   /**
+   * Soft-mute the live session's microphone. Writes a
+   * {"type":"set_muted","muted":bool} envelope to the child's stdin;
+   * orchestrator.send_text flips a sticky flag and listen_audio drops mic
+   * frames while it is set. The Python child — and the Gemini session with
+   * its conversation context — stays alive; contrast stop(), which SIGTERMs.
+   *
+   * Returns false when there is no child to write to (no live process or a
+   * destroyed stdin). The HTTP layer maps that to 409 no_session. Unlike
+   * sendText this does not gate on status === 'running': a mute during
+   * 'starting' must stick to the session about to come up.
+   */
+  setMuted(muted: boolean): boolean {
+    if (!this.process || !this.process.stdin || this.process.stdin.destroyed) {
+      return false;
+    }
+    this.process.stdin.write(JSON.stringify({ type: 'set_muted', muted }) + '\n');
+    return true;
+  }
+
+  /**
    * Stop the Python child. SIGTERM first, 5s grace, then SIGKILL.
    */
   async stop(): Promise<RavenState> {

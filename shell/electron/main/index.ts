@@ -79,10 +79,20 @@ let tray: Tray | null = null
 let quitInFlight = false
 let cleanedUp = false
 
-// User-toggled voice mute. When true, the mic is stopped AND the ambient
-// auto-listen is suppressed (otherwise ensureAmbientListening would re-engage
-// it on the next status push). Drives the VoiceMuteButton in the renderer.
+// User-toggled voice mute. When true, mic-frame forwarding is gated inside
+// the live orchestrator (soft mute — the Gemini session and its conversation
+// context survive; see /listen/set-muted) AND the ambient auto-listen is
+// suppressed so a session (re)start can't bring the mic back hot. Drives the
+// VoiceMuteButton in the renderer.
 let voiceMuted = false
+
+// Latched when listening is stopped ON PURPOSE (voice:stop IPC, app quit) so
+// ensureAmbientListening's re-engage paths — availability transitions and
+// status pushes — don't resurrect a mic the user (or the shutdown sequence)
+// just killed. Cleared by voice:start and by unmute, the two explicit
+// "I want to be heard again" signals. Belt + suspenders next to voiceMuted:
+// mute no longer stops the child, but anything that still does must stick.
+let voiceIntentionalStop = false
 
 // The viewer_desktop control node: agent->renderer dispatch (open/close/focus
 // apps + views) hosted in this process. Created after the mesh is ready so its
@@ -414,11 +424,19 @@ ipcMain.handle('voice:status', () => {
   }
   return raven.status()
 })
-ipcMain.handle('voice:start', () => raven.listenStart())
-ipcMain.handle('voice:stop', () => raven.listenStop())
-// Mute toggle. true → stop the mic + suppress ambient re-engage; false → clear
-// the mute and re-engage listening immediately. Broadcasts voice:muted-changed
-// so every renderer (the mute button + the ⌘/ console) stays in sync.
+ipcMain.handle('voice:start', () => {
+  voiceIntentionalStop = false
+  return raven.listenStart()
+})
+ipcMain.handle('voice:stop', () => {
+  voiceIntentionalStop = true
+  return raven.listenStop()
+})
+// Mute toggle — SOFT: the daemon's /listen/set-muted gates mic-frame
+// forwarding inside the live orchestrator, so the Gemini session (and its
+// conversation context) survives a mute/unmute cycle. No listenStop, no
+// child respawn. Broadcasts voice:muted-changed so every renderer (the mute
+// button + the ⌘/ console) stays in sync.
 ipcMain.handle('voice:muted', () => voiceMuted)
 ipcMain.handle('voice:set-muted', async (_e, muted: unknown) => {
   const next = Boolean(muted)
@@ -427,9 +445,23 @@ ipcMain.handle('voice:set-muted', async (_e, muted: unknown) => {
   broadcastToRenderers('voice:muted-changed', voiceMuted)
   try {
     if (voiceMuted) {
-      await raven.listenStop()
+      // No session to mute (409 no_session) is fine: nothing is hearing,
+      // and the voiceMuted flag above keeps ambient from re-engaging.
+      await raven.setMuted(true)
     } else {
-      // Clear the cooldown so unmute re-engages the mic right away.
+      voiceIntentionalStop = false
+      try {
+        await raven.setMuted(false)
+      } catch (err) {
+        // no_session — the child died while muted. The re-ensure below
+        // heals it, so this must not short-circuit to the outer catch.
+        console.warn('[aether] voice unmute: no live session to unmute:', err)
+      }
+      // Healing fallback: if the child died WHILE muted, the status push
+      // that would normally re-engage listening was suppressed by the
+      // voiceMuted gate and won't re-fire. ensureAmbientListening brings a
+      // dead session back; against a live one it's a no-op (listenStart is
+      // idempotent daemon-side), so this never respawns a surviving session.
       ambientLastStart = 0
       await ensureAmbientListening()
     }
@@ -522,6 +554,9 @@ async function ensureAmbientListening(state?: { status?: string }): Promise<void
   if (!AMBIENT_VOICE) return
   // Muted by the user — do not re-engage the mic until they unmute.
   if (voiceMuted) return
+  // Listening was stopped on purpose (voice:stop or shutdown) — don't
+  // resurrect it behind the user's back. voice:start / unmute clear this.
+  if (voiceIntentionalStop) return
   if (raven.getAvailability().kind !== 'available') return
   // On a status push, only re-engage when the session has actually dropped.
   // 'running'/'starting' mean listening is already (re)engaging; re-firing
@@ -722,6 +757,9 @@ app.whenReady().then(() => {
 // enough to risk Electron's quit timeout firing) — parallel keeps worst-
 // case bounded by the slower of the two cleanups.
 async function stopAllChildren(): Promise<void> {
+  // Shutdown is the canonical intentional stop: latch before the SIGTERMs so
+  // the dying children's status pushes can't race a final ambient re-engage.
+  voiceIntentionalStop = true
   const results = await Promise.allSettled([
     stopMesh(),
     raven.stop(),

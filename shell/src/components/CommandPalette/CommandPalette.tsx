@@ -31,13 +31,16 @@ export function CommandPalette({ isVisible, onClose, onProcessingChange }: Comma
   const [log, setLog] = useState<LogLine[]>([]);
   const [available, setAvailable] = useState<VoiceAvailability | null>(null);
   const [status, setStatus] = useState<RavenStatus>('stopped');
+  const [muted, setMuted] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
-  const listening = status === 'running' || status === 'starting';
+  // Mute is a soft gate: the session stays 'running' while muted, so status
+  // alone no longer means "raven can hear you" — muted must veto it.
+  const listening = !muted && (status === 'running' || status === 'starting');
   const isAvailable = available?.kind === 'available';
 
   // Append a transcript fragment, merging it into the previous line when the
@@ -66,6 +69,7 @@ export function CommandPalette({ isVisible, onClose, onProcessingChange }: Comma
     let alive = true;
     window.aether.voice.availability().then((a) => alive && setAvailable(a));
     window.aether.voice.status().then((s) => alive && setStatus(s.status));
+    window.aether.voice.muted().then((m) => alive && setMuted(m));
     window.aether.voice.recentTranscripts(20).then(({ transcripts }) => {
       if (!alive) return;
       transcripts.forEach(pushTranscript);
@@ -76,6 +80,7 @@ export function CommandPalette({ isVisible, onClose, onProcessingChange }: Comma
       window.aether.voice.onToolCall(pushToolCall),
       window.aether.voice.onAvailabilityChanged((a) => setAvailable(a)),
       window.aether.voice.onStatusChanged((s) => setStatus(s.status)),
+      window.aether.voice.onMutedChanged((m) => setMuted(m)),
     ];
     return () => {
       alive = false;
@@ -127,10 +132,11 @@ export function CommandPalette({ isVisible, onClose, onProcessingChange }: Comma
 
   const toggleMic = async () => {
     try {
-      // Drive the shared mute flag (not a raw start/stop) so the palette mic and
-      // the floating VoiceMuteButton stay in sync and the ambient auto-listen
-      // doesn't immediately re-engage a "stop".
-      await window.aether.voice.setMuted(listening);
+      // Drive the shared mute flag (not a raw start/stop) so the palette mic
+      // and the floating VoiceMuteButton stay in sync. Toggle on the muted
+      // flag itself — not on listening — so a click while muted always
+      // unmutes, even though the soft-muted session still reports 'running'.
+      await window.aether.voice.setMuted(!muted);
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'mic toggle failed');
     }
@@ -220,15 +226,33 @@ export function CommandPalette({ isVisible, onClose, onProcessingChange }: Comma
 
         {/* Input */}
         <div className="flex items-center gap-3 p-4">
+          {/* Mute toggle, not push-to-talk: muted is a sticky red MicOff
+              state and clicking flips the shared mute flag. */}
           <button
             onClick={toggleMic}
             disabled={!isAvailable}
-            title={listening ? 'Stop listening' : 'Start listening'}
+            title={
+              muted
+                ? "Muted — Aether can't hear you. Click to unmute."
+                : listening
+                  ? 'Listening — click to mute'
+                  : 'Click to mute Aether'
+            }
             className={`flex-shrink-0 transition-colors disabled:opacity-30 ${
-              listening ? 'text-[var(--holo-accent)]' : 'text-[var(--holo-muted)] hover:text-[var(--holo-accent)]'
+              muted && isAvailable
+                ? 'text-[#ff7a8c] hover:text-[var(--holo-accent)]'
+                : listening
+                  ? 'text-[var(--holo-accent)]'
+                  : 'text-[var(--holo-muted)] hover:text-[var(--holo-accent)]'
             }`}
           >
-            {listening ? <Radio size={20} className="animate-pulse" /> : isAvailable ? <Mic size={20} /> : <MicOff size={20} />}
+            {listening ? (
+              <Radio size={20} className="animate-pulse" />
+            ) : isAvailable && !muted ? (
+              <Mic size={20} />
+            ) : (
+              <MicOff size={20} />
+            )}
           </button>
           <input
             ref={inputRef}
@@ -260,10 +284,22 @@ export function CommandPalette({ isVisible, onClose, onProcessingChange }: Comma
           <span className="flex items-center gap-1.5">
             <span
               className={`w-1.5 h-1.5 rounded-full ${
-                listening ? 'bg-[var(--holo-accent)] animate-pulse' : isAvailable ? 'bg-green-500' : 'bg-[var(--holo-muted)]'
+                listening
+                  ? 'bg-[var(--holo-accent)] animate-pulse'
+                  : muted && isAvailable
+                    ? 'bg-[#ff7a8c]'
+                    : isAvailable
+                      ? 'bg-green-500'
+                      : 'bg-[var(--holo-muted)]'
               }`}
             />
-            {listening ? 'Listening' : isAvailable ? 'Ready' : 'Offline'}
+            {listening
+              ? 'Listening'
+              : muted && isAvailable
+                ? "Muted — Aether can't hear you"
+                : isAvailable
+                  ? 'Ready'
+                  : 'Offline'}
           </span>
           <span>
             <kbd className="px-1.5 py-0.5 bg-[var(--holo-bg)] rounded border border-[var(--holo-border)] font-mono text-[10px]">Enter</kbd>{' '}

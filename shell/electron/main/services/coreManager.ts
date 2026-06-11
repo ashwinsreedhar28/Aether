@@ -167,6 +167,11 @@ export class CoreManager {
       // at manifest load so nodeManager can inject the same value into the
       // child's env. No ADMIN_TOKEN: it persists gaps locally, no broker endpoint.
       MESH_INTENTS_SECRET: this.secrets.intentsSecret,
+      // github is a TypeScript Actor node (spawned by nodeManager). Same env
+      // contract — Core resolves env:MESH_GITHUB_SECRET at manifest load so
+      // nodeManager can inject the same value into the child's env. No
+      // ADMIN_TOKEN: it talks to GitHub's API, no broker endpoint.
+      MESH_GITHUB_SECRET: this.secrets.githubSecret,
       // viewer_desktop is the agent->renderer control node, hosted IN the shell
       // main process (not spawned) — index.ts creates its MeshNode directly with
       // this.secrets.viewerDesktopSecret. Core still has to resolve

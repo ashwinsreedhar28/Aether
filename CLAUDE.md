@@ -324,6 +324,8 @@ Deletion lanes (PRs that primarily remove code) report renderer bundle delta in 
 
 A fresh worktree is not a fresh clone: `git worktree add` does NOT init submodules, copy gitignored config (`.env.local`), or materialize `node_modules` for workspace packages. Any lane running the full stack (scene server, voice, a new workspace package) needs all three. The canonical setup recipe and the submodule-`deinit`-before-`worktree remove` teardown gotcha (`deinit` is GLOBAL across worktrees sharing a `.git`): `docs/claude-reference.md` §13.12 and `docs/governance-log.md` (2026-06-03).
 
+Quit the app (or run it from a dedicated worktree) before pulling merges into its checkout. A pull under a live dev server hot-swaps main-process code beneath the running renderer — black screen (`docs/governance-log.md`, 2026-06-11).
+
 ## 13.13 Precedent-First Implementers
 
 The default way an Implementer discovers prior art is to **query the `aether-rag` MCP (`search_corpus`) for the decisions and patterns relevant to each build step, before implementing it** — not to wait for the lane prompt to hand-list every file. The corpus is Aether's own written record (governance log, DECISIONS, CHANGELOG, CLAUDE.md, scene protocol, the manifest, node READMEs, `docs/rebase-playbook.md`, this appendix), so "how have we solved this before?" is a retrieval, not a guess — replacing exhaustive hand-fed file lists as the *default* for discovery.

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { pickBinaryLine } from './shellCapture'
 
 // GUI-launched Electron on macOS receives a stripped PATH
 // (/usr/bin:/bin:/usr/sbin:/sbin) that misses Homebrew, pyenv, and
@@ -27,24 +28,29 @@ const CANDIDATE_PATHS = [
 function fromLoginShell(): string | null {
   // `-l` loads the user's login profile, which puts Homebrew / pyenv /
   // python.org bin dirs on PATH the same way a fresh Terminal session does.
+  // Profile files can echo noise around the path (#302 defect 6; see
+  // shellCapture.ts) — extract the path line, never trim()-trust, or a
+  // banner line silently costs an otherwise-valid resolution.
   try {
-    const out = execFileSync('/bin/zsh', ['-l', '-c', 'command -v python3'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 2000,
-    })
-      .trim()
+    const out = pickBinaryLine(
+      execFileSync('/bin/zsh', ['-l', '-c', 'command -v python3'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2000,
+      }),
+    )
     if (out && existsSync(out)) return out
   } catch {
     /* shell not zsh, or python3 not found — fall through */
   }
   try {
-    const out = execFileSync('/bin/bash', ['-lc', 'command -v python3'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 2000,
-    })
-      .trim()
+    const out = pickBinaryLine(
+      execFileSync('/bin/bash', ['-lc', 'command -v python3'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2000,
+      }),
+    )
     if (out && existsSync(out)) return out
   } catch {
     /* bash not available either — fall through */

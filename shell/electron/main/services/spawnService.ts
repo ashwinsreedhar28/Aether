@@ -22,6 +22,8 @@ import {
   // test files; tsconfig sets allowImportingTsExtensions).
 } from './spawnLedger.ts'
 import type { ControlDispatch } from './viewerControl'
+// .ts extension for `node --test` loadability, same rule as spawnLedger.
+import { pickBinaryLine } from './shellCapture.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -594,8 +596,22 @@ export class SpawnService extends EventEmitter {
   private async probeTmux(): Promise<void> {
     if (process.platform !== 'darwin') return
     try {
-      const bin = (await this.runShellCapture('command -v tmux', this.repoRoot)).trim()
-      if (!bin) throw new Error('command -v tmux printed nothing')
+      const captured = await this.runShellCapture('command -v tmux', this.repoRoot)
+      // Never trim()-trust a -lic capture: rc files write arbitrary lines to
+      // stdout — Apple Terminal's restored-session banner rode ABOVE the
+      // path on some boots and poisoned tmuxBin (defect 6; verbatim fixture
+      // and the extraction law live in shellCapture.ts). Extract the path
+      // line, then let the filesystem confirm it.
+      const bin = pickBinaryLine(captured)
+      if (!bin || !existsSync(bin)) {
+        this.tmuxOk = false
+        console.warn(
+          '[spawnService] tmux probe captured no usable binary path — lane spawns fall back to ' +
+            'plain ptys that die with the app (remedy: brew install tmux). ' +
+            `Captured output: ${JSON.stringify(captured)}`,
+        )
+        return
+      }
       this.tmuxBin = bin
       this.tmuxOk = true
     } catch {

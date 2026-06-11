@@ -29,6 +29,7 @@ import * as fs from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { randomBytes } from 'node:crypto'
 import { app } from 'electron'
+import { pickBinaryLine } from './shellCapture'
 
 // ----------------------------------------------------------------------------
 // Secret Registry
@@ -234,7 +235,10 @@ export class PythonDaemonManager<TConfig extends PythonNodeConfig> extends Event
       timeout: 2000,
     })
     if (result.status === 0 && result.stdout) {
-      return result.stdout.trim()
+      // Never trim()-trust a -lic capture: rc files print banners around the
+      // path (#302 defect 6; see shellCapture.ts). Extract, then confirm.
+      const py = pickBinaryLine(result.stdout)
+      if (py && fs.existsSync(py)) return py
     }
     return null
   }

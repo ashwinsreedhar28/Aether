@@ -94,7 +94,12 @@ historical record.
   `executeViewerControl` re-throws main-side — a rejected promise never
   crosses `executeJavaScript` again. A spawn request landing while a recipe
   is busy now surfaces its card immediately (busy gates the Approve button,
-  never visibility). Teardown block gains the kickoff file.
+  never visibility). Teardown block gains the kickoff file. Binary paths read
+  from login-shell captures are extracted defensively (`pickBinaryLine` +
+  `existsSync`) — rc files print banners around the probe output (Apple
+  Terminal's restored-session banner poisoned `tmuxBin` in the field), and
+  the same hardening now covers the raven-daemon, node-registry, and mesh
+  python resolvers.
 - "Open the terminal" by voice now spawns a real PTY-backed terminal — the
   `open-app` control action routes `terminal` through `openTerminal()` (the
   manual launcher's path) instead of creating a dead window whose tab pointed

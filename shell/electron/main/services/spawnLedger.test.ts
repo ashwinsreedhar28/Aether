@@ -481,3 +481,89 @@ test('relay outcomes for unknown ids are dropped; listRelays is newest-first', a
     cleanup()
   }
 })
+
+// ---- teardown family (#317): kind-tagged lines, segregated fold --------------
+
+test('teardown lines fold separately and never touch spawn records', () => {
+  const { ledger, cleanup } = freshLedger()
+  try {
+    const td = ledger.requestTeardown(317)
+    // Invisible to the spawn fold: no ghost 'requested' card, no capacity.
+    assert.equal(ledger.list().length, 0)
+    assert.equal(ledger.liveCount(), 0)
+    // Visible to the teardown fold; force defaults false (voice shape).
+    assert.equal(ledger.findTeardown(td.id)?.status, 'requested')
+    assert.equal(ledger.findTeardown(td.id)?.issue, 317)
+    assert.equal(ledger.findTeardown(td.id)?.force, false)
+    assert.equal(ledger.pendingTeardowns().length, 1)
+
+    ledger.markTeardownDone(td.id)
+    assert.equal(ledger.findTeardown(td.id)?.status, 'done')
+    assert.equal(ledger.pendingTeardowns().length, 0)
+
+    // A FAILED teardown outcome must not seed a SPAWN FAILED stub either,
+    // and its guard code + step fold back for the card.
+    const t2 = ledger.requestTeardown(318, true)
+    assert.equal(ledger.findTeardown(t2.id)?.force, true)
+    ledger.markTeardownFailed(t2.id, 'worktree has uncommitted changes', { code: 'dirty' })
+    assert.equal(ledger.findTeardown(t2.id)?.status, 'failed')
+    assert.equal(ledger.findTeardown(t2.id)?.code, 'dirty')
+    assert.equal(ledger.list().length, 0)
+
+    const t3 = ledger.requestTeardown(319)
+    ledger.markTeardownFailed(t3.id, 'boom', { step: 'git worktree remove' })
+    assert.equal(ledger.findTeardown(t3.id)?.step, 'git worktree remove')
+  } finally {
+    cleanup()
+  }
+})
+
+test('teardown outcomes for unknown ids are dropped; the voice line shape folds', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    // An outcome with no request line has no issue to execute against — drop.
+    appendFileSync(
+      path,
+      JSON.stringify({ id: 'ghost', ts: '2026-06-11T00:00:00Z', kind: 'teardown', status: 'failed', error: 'x' }) + '\n',
+    )
+    assert.equal(ledger.findTeardown('ghost'), undefined)
+    // The exact line close_lane_tool.py appends (no force key) folds clean.
+    appendFileSync(
+      path,
+      JSON.stringify({ id: 'td-voice', ts: '2026-06-11T00:01:00Z', kind: 'teardown', issue: 317, status: 'requested' }) + '\n',
+    )
+    const td = ledger.findTeardown('td-voice')
+    assert.equal(td?.issue, 317)
+    assert.equal(td?.force, false)
+    assert.equal(td?.status, 'requested')
+  } finally {
+    cleanup()
+  }
+})
+
+test('teardown_failed keeps holding capacity; only closed frees it (#317)', () => {
+  const { ledger, cleanup } = freshLedger()
+  try {
+    const rec = ledger.request('demo', '/drafts/demo.md')
+    ledger.markSpawned(rec.id, '/Users/x/aether-lane-317', 'lane/issue-317', undefined, 'lane-317')
+    assert.equal(ledger.liveCount(), 1)
+
+    ledger.markRecordTeardownFailed(rec.id, 'git worktree remove', 'boom')
+    const folded = ledger.find(rec.id)
+    assert.equal(folded?.status, 'teardown_failed')
+    assert.equal(folded?.step, 'git worktree remove')
+    assert.equal(folded?.error, 'boom')
+    // The failed teardown did NOT free the slot...
+    assert.equal(ledger.liveCount(), 1)
+
+    // ...and the recorded worktree/branch survive the flip for the retry.
+    assert.equal(folded?.worktree, '/Users/x/aether-lane-317')
+    assert.equal(folded?.branch, 'lane/issue-317')
+
+    ledger.markClosed(rec.id)
+    assert.equal(ledger.find(rec.id)?.status, 'closed')
+    assert.equal(ledger.liveCount(), 0)
+  } finally {
+    cleanup()
+  }
+})

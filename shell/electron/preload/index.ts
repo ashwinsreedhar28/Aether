@@ -95,7 +95,13 @@ export interface VoiceStatus extends RavenState {
 // Duplicated rather than imported so the preload (a sandbox-loaded script)
 // stays free of cross-package imports.
 
-export type SpawnStatus = 'requested' | 'spawned' | 'closed' | 'dismissed' | 'failed'
+export type SpawnStatus =
+  | 'requested'
+  | 'spawned'
+  | 'closed'
+  | 'dismissed'
+  | 'failed'
+  | 'teardown_failed'
 
 export interface SpawnView {
   id: string
@@ -153,6 +159,25 @@ export interface RelayRecord {
   error?: string
 }
 
+// A folded guarded teardown (#317) — voice close_lane or the card's CLOSE OUT;
+// the shell runs the canonical cleanup block and records the outcome. A
+// 'failed' code of 'dirty' drives the warn card's CLOSE ANYWAY (force);
+// 'pr-open' / 'lane-busy' are hard refusals.
+export type TeardownStatus = 'requested' | 'done' | 'failed'
+export type TeardownGuardCode = 'pr-open' | 'dirty' | 'lane-busy'
+
+export interface TeardownRecord {
+  id: string
+  ts: string
+  requestedTs: string
+  issue: number
+  force: boolean
+  status: TeardownStatus
+  code?: TeardownGuardCode
+  step?: string
+  error?: string
+}
+
 export interface SpawnSnapshot {
   spawns: SpawnView[]
   running: string | null
@@ -170,6 +195,9 @@ export interface SpawnSnapshot {
   // Folded relays (#310), newest first — the card surfaces a lane's last
   // relay outcome so a voice "proceed lane N" is observable.
   relays: RelayRecord[]
+  // Folded teardowns (#317), newest first — same observability for a voice
+  // "close out lane N".
+  teardowns: TeardownRecord[]
 }
 
 export interface SpawnActionResult {
@@ -177,7 +205,9 @@ export interface SpawnActionResult {
   error?: string
   // 'live-session' (#305): complete() refused because the record's tmux
   // session is still alive — re-call with force after an explicit warning.
-  code?: 'live-session'
+  // 'pr-open' / 'dirty' / 'lane-busy' (#317): closeLane guard outcomes —
+  // only 'dirty' is force-overridable (the warn card's CLOSE ANYWAY).
+  code?: 'live-session' | TeardownGuardCode
 }
 
 // ---- Files types ----------------------------------------------------------
@@ -292,6 +322,10 @@ const spawn = {
   // `issue` (#310) — the card's PROCEED button on AT GATE.
   proceed: (issue: number): Promise<SpawnActionResult> =>
     ipcRenderer.invoke('spawn:proceed', issue),
+  // Guarded teardown of the live lane working `issue` (#317) — the card's
+  // CLOSE OUT button; `force` only from its CLOSE ANYWAY on the dirty warn.
+  closeLane: (issue: number, force?: boolean): Promise<SpawnActionResult> =>
+    ipcRenderer.invoke('spawn:close-lane', issue, force === true),
   // Push on every ledger change (request landed, approved, spawned, failed, …).
   onChanged: (cb: (snap: SpawnSnapshot) => void): Unsubscribe => subscribe('spawn:changed', cb),
 }

@@ -15,10 +15,11 @@ export function laneIssueOf(branch: string): number | null {
 /**
  * The record a lane query (issue and/or branch) names. Several records can
  * share a branch across the ledger's history (a dismissed request, then a
- * re-arm); prefer the one with a live card worth raising — requested or
- * spawned — and fall back to the newest match (`spawns` arrives newest-request
- * -first from the ledger fold). Null when nothing matches: not every worktree
- * row has a spawn record (the main checkout, hand-made worktrees).
+ * re-arm); prefer the one with a live card worth raising — requested, spawned,
+ * or a teardown_failed record still holding its capacity slot (#317) — and
+ * fall back to the newest match (`spawns` arrives newest-request-first from
+ * the ledger fold). Null when nothing matches: not every worktree row has a
+ * spawn record (the main checkout, hand-made worktrees).
  */
 export function matchSpawnRecord(
   spawns: SpawnView[],
@@ -30,5 +31,12 @@ export function matchSpawnRecord(
       (issue != null && s.issue === issue) ||
       (query.branch != null && (s.branch ?? s.targetBranch) === query.branch),
   )
-  return matches.find((s) => s.status === 'requested' || s.status === 'spawned') ?? matches[0] ?? null
+  return (
+    matches.find(
+      (s) =>
+        s.status === 'requested' || s.status === 'spawned' || s.status === 'teardown_failed',
+    ) ??
+    matches[0] ??
+    null
+  )
 }

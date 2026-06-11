@@ -93,11 +93,12 @@ def _max_lanes() -> int:
 
 def _committed_count() -> int:
     """Fold the spawn ledger and count records holding capacity: live lanes
-    ('spawned', not yet closed) plus pending approval cards ('requested').
-    Draft-kind spawns count too (#268 ruling — same cap, same resource: a
-    Claude Code session). A malformed line is skipped, mirroring the shell's
-    fold. The shell's approve gate re-checks against live state — this count
-    only shapes the conversational capacity ask."""
+    ('spawned', not yet closed), failed teardowns ('teardown_failed' — #317:
+    capacity is freed only by 'closed'), plus pending approval cards
+    ('requested'). Draft-kind spawns count too (#268 ruling — same cap, same
+    resource: a Claude Code session). A malformed line is skipped, mirroring
+    the shell's fold. The shell's approve gate re-checks against live state —
+    this count only shapes the conversational capacity ask."""
     ledger = _ledger_path()
     if not ledger.is_file():
         return 0
@@ -114,16 +115,17 @@ def _committed_count() -> int:
             obj = json.loads(line)
         except ValueError:
             continue
-        if obj.get("kind") == "relay":
-            # Relay lines (#310 lane_proceed) share the ledger but hold no
-            # lane capacity — a pending "clean, proceed" must not eat an
-            # approve slot. Every relay line carries kind: "relay".
+        if obj.get("kind") in ("relay", "teardown"):
+            # Relay (#310) and teardown (#317) lines share the ledger but
+            # hold no lane capacity — a pending "clean, proceed" or "close
+            # out lane N" must not eat an approve slot. Every such line
+            # carries its kind tag.
             continue
         rec_id = obj.get("id")
         status = obj.get("status")
         if isinstance(rec_id, str) and isinstance(status, str):
             latest[rec_id] = status
-    return sum(1 for s in latest.values() if s in ("requested", "spawned"))
+    return sum(1 for s in latest.values() if s in ("requested", "spawned", "teardown_failed"))
 
 
 # Branch:/Worktree: parsing — regex parity with the shell's

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { OrphanLane, SpawnSnapshot, SpawnView } from '../../types/aether'
+import type { OrphanLane, SpawnSnapshot, SpawnView, TeardownRecord } from '../../types/aether'
 import { useSpawnUi } from '../../stores/spawnUi'
 import { foldGateComments, type LaneGateState } from '../../utils/laneGate'
 
@@ -15,7 +15,9 @@ import { foldGateComments, type LaneGateState } from '../../utils/laneGate'
 // spawn) — it is no longer the only way to dismiss the window. Every card can be
 // MINIMIZED (hidden without any ledger change) and reopened from the Spawns
 // strip. After a spawn closes, the window surfaces the copyable teardown block
-// built from the recorded worktree/branch (no auto-run — the Director runs it).
+// built from the recorded worktree/branch. Lane records also carry CLOSE OUT
+// (#317): the shell executes that same teardown itself, behind guards and a
+// two-beat confirm — the copyable block stays as the manual escape hatch.
 //
 // The passphrase never reaches this layer: it was verified server-side before
 // the request was recorded.
@@ -252,6 +254,69 @@ function useLaneGate(
   return { gate, checking, gateError, refresh: () => void check() }
 }
 
+// The card-side CLOSE OUT state machine (#317), shared by the active card and
+// the TEARDOWN FAILED retry card. Two-beat by design (§11.4 — destroying a
+// worktree behind one tap is the hazard the copy-only era guarded against):
+// the first press arms, the second executes. A 'dirty' refusal — whether from
+// this card's own press or a voice close_lane the shell refused — swaps the
+// button to an explicit CLOSE ANYWAY that re-requests with force (#308
+// warn-and-force law). 'pr-open' / 'lane-busy' refusals surface as text only:
+// they have no force path.
+function useCloseOut(
+  issue: number | null,
+  lastTeardown: TeardownRecord | null,
+): {
+  closing: boolean
+  closeError: string | null
+  closePhase: 'idle' | 'armed' | 'warn'
+  onCloseOut: () => Promise<void>
+} {
+  const [closing, setClosing] = useState(false)
+  const [closeError, setCloseError] = useState<string | null>(null)
+  const [localPhase, setLocalPhase] = useState<'armed' | 'warn' | null>(null)
+  // A voice-initiated teardown the shell refused as 'dirty' arms the warn
+  // directly — the card is where the #308 explicit force lives.
+  const derivedWarn = lastTeardown?.status === 'failed' && lastTeardown.code === 'dirty'
+  const closePhase: 'idle' | 'armed' | 'warn' = localPhase ?? (derivedWarn ? 'warn' : 'idle')
+
+  const onCloseOut = async (): Promise<void> => {
+    if (issue == null || closing) return
+    if (closePhase === 'idle') {
+      // First beat: arm. No IPC, no ledger line.
+      setCloseError(null)
+      setLocalPhase('armed')
+      return
+    }
+    setClosing(true)
+    setCloseError(null)
+    const res = await window.aether.spawn.closeLane(issue, closePhase === 'warn')
+    setClosing(false)
+    if (res.ok) {
+      setLocalPhase(null)
+      return // the record folds to 'closed'; the card re-renders off the snapshot
+    }
+    setCloseError(res.error ?? 'close-out failed')
+    setLocalPhase(res.code === 'dirty' ? 'warn' : null)
+  }
+  return { closing, closeError, closePhase, onCloseOut }
+}
+
+// The CLOSE OUT footer label for each phase of the state machine above.
+function closeOutLabel(phase: 'idle' | 'armed' | 'warn', closing: boolean): string {
+  if (closing) return 'CLOSING…'
+  if (phase === 'armed') return 'CONFIRM CLOSE OUT'
+  if (phase === 'warn') return 'CLOSE ANYWAY'
+  return 'CLOSE OUT'
+}
+
+// The lane's newest teardown line for the TEARDOWN row — voice or card, the
+// outcome is observable either way (the relay row's sibling).
+function teardownRowValue(t: TeardownRecord): string {
+  if (t.status === 'done') return 'closed out ✓ — session, worktree, and branch are gone'
+  if (t.status === 'failed') return `close-out failed — ${t.error ?? 'no detail'}`
+  return 'closing…'
+}
+
 // The SPAWN ACTIVE card, gate-aware for lane records (#310): a GATE REPORT
 // comment on the issue thread newer than the spawn renders LANE AT GATE with
 // the report inline and a PROCEED button (the "clean, proceed" relay — the
@@ -307,6 +372,12 @@ function ActiveCard({
   // "proceed lane N" observable on the card, success or failure.
   const lastRelay = issue != null ? (snap.relays.find((r) => r.issue === issue) ?? null) : null
 
+  // The lane's newest teardown (#317) — same observability for "close out
+  // lane N", and its 'dirty' code arms the CLOSE ANYWAY warn below.
+  const lastTeardown =
+    issue != null ? (snap.teardowns.find((t) => t.issue === issue) ?? null) : null
+  const { closing, closeError, closePhase, onCloseOut } = useCloseOut(issue, lastTeardown)
+
   const heading =
     phase === 'pr-opened' ? 'LANE PR OPENED' : phase === 'at-gate' ? 'LANE AT GATE' : 'SPAWN ACTIVE'
 
@@ -347,6 +418,19 @@ function ActiveCard({
             }
           />
         )}
+        {lastTeardown && <Row label="TEARDOWN" value={teardownRowValue(lastTeardown)} />}
+        {closePhase === 'armed' && (
+          <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
+            CONFIRM CLOSE OUT runs the teardown: tmux session killed, worktree removed, branch
+            deleted, record closed. An open PR or a busy pane refuses; uncommitted/unpushed work
+            warns first.
+          </div>
+        )}
+        {closePhase === 'warn' && (
+          <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
+            This lane has uncommitted or unpushed work — CLOSE ANYWAY destroys it permanently.
+          </div>
+        )}
         {gate?.report && (
           <div className="pt-2">
             <div className="text-[10px] tracking-[0.2em] mb-1.5" style={{ color: 'var(--holo-muted)' }}>
@@ -369,9 +453,9 @@ function ActiveCard({
               ? 'A Claude Code session is running in a plain terminal pane (tmux is not installed) — quitting Aether KILLS this lane. Mark complete when the session is done.'
               : 'A Claude Code session is running in its own Terminal window. Closing that window stops the agent (the kill switch). Mark complete when the session is done. You can also minimize this window and reopen it from the Spawns strip.'}
         </div>
-        {(actionError || proceedError) && (
+        {(actionError || proceedError || closeError) && (
           <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
-            {actionError ?? proceedError}
+            {actionError ?? proceedError ?? closeError}
           </div>
         )}
         <OrphanStrip orphans={otherOrphans} />
@@ -411,6 +495,18 @@ function ActiveCard({
             onClick={() => onReattach(displayOrphan.session)}
           />
         )}
+        {issue != null && (
+          // The spawn's mirror (#317): guarded teardown through the same
+          // ledger the voice close_lane tool writes. Two-beat confirm; the
+          // 'dirty' warn swaps in CLOSE ANYWAY (#308 warn-and-force).
+          <Btn
+            label={closeOutLabel(closePhase, closing)}
+            variant={closePhase === 'idle' ? 'ghost' : 'danger'}
+            disabled={closing}
+            title="Tear this lane down: kill its session, remove its worktree, delete its branch, close the record"
+            onClick={() => void onCloseOut()}
+          />
+        )}
         {liveWarn ? (
           // The live-session refusal is showing (#305): the same action,
           // re-offered deliberately. Force-close frees the capacity slot;
@@ -428,6 +524,98 @@ function ActiveCard({
             onClick={() => onComplete(display.id)}
           />
         )}
+      </div>
+    </Frame>
+  )
+}
+
+// The TEARDOWN FAILED card (#317): a destruction step failed mid-teardown, so
+// the record still holds its capacity slot (only 'closed' frees it). Offers
+// the retry — executor steps are precondition-guarded, so a retry resumes
+// where the failure left off — plus the copyable cleanup block as the manual
+// escape hatch.
+function TeardownFailedCard({
+  display,
+  snap,
+  otherOrphans,
+  actionError,
+  onCopy,
+  copied,
+  onMinimize,
+}: {
+  display: SpawnView
+  snap: SpawnSnapshot
+  otherOrphans: OrphanLane[]
+  actionError: string | null
+  onCopy: (text: string) => void
+  copied: boolean
+  onMinimize: () => void
+}): React.ReactElement {
+  const issue = display.issue ?? null
+  const lastTeardown =
+    issue != null ? (snap.teardowns.find((t) => t.issue === issue) ?? null) : null
+  const { closing, closeError, closePhase, onCloseOut } = useCloseOut(issue, lastTeardown)
+  return (
+    <Frame heading="TEARDOWN FAILED" onMinimize={onMinimize}>
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
+        <Row label="LANE" value={laneLabel(display)} />
+        <Row label="BRANCH" value={display.branch ?? display.targetBranch} />
+        <Row label="WORKTREE" value={display.worktree ?? display.targetWorktree} />
+        <Row label="STEP" value={display.step ?? '—'} />
+        <Row label="CAPACITY" value={`${snap.liveCount} of ${snap.maxLanes} lanes live — this record still holds its slot`} />
+        <div className="pt-1">
+          <div className="text-[10px] tracking-[0.2em] mb-1.5" style={{ color: 'var(--holo-muted)' }}>
+            ERROR
+          </div>
+          <pre
+            className="text-[11px] font-mono whitespace-pre-wrap break-words rounded p-3 max-h-[24vh] overflow-y-auto"
+            style={{ color: 'var(--holo-text)', background: 'var(--holo-bg)', border: '1px solid var(--holo-border)' }}
+          >
+            {display.error ?? '(no detail)'}
+          </pre>
+        </div>
+        <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
+          The teardown stopped at the step above; what already succeeded stays done. CLOSE OUT
+          retries from where it left off, or run the cleanup block below by hand — the record
+          closes (and frees its slot) only when every step has succeeded.
+        </div>
+        {display.cleanup && (
+          <pre
+            className="text-[11px] font-mono whitespace-pre-wrap break-words rounded p-3 max-h-[24vh] overflow-y-auto"
+            style={{ color: 'var(--holo-text)', background: 'var(--holo-bg)', border: '1px solid var(--holo-border)' }}
+          >
+            {display.cleanup}
+          </pre>
+        )}
+        {closePhase === 'warn' && (
+          <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
+            This lane has uncommitted or unpushed work — CLOSE ANYWAY destroys it permanently.
+          </div>
+        )}
+        {(actionError || closeError) && (
+          <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
+            {actionError ?? closeError}
+          </div>
+        )}
+        <OrphanStrip orphans={otherOrphans} />
+      </div>
+      <div
+        className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t"
+        style={{ borderColor: 'var(--holo-border)' }}
+      >
+        {display.cleanup && (
+          <Btn
+            label={copied ? 'COPIED ✓' : 'COPY CLEANUP'}
+            onClick={() => onCopy(display.cleanup ?? '')}
+          />
+        )}
+        <Btn
+          label={closeOutLabel(closePhase, closing)}
+          variant={closePhase === 'idle' ? 'accent' : 'danger'}
+          disabled={closing}
+          title="Retry the teardown from the failed step"
+          onClick={() => void onCloseOut()}
+        />
       </div>
     </Frame>
   )
@@ -512,21 +700,23 @@ export function SpawnApproval(): React.ReactElement | null {
   // outranks everything — busy gates the Approve button (`blocked` below),
   // never visibility (#300: a request that landed mid-recipe sat invisible
   // behind the in-flight card until the app restarted) — then the recipe in
-  // flight, a live spawn, a just-closed spawn's cleanup, a failure to
-  // acknowledge. Members of the approved batch still read 'requested' in the
-  // ledger while they hold the running/queued slots; they render as SPAWNING,
-  // so the pending-request finder skips them.
+  // flight, a live spawn, a just-closed spawn's cleanup, a failed teardown
+  // still holding capacity (#317), a failure to acknowledge. Members of the
+  // approved batch still read 'requested' in the ledger while they hold the
+  // running/queued slots; they render as SPAWNING, so the pending-request
+  // finder skips them.
   const runningRec = snap.running ? (spawns.find((s) => s.id === snap.running) ?? null) : null
   const requested =
     spawns.find(
       (s) => s.status === 'requested' && s.id !== snap.running && !snap.queue.includes(s.id),
     ) ?? null
   const active = spawns.find((s) => s.status === 'spawned') ?? null
+  const tornFailed = spawns.find((s) => s.status === 'teardown_failed') ?? null
   const failed = spawns.find((s) => s.status === 'failed') ?? null
   const justClosed = justClosedId
     ? (spawns.find((s) => s.id === justClosedId && s.status === 'closed') ?? null)
     : null
-  const candidate = requested ?? runningRec ?? active ?? justClosed ?? failed ?? null
+  const candidate = requested ?? runningRec ?? active ?? justClosed ?? tornFailed ?? failed ?? null
 
   // A strip click reopens a specific spawn's card, overriding the candidate and
   // any minimize (open() clears minimizedKey, so an opened card never matches it).
@@ -751,6 +941,24 @@ export function SpawnApproval(): React.ReactElement | null {
           <Btn label="CLOSE" onClick={onMinimize} />
         </div>
       </Frame>
+    )
+  }
+
+  // ---- TEARDOWN FAILED (#317 — retry or hand-clean; the slot stays held) ----
+  if (display.status === 'teardown_failed') {
+    return (
+      <TeardownFailedCard
+        // Keyed per record: close-out confirm state must never leak across
+        // records sharing the mounted position (the ActiveCard rule).
+        key={display.id}
+        display={display}
+        snap={snap}
+        otherOrphans={otherOrphans}
+        actionError={actionError}
+        onCopy={(text) => void onCopy(text)}
+        copied={copied}
+        onMinimize={onMinimize}
+      />
     )
   }
 

@@ -11,7 +11,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { appendFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -256,6 +256,263 @@ test('armRelays fails boot-pending relays instead of sending them (no auto-proce
     assert.match(relay?.error ?? '', /never auto-sent/)
   } finally {
     cleanup()
+  }
+})
+
+// ---- guarded teardown (#317): refusals, warn-and-force, canonical execution --
+
+// A live lane (issue 232) whose worktree really exists on disk (with the
+// recipe's untracked kickoff file in it), every guard probe stubbed CLEAN and
+// every git step recorded instead of executed — each test flips exactly one
+// stub to draw its refusal. tmux is /usr/bin/true, as in liveLaneFixture.
+interface TeardownOpen {
+  tmuxOk: boolean
+  tmuxHasSession: (session: string) => Promise<boolean>
+  requireTmuxBin: () => string
+  probeOpenPr: (branch: string) => Promise<{ number?: number; url?: string } | null>
+  paneBusyCommand: (session: string | undefined) => Promise<string | null>
+  worktreeDirty: (worktree: string) => Promise<string | null>
+  branchUnpushed: (branch: string) => Promise<number>
+  branchExists: (branch: string) => Promise<boolean>
+  runShell: (cmd: string, cwd: string) => Promise<void>
+  armTeardowns: () => void
+}
+
+function teardownFixture(): {
+  svc: SpawnService
+  ledger: SpawnLedger
+  repoRoot: string
+  worktree: string
+  commands: Array<{ cmd: string; cwd: string }>
+  open: TeardownOpen
+  cleanup: () => void
+} {
+  const dir = mkdtempSync(join(tmpdir(), 'spawn-teardown-'))
+  const ledgerPath = join(dir, 'spawns', 'requests.jsonl')
+  const ledger = new SpawnLedger(ledgerPath)
+  const worktree = join(dir, 'wt')
+  mkdirSync(worktree, { recursive: true })
+  writeFileSync(join(worktree, '.lane-kickoff.md'), 'kickoff')
+  appendFileSync(
+    ledgerPath,
+    JSON.stringify({
+      id: 'lane-rec',
+      ts: '2026-06-11T00:00:00.000Z',
+      kind: 'lane',
+      batch_id: 'b1',
+      issue: 232,
+      issue_title: 'demo lane',
+      branch: 'lane/issue-232',
+      worktree: '~/aether-lane-232',
+      status: 'requested',
+    }) + '\n',
+  )
+  ledger.markSpawned('lane-rec', worktree, 'lane/issue-232', undefined, 'lane-232')
+  const svc = new SpawnService({ repoRoot: dir, ledgerPath })
+  const commands: Array<{ cmd: string; cwd: string }> = []
+  const open = svc as unknown as TeardownOpen
+  open.tmuxOk = true
+  open.tmuxHasSession = async () => true
+  open.requireTmuxBin = () => '/usr/bin/true'
+  open.probeOpenPr = async () => null
+  open.paneBusyCommand = async () => null
+  open.worktreeDirty = async () => null
+  open.branchUnpushed = async () => 0
+  open.branchExists = async () => true
+  open.runShell = async (cmd: string, cwd: string) => {
+    commands.push({ cmd, cwd })
+  }
+  return {
+    svc,
+    ledger,
+    repoRoot: dir,
+    worktree,
+    commands,
+    open,
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  }
+}
+
+test('closeLane runs the canonical cleanup order and closes the record', async () => {
+  const { svc, ledger, repoRoot, worktree, commands, cleanup } = teardownFixture()
+  try {
+    const res = await svc.closeLane(232)
+    assert.equal(res.ok, true)
+    // closed written, capacity freed, teardown settled done.
+    assert.equal(ledger.find('lane-rec')?.status, 'closed')
+    assert.equal(ledger.liveCount(), 0)
+    assert.equal(ledger.listTeardowns()[0]?.status, 'done')
+    // The kickoff file was really removed (the one non-git step).
+    assert.equal(existsSync(join(worktree, '.lane-kickoff.md')), false)
+    // The cleanup block's exact order: deinit (in the worktree) BEFORE
+    // remove, then branch -D, then main's submodules restored (§13.12).
+    assert.deepEqual(
+      commands.map((c) => c.cmd),
+      [
+        'git submodule deinit -f --all',
+        `git worktree remove --force '${worktree}'`,
+        "git branch -D 'lane/issue-232'",
+        'git submodule update --init --recursive',
+      ],
+    )
+    assert.equal(commands[0]?.cwd, worktree)
+    assert.equal(commands[1]?.cwd, repoRoot)
+    assert.equal(commands[3]?.cwd, repoRoot)
+  } finally {
+    cleanup()
+  }
+})
+
+test('closeLane refuses while a PR is open on the branch — code pr-open, nothing destroyed', async () => {
+  const { svc, ledger, worktree, commands, open, cleanup } = teardownFixture()
+  try {
+    open.probeOpenPr = async () => ({ number: 99, url: 'https://x' })
+    const res = await svc.closeLane(232)
+    assert.equal(res.ok, false)
+    assert.equal(res.code, 'pr-open')
+    assert.match(res.error ?? '', /PR #99 is open/)
+    assert.equal(ledger.find('lane-rec')?.status, 'spawned')
+    assert.equal(ledger.listTeardowns()[0]?.code, 'pr-open')
+    assert.equal(commands.length, 0)
+    assert.equal(existsSync(join(worktree, '.lane-kickoff.md')), true)
+    // No force path past pr-open: CLOSE ANYWAY semantics do not apply here.
+    const forced = await svc.closeLane(232, true)
+    assert.equal(forced.ok, false)
+    assert.equal(forced.code, 'pr-open')
+  } finally {
+    cleanup()
+  }
+})
+
+test('closeLane fails closed when the PR probe errors — never destroy on unknown PR state', async () => {
+  const { svc, ledger, commands, open, cleanup } = teardownFixture()
+  try {
+    open.probeOpenPr = async () => {
+      throw new Error('gh: command not found')
+    }
+    const res = await svc.closeLane(232)
+    assert.equal(res.ok, false)
+    assert.equal(res.code, undefined)
+    assert.match(res.error ?? '', /refusing to close out while PR state is unknown/)
+    assert.equal(ledger.find('lane-rec')?.status, 'spawned')
+    assert.equal(commands.length, 0)
+  } finally {
+    cleanup()
+  }
+})
+
+test('closeLane refuses a busy pane — code lane-busy, and it outranks the dirty warn', async () => {
+  const { svc, ledger, commands, open, cleanup } = teardownFixture()
+  try {
+    open.paneBusyCommand = async () => 'node'
+    // Both guards trip: the hard refusal must surface FIRST, so a CLOSE
+    // ANYWAY can never land on a subsequent refusal.
+    open.worktreeDirty = async () => '?? src/new.ts'
+    const res = await svc.closeLane(232)
+    assert.equal(res.ok, false)
+    assert.equal(res.code, 'lane-busy')
+    assert.match(res.error ?? '', /still running node/)
+    assert.equal(ledger.find('lane-rec')?.status, 'spawned')
+    assert.equal(commands.length, 0)
+  } finally {
+    cleanup()
+  }
+})
+
+test('dirty worktree warns (code dirty) and only an explicit force proceeds — #308 warn-and-force', async () => {
+  const { svc, ledger, open, cleanup } = teardownFixture()
+  try {
+    open.worktreeDirty = async () => '?? src/new.ts'
+    const res = await svc.closeLane(232)
+    assert.equal(res.ok, false)
+    assert.equal(res.code, 'dirty')
+    assert.match(res.error ?? '', /uncommitted changes/)
+    assert.equal(ledger.find('lane-rec')?.status, 'spawned')
+    // The same action, forced — the card's CLOSE ANYWAY.
+    const forced = await svc.closeLane(232, true)
+    assert.equal(forced.ok, true)
+    assert.equal(ledger.find('lane-rec')?.status, 'closed')
+  } finally {
+    cleanup()
+  }
+})
+
+test('unpushed commits warn with the same dirty code', async () => {
+  const { svc, open, cleanup } = teardownFixture()
+  try {
+    open.branchUnpushed = async () => 2
+    const res = await svc.closeLane(232)
+    assert.equal(res.ok, false)
+    assert.equal(res.code, 'dirty')
+    assert.match(res.error ?? '', /2 commit\(s\) on no remote/)
+  } finally {
+    cleanup()
+  }
+})
+
+test('a failing step writes teardown_failed naming it, holds capacity, and a retry resumes', async () => {
+  const { svc, ledger, commands, open, cleanup } = teardownFixture()
+  try {
+    open.runShell = async (cmd: string, cwd: string) => {
+      commands.push({ cmd, cwd })
+      if (cmd.startsWith('git worktree remove')) throw new Error('worktree is locked')
+    }
+    const res = await svc.closeLane(232)
+    assert.equal(res.ok, false)
+    assert.match(res.error ?? '', /git worktree remove/)
+    const rec = ledger.find('lane-rec')
+    assert.equal(rec?.status, 'teardown_failed')
+    assert.equal(rec?.step, 'git worktree remove')
+    // Capacity freed only by closed (#317): the failed teardown still holds it.
+    assert.equal(ledger.liveCount(), 1)
+    assert.equal(ledger.listTeardowns()[0]?.status, 'failed')
+    assert.equal(ledger.listTeardowns()[0]?.step, 'git worktree remove')
+
+    // Retry (the card's CLOSE OUT on the TEARDOWN FAILED state): steps are
+    // precondition-guarded, so the run resumes and completes.
+    open.runShell = async (cmd: string, cwd: string) => {
+      commands.push({ cmd, cwd })
+    }
+    const retry = await svc.closeLane(232)
+    assert.equal(retry.ok, true)
+    assert.equal(ledger.find('lane-rec')?.status, 'closed')
+    assert.equal(ledger.liveCount(), 0)
+  } finally {
+    cleanup()
+  }
+})
+
+test('armTeardowns fails boot-pending teardowns instead of executing them (no auto-destroy)', () => {
+  const { svc, ledger, worktree, open, cleanup } = teardownFixture()
+  try {
+    ledger.requestTeardown(232)
+    open.armTeardowns()
+    assert.equal(ledger.pendingTeardowns().length, 0)
+    const td = ledger.listTeardowns()[0]
+    assert.equal(td?.status, 'failed')
+    assert.match(td?.error ?? '', /never auto-executed/)
+    // Nothing was destroyed and the record is untouched.
+    assert.equal(ledger.find('lane-rec')?.status, 'spawned')
+    assert.equal(existsSync(join(worktree, '.lane-kickoff.md')), true)
+    void svc
+  } finally {
+    cleanup()
+  }
+})
+
+test('closeLane with no live lane fails by name and the failure is on the ledger', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'spawn-teardown-'))
+  try {
+    const ledgerPath = join(dir, 'spawns', 'requests.jsonl')
+    const svc = new SpawnService({ repoRoot: dir, ledgerPath })
+    const res = await svc.closeLane(999)
+    assert.equal(res.ok, false)
+    assert.match(res.error ?? '', /no live lane record for issue #999/)
+    const td = new SpawnLedger(ledgerPath).listTeardowns()[0]
+    assert.equal(td?.status, 'failed')
+    assert.match(td?.error ?? '', /no live/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 

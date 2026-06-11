@@ -24,27 +24,39 @@ import { homedir } from 'node:os'
 // line (in Python); the shell appends *lifecycle* events here. Both agree on the
 // path because both resolve $userData/data (AETHER_DATA_DIR).
 //
-// Three line families share the log, folded oldest → newest:
+// Four line families share the log, folded oldest → newest:
 //   • a REQUEST line — draft kind:
 //       { id, ts, draft_path, draft_name, status:'requested' }
 //     or lane kind (#268, written by raven's work_on_issue tool):
 //       { id, ts, kind:'lane', batch_id, issue, issue_title, branch, worktree,
 //         status:'requested' }
-//   • a LIFECYCLE event — { id, ts, status:'spawned'|'closed'|'dismissed'|'failed',
+//   • a LIFECYCLE event — { id, ts, status:'spawned'|'closed'|'dismissed'|
+//                           'failed'|'teardown_failed',
 //                           worktree?, branch?, step?, error?, tmux_session? }
 //   • a RELAY line (#310, both request and outcome — see the relay section
 //     below): every relay line carries kind:'relay' and folds separately.
-// Discriminator: a line with kind === 'relay' belongs to the relay fold and
-// never touches a spawn record; a line with a string `draft_path` is a draft
-// request; a line with kind === 'lane' and a numeric `issue` is a lane request;
-// any other line with `id` + `status` is a lifecycle event flipping that
-// request's state. Folding forward lets a crash leave a partial log that still
-// reads correctly, and lets the human-gated states (requested → spawned →
-// closed, or → dismissed/failed) be reconstructed without ever rewriting a
-// line. Lane requests sharing a batch_id form ONE approval unit (#268
-// addendum): one card, approve-all or cancel-all.
+//   • a TEARDOWN line (#317, both request and outcome — see the teardown
+//     section below): every teardown line carries kind:'teardown' and folds
+//     separately; its OUTCOME on the spawn record rides the lifecycle family
+//     ('closed' on success, 'teardown_failed' on a failed step).
+// Discriminator: a line with kind === 'relay' or kind === 'teardown' belongs
+// to its own fold and never touches a spawn record; a line with a string
+// `draft_path` is a draft request; a line with kind === 'lane' and a numeric
+// `issue` is a lane request; any other line with `id` + `status` is a
+// lifecycle event flipping that request's state. Folding forward lets a crash
+// leave a partial log that still reads correctly, and lets the human-gated
+// states (requested → spawned → closed, or → dismissed/failed) be
+// reconstructed without ever rewriting a line. Lane requests sharing a
+// batch_id form ONE approval unit (#268 addendum): one card, approve-all or
+// cancel-all.
 
-export type SpawnStatus = 'requested' | 'spawned' | 'closed' | 'dismissed' | 'failed'
+export type SpawnStatus =
+  | 'requested'
+  | 'spawned'
+  | 'closed'
+  | 'dismissed'
+  | 'failed'
+  | 'teardown_failed'
 
 // One spawn's current (folded) state. `ts` is the latest event's time;
 // `requestedTs` is the original request's time (for stable newest-first order).
@@ -74,7 +86,8 @@ export interface SpawnRecord {
   // Present once the recipe has launched a worktree (status 'spawned').
   worktree?: string
   branch?: string
-  // Present when the recipe failed at a step (status 'failed').
+  // Present when the recipe failed at a step (status 'failed') or a guarded
+  // teardown failed mid-destruction (status 'teardown_failed', #317).
   step?: string
   error?: string
   // Best-effort RAG bootstrap outcome, recorded on the 'spawned' event: 'ok'
@@ -121,6 +134,51 @@ export interface RelayRecord {
   text: string
   status: RelayStatus
   // Present when the relay failed (status 'failed').
+  error?: string
+}
+
+// ---- teardown line family (#317) ---------------------------------------------
+// The spawn's mirror: a teardown REQUEST asks the shell to run the canonical
+// cleanup block (tmux kill-session → rm kickoff → submodule deinit → worktree
+// remove → branch -D → restore main's submodules) against the newest live lane
+// record for `issue`. Requested by voice (raven's close_lane tool) or the
+// card's CLOSE OUT button — one ledger line, one audit trail, exactly the
+// relay family's shape. Every teardown line carries kind:'teardown' so the
+// spawn fold, the relay fold, and the Python tools' capacity count all
+// segregate it by tag.
+//   • request:   { id, ts, kind:'teardown', issue, force?, status:'requested' }
+//     (`force` rides only the card's CLOSE ANYWAY — the #308 warn-and-force
+//     law; the voice tool never writes it)
+//   • lifecycle: { id, ts, kind:'teardown', status:'done'|'failed',
+//                  code?, step?, error? }
+// The spawn RECORD's outcome rides the lifecycle family instead: 'closed' is
+// written only after every step succeeds; a failed step writes
+// 'teardown_failed' naming it. Capacity is freed only by 'closed' — see
+// liveCount().
+
+export type TeardownStatus = 'requested' | 'done' | 'failed'
+
+// Guard refusals, surfaced so the card can present each correctly: 'pr-open'
+// and 'lane-busy' are hard refusals (no force path); 'dirty' draws the warn
+// card whose CLOSE ANYWAY re-requests with force.
+export type TeardownGuardCode = 'pr-open' | 'dirty' | 'lane-busy'
+
+// One teardown's current (folded) state. `ts` is the latest event's time;
+// `requestedTs` the request's (for stable newest-first ordering).
+export interface TeardownRecord {
+  id: string
+  ts: string
+  requestedTs: string
+  // The lane this teardown targets, by issue number (how the voice path
+  // names lanes); the executor resolves it to the newest live lane record.
+  issue: number
+  // True only on the card's CLOSE ANYWAY re-request: overrides the
+  // dirty/ahead warn guard and NOTHING else.
+  force: boolean
+  status: TeardownStatus
+  // Present when the teardown failed (status 'failed').
+  code?: TeardownGuardCode
+  step?: string
   error?: string
 }
 
@@ -215,7 +273,10 @@ export function targetsForLane(
 // branch + worktree (never a re-derivation). Encodes the CLAUDE.md §13.12
 // teardown gotcha: submodule `deinit` must run BEFORE `worktree remove`, and
 // because deinit is global across worktrees sharing one .git, main's submodules
-// are restored at the end. No auto-run in v1.1 — the Director copies and runs it.
+// are restored at the end. Since #317 the shell can also EXECUTE these same
+// steps itself (SpawnService.executeTeardown — guarded, confirm-gated; the
+// 2026-06-11 ADR supersedes the v1.1 copy-only clause); this block stays the
+// copyable manual path, and the executor mirrors its order exactly.
 // A lane's recorded tmux session is killed FIRST (#305 dismiss-semantics audit:
 // closing the record never stops the session, so the teardown must) — '=' pins
 // exact-name matching, and `|| true` keeps an already-dead session from
@@ -378,6 +439,79 @@ export class SpawnLedger {
     this.append({ id, ts: new Date().toISOString(), kind: 'relay', status: 'failed', error })
   }
 
+  // ---- teardown family (#317) -------------------------------------------------
+
+  /** Append a teardown request line — the card's CLOSE OUT path (force rides
+   * only its CLOSE ANYWAY). The live voice flow writes the identical force-less
+   * shape from close_lane_tool.py; this method documents the on-disk contract. */
+  requestTeardown(issue: number, force = false): TeardownRecord {
+    const rec: TeardownRecord = {
+      id: randomUUID(),
+      ts: new Date().toISOString(),
+      requestedTs: '',
+      issue,
+      force,
+      status: 'requested',
+    }
+    rec.requestedTs = rec.ts
+    const line: Record<string, unknown> = {
+      id: rec.id,
+      ts: rec.ts,
+      kind: 'teardown',
+      issue,
+      status: 'requested',
+    }
+    if (force) line.force = true
+    this.append(line)
+    return rec
+  }
+
+  markTeardownDone(id: string): void {
+    this.append({ id, ts: new Date().toISOString(), kind: 'teardown', status: 'done' })
+  }
+
+  markTeardownFailed(
+    id: string,
+    error: string,
+    opts: { code?: TeardownGuardCode; step?: string } = {},
+  ): void {
+    const line: Record<string, unknown> = {
+      id,
+      ts: new Date().toISOString(),
+      kind: 'teardown',
+      status: 'failed',
+      error,
+    }
+    if (opts.code) line.code = opts.code
+    if (opts.step) line.step = opts.step
+    this.append(line)
+  }
+
+  /** The spawn RECORD's failed-teardown outcome (#317): a destruction step
+   * failed mid-teardown, so the record must keep holding its capacity slot
+   * (only 'closed' frees it — see liveCount) while naming the failing step. */
+  markRecordTeardownFailed(id: string, step: string, error: string): void {
+    this.append({ id, ts: new Date().toISOString(), status: 'teardown_failed', step, error })
+  }
+
+  /** Folded teardown state, newest request first (for the snapshot/card). */
+  listTeardowns(): TeardownRecord[] {
+    return [...this.foldTeardowns().values()].sort((a, b) =>
+      b.requestedTs.localeCompare(a.requestedTs),
+    )
+  }
+
+  /** Still-'requested' teardowns, oldest first — the executor's FIFO. */
+  pendingTeardowns(): TeardownRecord[] {
+    return [...this.foldTeardowns().values()]
+      .filter((t) => t.status === 'requested')
+      .sort((a, b) => a.requestedTs.localeCompare(b.requestedTs))
+  }
+
+  findTeardown(id: string): TeardownRecord | undefined {
+    return this.foldTeardowns().get(id)
+  }
+
   /** Folded relay state, newest request first (for the snapshot/card). */
   listRelays(): RelayRecord[] {
     return [...this.foldRelays().values()].sort((a, b) =>
@@ -406,14 +540,17 @@ export class SpawnLedger {
     return this.fold().get(id)
   }
 
-  /** How many records sit in the non-terminal 'spawned' state — live
-   * worktrees the Director hasn't marked complete. The service compares this
-   * against the max_lanes cap (#268 ruling: live count, both kinds, is what
-   * holds capacity; recipes serialize separately through the in-flight slot). */
+  /** How many records sit in a non-terminal live state — 'spawned' worktrees
+   * the Director hasn't marked complete, plus 'teardown_failed' records whose
+   * worktree/branch still exist in some part (#317: capacity is freed only by
+   * 'closed', so a failed teardown keeps holding its slot until a retry
+   * succeeds). The service compares this against the max_lanes cap (#268
+   * ruling: live count, both kinds, is what holds capacity; recipes serialize
+   * separately through the in-flight slot). */
   liveCount(): number {
     let live = 0
     for (const rec of this.fold().values()) {
-      if (rec.status === 'spawned') live++
+      if (rec.status === 'spawned' || rec.status === 'teardown_failed') live++
     }
     return live
   }
@@ -453,11 +590,11 @@ export class SpawnLedger {
       if (!id) continue
       const ts = typeof obj.ts === 'string' ? obj.ts : ''
 
-      // Relay lines (#310) fold separately (foldRelays); without this skip a
-      // relay request would seed a ghost 'requested' spawn stub and a failed
-      // relay outcome would raise a SPAWN FAILED card for a record that
-      // never existed.
-      if (obj.kind === 'relay') continue
+      // Relay (#310) and teardown (#317) lines fold separately (foldRelays /
+      // foldTeardowns); without this skip a relay or teardown request would
+      // seed a ghost 'requested' spawn stub and a failed outcome would raise
+      // a SPAWN FAILED card for a record that never existed.
+      if (obj.kind === 'relay' || obj.kind === 'teardown') continue
 
       // Request line — carries the draft identity.
       if (typeof obj.draft_path === 'string') {
@@ -616,6 +753,70 @@ export class SpawnLedger {
     return byId
   }
 
+  // Fold the teardown family (#317), oldest → newest — the kind:'teardown'
+  // sibling of foldRelays() above, with the same posture: a malformed line is
+  // skipped; an outcome line for an unknown teardown id is dropped (a teardown
+  // with no request line has no issue to execute against and nothing the card
+  // could usefully show).
+  private foldTeardowns(): Map<string, TeardownRecord> {
+    const byId = new Map<string, TeardownRecord>()
+    if (!existsSync(this.path)) return byId
+
+    let raw: string
+    try {
+      raw = readFileSync(this.path, 'utf8')
+    } catch {
+      return byId
+    }
+
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      let obj: Record<string, unknown>
+      try {
+        obj = JSON.parse(trimmed) as Record<string, unknown>
+      } catch {
+        continue /* skip malformed line */
+      }
+      if (obj.kind !== 'teardown') continue
+      const id = typeof obj.id === 'string' ? obj.id : null
+      if (!id) continue
+      const ts = typeof obj.ts === 'string' ? obj.ts : ''
+
+      // Request line — carries the target issue (and the card-only force flag).
+      if (typeof obj.issue === 'number' && Number.isInteger(obj.issue) && obj.issue >= 1) {
+        const existing = byId.get(id)
+        byId.set(id, {
+          id,
+          ts: existing?.ts || ts,
+          requestedTs: ts,
+          issue: obj.issue,
+          force: obj.force === true,
+          status: existing?.status ?? 'requested',
+          code: existing?.code,
+          step: existing?.step,
+          error: existing?.error,
+        })
+        continue
+      }
+
+      // Outcome line — flips an existing teardown's status.
+      const status = obj.status
+      if (status !== 'done' && status !== 'failed') continue
+      const existing = byId.get(id)
+      if (!existing) continue
+      existing.status = status
+      existing.ts = ts
+      if (obj.code === 'pr-open' || obj.code === 'dirty' || obj.code === 'lane-busy') {
+        existing.code = obj.code
+      }
+      if (typeof obj.step === 'string') existing.step = obj.step
+      if (typeof obj.error === 'string') existing.error = obj.error
+    }
+
+    return byId
+  }
+
   // One append + fsync — the durability path lives in exactly one place (the
   // retired intents store's pattern). Per-call open/close is fine: spawns fire
   // minutes apart.
@@ -636,6 +837,7 @@ function isSpawnStatus(s: string): s is SpawnStatus {
     s === 'spawned' ||
     s === 'closed' ||
     s === 'dismissed' ||
-    s === 'failed'
+    s === 'failed' ||
+    s === 'teardown_failed'
   )
 }

@@ -31,6 +31,7 @@ above reconciles them.
 | [history/2026-06-03-sprint-review.html](history/2026-06-03-sprint-review.html) | Substrate review — cockpit day, the gap loop opens, the branched (Core / AVP) roadmap |
 | [history/2026-06-04-progress-ledger.html](history/2026-06-04-progress-ledger.html) | Two-day progress ledger — the cockpit, then the loop that builds the rest |
 | [history/2026-06-04-rag-mcp-sketch.html](history/2026-06-04-rag-mcp-sketch.html) | "No MCP today" — where a RAG MCP server slots into the mesh |
+| [history/2026-06-11-v0.11.0-cut.html](history/2026-06-11-v0.11.0-cut.html) | The v0.11.0 cut — the Viewer merge landed, gaps file as GitHub issues, lanes spawn by voice; the flip-book's first cut-time snapshot |
 
 ## The convention
 

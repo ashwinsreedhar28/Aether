@@ -1,0 +1,1 @@
+smoke: deliberately out-of-scope file for issue #311 CONCERNS verdict test — will be reverted

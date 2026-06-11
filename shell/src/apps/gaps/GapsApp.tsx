@@ -103,7 +103,7 @@ export function GapsApp() {
 
       {offline && (
         <p className="text-xs text-amber-300 px-4 py-1.5 border-b border-[var(--holo-border)]">
-          GitHub node unreachable — board as of {relTime(fetchedAtMs ?? 0)}
+          Live fetch failing ({error}) — board as of {relTime(fetchedAtMs ?? 0)}
         </p>
       )}
 

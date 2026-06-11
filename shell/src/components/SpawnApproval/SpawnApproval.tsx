@@ -172,41 +172,101 @@ function TmuxWarning(): React.ReactElement {
   )
 }
 
-// Reattach rows for orphaned lane sessions, ADDITIVE to whatever card is
-// showing (#302 defect 7: main seeded orphans after relaunch, but the only
-// rendering path lived behind "no candidate" — lane-232's own SPAWN ACTIVE
-// card shadowed every reattach affordance). Self-contained error state so any
-// card branch can host it without wiring; on success the main side consumes
+// Action rows for orphaned lane sessions — one component behind BOTH hosts
+// (the per-card strip below and the standalone ORPHANED LANES card), so the
+// affordance set never diverges between them. Record-backed rows carry a
+// ghost COMPLETE beside REATTACH (#318: the #302 contract — a finished lane
+// must be closable wherever its reattach offer lives), with the full #308
+// warn-and-force semantics: a live-session refusal arms COMPLETE ANYWAY on
+// that row, never a silent terminal write. Self-contained error/warn state so
+// any card branch can host it without wiring; on success the main side drops
 // the orphan and broadcasts, so the row disappears with the next snapshot.
-// The full ORPHANED LANES card below still covers the nothing-else-to-show
-// boot.
-function OrphanStrip({ orphans }: { orphans: OrphanLane[] }): React.ReactElement | null {
+function OrphanRows({
+  orphans,
+  accent,
+}: {
+  orphans: OrphanLane[]
+  // Accent the REATTACH buttons — the standalone card's rows are its primary
+  // affordance; on the strip they ride muted under another card's actions.
+  accent?: boolean
+}): React.ReactElement | null {
   const [error, setError] = useState<string | null>(null)
+  // The recordId whose complete() was refused with code 'live-session' (#305):
+  // that row re-offers the same action as an explicit COMPLETE ANYWAY.
+  const [warnId, setWarnId] = useState<string | null>(null)
   if (orphans.length === 0) return null
   const reattach = async (session: string): Promise<void> => {
     setError(null)
     const res = await window.aether.spawn.reattach(session)
     if (!res.ok) setError(res.error ?? 'reattach failed')
   }
+  const complete = async (recordId: string, force = false): Promise<void> => {
+    setError(null)
+    const res = await window.aether.spawn.complete(recordId, force)
+    if (!res.ok) {
+      if (res.code === 'live-session') setWarnId(recordId)
+      setError(res.error ?? 'complete failed')
+      return
+    }
+    setWarnId(null)
+  }
   return (
-    <div className="pt-3 mt-1 space-y-2" style={{ borderTop: '1px solid var(--holo-border)' }}>
-      <div className="text-[10px] tracking-[0.2em]" style={{ color: 'var(--holo-muted)' }}>
-        ORPHANED LANES — alive in tmux, no terminal attached
-      </div>
-      {orphans.map((o) => (
-        <div key={o.session} className="flex items-center justify-between gap-3">
-          <Row
-            label={o.session}
-            value={o.issue ? `issue #${o.issue} — ${o.worktree ?? ''}` : (o.worktree ?? '(no ledger record)')}
-          />
-          <Btn label="REATTACH" onClick={() => void reattach(o.session)} />
-        </div>
-      ))}
+    <>
+      {orphans.map((o) => {
+        const rid = o.recordId
+        return (
+          <div key={o.session} className="flex items-center justify-between gap-3">
+            <Row
+              label={o.session}
+              value={o.issue ? `issue #${o.issue} — ${o.worktree ?? ''}` : (o.worktree ?? '(no ledger record)')}
+            />
+            <div className="flex items-center gap-2 shrink-0">
+              <Btn
+                label="REATTACH"
+                variant={accent ? 'accent' : 'ghost'}
+                onClick={() => void reattach(o.session)}
+              />
+              {rid &&
+                (warnId === rid ? (
+                  <Btn
+                    label="COMPLETE ANYWAY"
+                    variant="danger"
+                    title="The tmux session stays alive — the record's cleanup block kills it"
+                    onClick={() => void complete(rid, true)}
+                  />
+                ) : (
+                  <Btn
+                    label="COMPLETE"
+                    title="Close this lane's record and free its capacity slot"
+                    onClick={() => void complete(rid)}
+                  />
+                ))}
+            </div>
+          </div>
+        )
+      })}
       {error && (
         <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
           {error}
         </div>
       )}
+    </>
+  )
+}
+
+// The strip host: reattach/complete rows ADDITIVE to whatever card is showing
+// (#302 defect 7: main seeded orphans after relaunch, but the only rendering
+// path lived behind "no candidate" — lane-232's own SPAWN ACTIVE card
+// shadowed every reattach affordance). The full ORPHANED LANES card below
+// still covers the nothing-else-to-show boot.
+function OrphanStrip({ orphans }: { orphans: OrphanLane[] }): React.ReactElement | null {
+  if (orphans.length === 0) return null
+  return (
+    <div className="pt-3 mt-1 space-y-2" style={{ borderTop: '1px solid var(--holo-border)' }}>
+      <div className="text-[10px] tracking-[0.2em]" style={{ color: 'var(--holo-muted)' }}>
+        ORPHANED LANES — alive in tmux, no terminal attached
+      </div>
+      <OrphanRows orphans={orphans} />
     </div>
   )
 }
@@ -469,7 +529,11 @@ function ActiveCard({
             label={checking ? 'CHECKING…' : 'REFRESH'}
             disabled={checking}
             title="Re-read the issue thread for a gate report / PR link"
-            onClick={refresh}
+            onClick={() => {
+              refresh()
+              // Explicit refresh is an orphan-freshness trigger too (#318).
+              void window.aether.spawn.refreshOrphans()
+            }}
           />
         )}
         {prUrl && (
@@ -647,11 +711,22 @@ export function SpawnApproval(): React.ReactElement | null {
       if (alive) setSnap(s)
     })
     const unsub = window.aether.spawn.onChanged((s) => setSnap(s))
+    // Pull-based orphan freshness (#318): re-probe behind the fast list()
+    // seed — a changed list lands via the broadcast. Fire-and-forget so a
+    // slow tmux never delays the card's first paint.
+    void window.aether.spawn.refreshOrphans()
     return () => {
       alive = false
       unsub()
     }
   }, [])
+
+  // Card open is a freshness trigger (#318): a summon (Lanes row click,
+  // Spawns strip, voice show_lane_card) re-probes so the raised card's orphan
+  // affordances reflect tmux NOW, not the boot cache.
+  useEffect(() => {
+    if (openedId != null) void window.aether.spawn.refreshOrphans()
+  }, [openedId])
 
   const act = useCallback(
     async (fn: () => Promise<{ ok: boolean; error?: string }>) => {
@@ -735,22 +810,10 @@ export function SpawnApproval(): React.ReactElement | null {
           <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
             These lane sessions are still alive in tmux from a previous run.
             Reattach to bring one back into a terminal window — its Claude Code
-            session kept working while Aether was closed.
+            session kept working while Aether was closed — or complete a
+            finished lane's record right here.
           </div>
-          {snap.orphans.map((o) => (
-            <div key={o.session} className="flex items-center justify-between gap-3">
-              <Row
-                label={o.session}
-                value={o.issue ? `issue #${o.issue} — ${o.worktree ?? ''}` : (o.worktree ?? '(no ledger record)')}
-              />
-              <Btn label="REATTACH" variant="accent" onClick={() => void onReattach(o.session)} />
-            </div>
-          ))}
-          {actionError && (
-            <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
-              {actionError}
-            </div>
-          )}
+          <OrphanRows orphans={snap.orphans} accent />
         </div>
       </Frame>
     )

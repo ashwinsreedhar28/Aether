@@ -137,11 +137,14 @@ export interface SpawnView {
 }
 
 // A lane-* tmux session still alive with no terminal attached this app
-// lifetime (the relaunch case) — the card offers one-tap reattach.
+// lifetime (the relaunch case) — the card offers one-tap reattach. recordId
+// (#318) is present ⇔ the backing ledger record is live ('spawned'), so the
+// row can also complete it; terminal-record sessions never appear.
 export interface OrphanLane {
   session: string
   issue?: number
   worktree?: string
+  recordId?: string
 }
 
 // A folded "clean, proceed" relay (#310): requested by voice (lane_proceed)
@@ -318,6 +321,9 @@ const spawn = {
   // Reattach an orphaned lane-* tmux session into a fresh terminal window.
   reattach: (session: string): Promise<SpawnActionResult> =>
     ipcRenderer.invoke('spawn:reattach', session),
+  // Re-probe tmux and refold the orphan list (#318) — pull-based freshness on
+  // Lanes open / card open / explicit refresh. Returns the fresh snapshot.
+  refreshOrphans: (): Promise<SpawnSnapshot> => ipcRenderer.invoke('spawn:refresh-orphans'),
   // Relay the fixed "clean, proceed" go-ahead into the live lane working
   // `issue` (#310) — the card's PROCEED button on AT GATE.
   proceed: (issue: number): Promise<SpawnActionResult> =>

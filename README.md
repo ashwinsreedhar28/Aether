@@ -27,9 +27,10 @@ Four things make it what it is today:
 
 - **A real window manager.** The shell is the absorbed Viewer renderer:
   workspaces ▸ windows ▸ tabs, drag/resize/tiling, a dock, a file explorer —
-  and **23 apps** discovered through one registry (terminal, browser,
+  and **24 apps** discovered through one registry (terminal, browser,
   markdown/text/JSON/PDF/LaTeX/image viewers, kanban, knowledge graph,
-  calculator, audio player, sound designer, and Aether's own surfaces —
+  calculator, audio player, sound designer, a Spotify now-playing Music app
+  with playback controls, and Aether's own surfaces —
   Mesh, Lanes, Gaps — re-homed as ordinary apps). Its workspace store is the
   sole layout authority: every window a human or an agent opens lands in the
   same tree.
@@ -37,15 +38,16 @@ Four things make it what it is today:
   assistant — a Python Gemini Live orchestrator (native-audio model, pinned)
   under a supervised daemon. You can talk over it (**barge-in**), it survives
   server-side session kills (**session resumption** + an in-process reconnect
-  loop), and it acts through **54 voice functions across 23 tool modules**:
+  loop), and it acts through **64 voice functions across 25 tool modules**:
   reading your mail, messages, calendar, news, and finances; arranging
-  windows; opening apps and views; filing capability gaps on the issue
+  windows; opening apps and views; playing Spotify by name, playlist, or
+  "play that last song again"; filing capability gaps on the issue
   board; spawning approved implementer lanes. It drives the desktop over
   the same signed mesh envelopes everything else uses — no private back
   channel.
 - **A signed mesh.** Every cross-system interaction travels as an HMAC-signed
   envelope that a single [`manifest.yaml`](manifest.yaml) edge graph
-  authorizes — currently **20 nodes and 82 authorized edges**, each node
+  authorizes — currently **21 nodes and 99 authorized edges**, each node
   classed as a **Sensor / Actor / Mixer / Planner**. Edge present = permitted;
   edge absent = denied. The manifest is the single, auditable answer to "what
   can talk to what."
@@ -155,10 +157,10 @@ the first time the relevant nodes spawn.
                   ▼             ▼
   ┌─────────────────────┐  ┌────────────────────────────────────────────┐
   │ raven — voice brain │  │ Electron shell — the Viewer                │
-  │ Gemini Live, native │  │ workspaces ▸ windows ▸ tabs · 23 apps      │
+  │ Gemini Live, native │  │ workspaces ▸ windows ▸ tabs · 24 apps      │
   │ audio · barge-in ·  │  │ (terminal, browser, editors, kanban,       │
-  │ session resumption  │  │  mesh, lanes, gaps, …)                     │
-  │ 54 fns / 23 modules │  │ hosts viewer_desktop (Actor): open_app,    │
+  │ session resumption  │  │  music, mesh, lanes, gaps, …)              │
+  │ 64 fns / 25 modules │  │ hosts viewer_desktop (Actor): open_app,    │
   └──────────┬──────────┘  │ open_view, apply_layout, notify, …         │
              │             └─────────────────────┬──────────────────────┘
              │ mesh.invoke                       │ signed envelopes
@@ -166,13 +168,13 @@ the first time the relevant nodes spawn.
   ┌────────────────────────────────────────────────────┐
   │        RAVEN_MESH Core — the broker                │      authorized by
   │        HMAC-signed envelopes · SSE delivery        │◄──── manifest.yaml
-  └──────────────────────────┬─────────────────────────┘      20 nodes · 82 edges
+  └──────────────────────────┬─────────────────────────┘      21 nodes · 99 edges
                              │ dispatch
                              ▼
   mesh nodes — one process each, classed Sensor / Actor / Mixer / Planner
   news_feeds · finance · weather · digest · clipboard_history · macos_mail
   macos_messages · calendar · reminders · system_info · time · vision
-  host_notifications · mesh_introspection · lanes · github
+  host_notifications · mesh_introspection · lanes · github · music
 ```
 
 The mesh is the load-bearing primitive: there is no privileged back channel.
@@ -184,7 +186,7 @@ renderer control — and human interaction flows back to the opening agent as
 Repo layout:
 
 ```
-shell/                 The Viewer — Electron window manager + app registry (23 apps)
+shell/                 The Viewer — Electron window manager + app registry (24 apps)
 ├─ electron/main/      Process supervision: mesh Core, node spawns, raven daemon
 ├─ electron/preload/   window.aether bridge (mesh, files, voice)
 └─ src/apps/           The apps (terminal, browser, viewers, mesh, lanes, gaps, …)
@@ -196,10 +198,10 @@ core/                  Vendored RAVEN_MESH (Python broker + Python/TS SDKs + sch
 nodes/                 Mesh nodes, one process each
 daemons/
 ├─ raven-daemon/       Voice supervisor (HTTP+WS on 127.0.0.1:7433)
-├─ raven-core/         Python Gemini Live orchestrator (54 voice functions)
+├─ raven-core/         Python Gemini Live orchestrator (64 voice functions)
 └─ aether-rag/         Retrieval over Aether's own written record
 
-manifest.yaml          The mesh topology: 20 nodes, 82 authorized edges
+manifest.yaml          The mesh topology: 21 nodes, 99 authorized edges
 _ingest/               Reference repos (submodules, read-only — never imported at runtime)
 ```
 
@@ -226,7 +228,7 @@ living map, re-snapshotted at each release cut).
 | [CHANGELOG.md](CHANGELOG.md) | Per-PR change history (Keep a Changelog) |
 | [docs/atlas/](docs/atlas/README.md) | The Atlas — living visual architecture map + frozen snapshots |
 | [docs/scene-protocol.md](docs/scene-protocol.md) | Scene-server wire contract (AVP track) |
-| [docs/releases/](docs/releases/v0.12.0.md) | Per-release narrative notes |
+| [docs/releases/](docs/releases/v0.13.0.md) | Per-release narrative notes |
 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contribution, security, conduct |
 
 ## Lineage
@@ -260,6 +262,7 @@ categories lighting up:
 | `v0.10.0` | The cockpit & the self-building loop          |
 | `v0.11.0` | The Viewer merge & the self-staffing loop — one window manager, one assistant; gaps file as issues; lanes spawn by voice ([notes](docs/releases/v0.11.0.md)) |
 | `v0.12.0` | **The closed loop** — gate reports on the issue thread, "clean, proceed" by voice, a reviewer cell on every PR, voice closeout; the record rolls from fragments ([notes](docs/releases/v0.12.0.md)) |
+| `v0.13.0` | **The house takes requests** — the music vertical end to end by the pipeline (Spotify node with PKCE, voice + the Music app, playlists + controls under the apps-interactive ADR); READY TO TEST announces the gate ([notes](docs/releases/v0.13.0.md)) |
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
 

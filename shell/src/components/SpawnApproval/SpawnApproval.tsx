@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { OrphanLane, SpawnSnapshot, SpawnView, TeardownRecord } from '../../types/aether'
 import { useSpawnUi } from '../../stores/spawnUi'
-import { foldGateComments, type LaneGateState } from '../../utils/laneGate'
+import { foldGateComments, shouldToastGate, type LaneGateState } from '../../utils/laneGate'
 
 // The spawn actor's window — a global modal raised by the shell's SpawnService
 // when a spawn request lands in the ledger (raven's request_spawn tool wrote it
@@ -297,8 +297,22 @@ function useLaneGate(
     try {
       const res = await window.aether.mesh.invoke('github.get_issue', { number: issue })
       if (res.ok && res.envelope) {
-        const payload = res.envelope.payload as { comments?: unknown }
-        setGate(foldGateComments(payload.comments, spawnedAtIso))
+        const payload = res.envelope.payload as { comments?: unknown; title?: unknown }
+        const next = foldGateComments(payload.comments, spawnedAtIso)
+        setGate(next)
+        // READY TO TEST toast (#340): one per gate arrival (re-gates included;
+        // refreshes of the same report excluded — shouldToastGate claims it).
+        // Fire-and-forget over the existing shell → host_notifications.notify
+        // edge; a down notifier must never surface as a gate-check failure.
+        if (shouldToastGate(issue, next)) {
+          const title = typeof payload.title === 'string' ? payload.title : ''
+          void window.aether.mesh
+            .invoke('host_notifications.notify', {
+              title: 'Aether',
+              body: `Lane ${issue} is ready to test${title ? ` — ${title}` : ''}`,
+            })
+            .catch(() => {})
+        }
       } else {
         setGateError(res.error?.message ?? 'gate check unavailable')
       }

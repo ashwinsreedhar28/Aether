@@ -33,6 +33,7 @@ above reconciles them.
 | [history/2026-06-04-rag-mcp-sketch.html](history/2026-06-04-rag-mcp-sketch.html) | "No MCP today" — where a RAG MCP server slots into the mesh |
 | [history/2026-06-11-v0.11.0-cut.html](history/2026-06-11-v0.11.0-cut.html) | The v0.11.0 cut — the Viewer merge landed, gaps file as GitHub issues, lanes spawn by voice; the flip-book's first cut-time snapshot |
 | [history/2026-06-11-v0.12.0-cut.html](history/2026-06-11-v0.12.0-cut.html) | The v0.12.0 cut — the loop closed end to end: gate reports on the issue thread, voice proceed, the reviewer cell keyed to head SHA, voice closeout, the composer's maiden flight, and the fragments contract |
+| [history/2026-06-12-v0.13.0-cut.html](history/2026-06-12-v0.13.0-cut.html) | The v0.13.0 cut — the house takes requests: the music vertical end to end by the pipeline (node · voice + face · library + touch), the apps-interactive/panels-display-only split, and READY TO TEST — the gate announces itself |
 
 ## The convention
 

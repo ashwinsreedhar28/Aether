@@ -15,6 +15,94 @@ a release lane folds them into a version section with
 `node scripts/roll-changelog.mjs --version X.Y.Z` and deletes them.
 Preview with --dry-run. Law: CLAUDE.md §8; format: changelog/README.md. -->
 
+## [0.13.0] - 2026-06-12
+
+### Added
+- Music vertical completes — voice + face (#225, Lane B over #332's node).
+  raven gains the `music_tool` group (`play_music` — empty query resumes;
+  `pause_music`; `skip_track` next|prev; `queue_music`; `whats_playing`),
+  thin `mesh_invoke` wrappers over `music.*` that are deliberately NOT
+  confirm-gated (media controls are non-destructive and instantly
+  reversible; standing #225 ruling) and return pre-written `spoken` lines —
+  named node denies surface as friendly speech (`music_no_active_device` →
+  "Spotify isn't open on any device, sir…"). The Viewer gains a
+  display-only Music app (`shell/src/apps/music`, listed in the Console
+  like every other app): album art, track/artist/album, playing/paused
+  state, and a progress bar interpolated client-side between its 3s
+  `music.now_playing` polls — no buttons, voice is the remote. Node
+  touches: `music.now_playing` now carries `album_art_url` (largest album
+  image, null when absent), bare `music.play` (no query/uri) RESUMES via
+  Spotify's bodyless player/play, and the per-track toast is opt-in behind
+  `MUSIC_TOAST=1` (default off — the app is the visible surface). The
+  manifest needed zero changes: Lane A pre-positioned every
+  raven/shell → `music.*` edge. Closes #225.
+- `music` mesh node — Spotify playback Actor (#332, Lane A of the #225
+  decomposition; raven tools + Viewer now-playing app follow in Lane B).
+  Five Actor surfaces (`music.play` — query or spotify uri, query resolves
+  via search and plays the first match; `music.pause`; `music.skip`
+  next|prev; `music.queue`; `music.search` → top tracks as
+  `{ name, artist, uri }`) plus the `music.now_playing` sensor surface
+  (`is_playing`, track name/artist/album/uri/duration, `position_ms`;
+  polled at 3s only while playback is active or was in the last 60s, idle
+  otherwise; on-demand live read when idle; observed track changes emit a
+  `host_notifications.notify` change event). Auth is Authorization Code
+  with PKCE: `SPOTIFY_CLIENT_ID` from `.env.local`, NO client secret —
+  first Actor call opens the system browser, a one-shot loopback listener
+  on `127.0.0.1:8898/callback` catches the code, and the rotating refresh
+  token is cached owner-only (0600) under `AETHER_DATA_DIR/music/`, so
+  restarts re-authenticate with no browser. Missing client id / missing
+  token / no active Spotify Connect device all deny loudly by name
+  (`music_no_client_id`, `music_not_authenticated`,
+  `music_no_active_device` — "no active Spotify device"), never hang.
+  Registered in `manifest.yaml` with raven Actor edges, the
+  raven + shell `now_playing` read path, and shell edges backing the
+  devtools signed-envelope smoke. Closes #332.
+- Music gains memory, library, and touch (#334, Lane C of the vertical).
+  The node grows two library reads — `music.playlists` (one page at the
+  API-max 50, `{ name, uri, track_count }` plus the account-wide `total`)
+  and `music.recently_played` (`limit` 1-50, default 10,
+  `{ name, artist, uri, played_at }`, most recent first) — both on the
+  Actor auth posture (explicit user intent may open the browser grant;
+  no active device needed), with `raven → music.*` and `shell → music.*`
+  manifest edges for each. raven gains three voice tools: `play_playlist`
+  (case-insensitive fuzzy match — exact, then substring, then a difflib
+  close-match; no match returns a spoken line naming what was heard),
+  `play_last_song` (`recently_played[0]` → play), and `list_playlists`
+  (spoken read-out capped at five names with a total count) — all
+  non-confirm-gated per the standing #225 media-controls ruling. The
+  Music app becomes interactive per the #334 ADR ("apps are interactive
+  MeshApps; panels stay display-only"): prev / play-pause / next as ghost
+  circular controls over the existing `shell → music.{skip,pause,play}`
+  edges, with optimistic play-state and controls disabled in the empty
+  state. Same diff restyles the now-playing card per the Director's
+  addendum: blurred oversized album-art backdrop under an edge-dense
+  gradient, 300ms crossfades on track change, larger ringed art that dims
+  with a pause glyph when paused, a 3-bar equalizer beside the title
+  replacing the header state chip, a rounded 6px progress bar with a
+  position dot, and a ghosted empty-state glyph. Closes #334.
+- READY TO TEST surfacing (#340, R1 of the revision loop) — a lane reaching
+  its gate now announces itself instead of folding silently. At the existing
+  AT GATE detection point (the pull-based card fold, #310) the shell emits
+  ONE `host_notifications.notify` toast per gate arrival — "Lane N is ready
+  to test — <issue title>" — keyed by the report comment's `created_at`, so
+  re-gates (a new GATE REPORT comment) toast again while refreshes of an
+  already-gated lane stay silent; the dedupe is session-scoped (no ledger
+  change), riding the existing `shell → host_notifications.notify` edge.
+  raven gains two READ-ONLY voice tools (`lane_gate_tool.py`, neither
+  confirm-gated per the standing #225 reversibility ruling — they touch
+  nothing): `whats_ready_to_test()` folds the spawn ledger for live lanes,
+  reads each issue thread over the existing `raven → github.get_issue` edge
+  with a Python mirror of the shell's gate fold (strictly newer than the
+  spawned event; PR OPENED upgrades past the gate), and speaks who's waiting
+  ("Lane 334 is ready, sir: playlists, recently-played, and app controls.");
+  `read_test_steps(number)` fetches the LATEST gate report comment, extracts
+  its SMOKE/Director-smoke section, and speaks the steps as a numbered
+  walkthrough — a lane with no gate report (or a report with no smoke
+  section) gets a spoken line naming the miss. prompts.json gains a minimal
+  "Lanes at the gate" section plus two worked examples via unique-anchor
+  edits, JSON-validated. No relay or gate-protocol changes — additive
+  surfacing only. Closes #340.
+
 ## [0.12.0] - 2026-06-11
 
 ### Added

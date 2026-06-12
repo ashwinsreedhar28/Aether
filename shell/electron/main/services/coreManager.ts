@@ -167,6 +167,11 @@ export class CoreManager {
       // nodeManager can inject the same value into the child's env. No
       // ADMIN_TOKEN: it talks to GitHub's API, no broker endpoint.
       MESH_GITHUB_SECRET: this.secrets.githubSecret,
+      // music is a TypeScript Actor node (spawned by nodeManager). Same env
+      // contract — Core resolves env:MESH_MUSIC_SECRET at manifest load so
+      // nodeManager can inject the same value into the child's env. No
+      // ADMIN_TOKEN: it talks to Spotify's API, no broker endpoint.
+      MESH_MUSIC_SECRET: this.secrets.musicSecret,
       // viewer_desktop is the agent->renderer control node, hosted IN the shell
       // main process (not spawned) — index.ts creates its MeshNode directly with
       // this.secrets.viewerDesktopSecret. Core still has to resolve

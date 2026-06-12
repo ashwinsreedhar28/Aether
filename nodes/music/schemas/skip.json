@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "music.skip",
+  "description": "Skip to the next or previous track on the active Spotify Connect device. Denies by name: music_bad_direction (anything other than next/prev), music_no_client_id, music_no_active_device.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "direction": {
+      "type": "string",
+      "enum": ["next", "prev"],
+      "description": "Skip direction. Default 'next' if omitted."
+    }
+  }
+}

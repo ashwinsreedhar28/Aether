@@ -11,6 +11,7 @@ import {
   MACOS_MAIL_ENTRY,
   MACOS_MESSAGES_ENTRY,
   MESH_INTROSPECTION_ENTRY,
+  MUSIC_ENTRY,
   NEWS_FEEDS_ENTRY,
   SYSTEM_INFO_ENTRY,
   TIME_ENTRY,
@@ -85,6 +86,7 @@ export class NodeManager {
       // history), not rebuilding the node.
       this.spawnLanes(),
       this.spawnGithub(),
+      this.spawnMusic(),
     ])
   }
 
@@ -320,6 +322,28 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/github build`',
       secretEnvName: 'MESH_GITHUB_SECRET',
       secretValue: this.secrets.githubSecret,
+      extraEnv: {
+        AETHER_DATA_DIR: dataDir,
+      },
+    })
+  }
+
+  private async spawnMusic(): Promise<void> {
+    // music Actor — Spotify playback (play/pause/skip/queue/search) plus the
+    // now_playing sensor surface. SPOTIFY_CLIENT_ID rides the inherited
+    // process env (.env.local via env-loader); a missing client id is handled
+    // by the node itself (boots degraded, denies music_no_client_id by name),
+    // so the spawn is unconditional. AETHER_DATA_DIR is the writable root for
+    // the running marker + the owner-only PKCE refresh-token cache
+    // (music/spotify_tokens.json).
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'music',
+      entry: MUSIC_ENTRY,
+      buildHint: '`pnpm --filter @aether/music build`',
+      secretEnvName: 'MESH_MUSIC_SECRET',
+      secretValue: this.secrets.musicSecret,
       extraEnv: {
         AETHER_DATA_DIR: dataDir,
       },

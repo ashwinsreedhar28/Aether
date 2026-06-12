@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "music.pause",
+  "description": "Pause playback on the active Spotify Connect device. No parameters. Denies by name: music_no_client_id, music_not_authenticated/music_auth_* (auth path), music_no_active_device (no active Spotify device).",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "music.search",
+  "description": "Search Spotify's track catalog. Returns the top matches as { tracks: [{ name, artist, uri }], fetched_at_ms }. Needs a valid token (the auth path may open the browser grant on first use) but no active device. Denies by name: music_bad_query (missing/empty), music_no_client_id, music_auth_*.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "description": "Free-text track search query. Required."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "description": "Number of tracks to return. Default 5; clamped to 1-20."
+    }
+  }
+}

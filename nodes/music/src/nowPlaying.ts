@@ -11,6 +11,7 @@ import type { PlaybackState, Track } from './spotify'
 export interface NowPlayingSnapshot {
   is_playing: boolean
   track: Track | null
+  album_art_url: string | null
   position_ms: number | null
   fetched_at_ms: number
 }
@@ -69,6 +70,7 @@ export class NowPlayingPoller {
     const snap: NowPlayingSnapshot = {
       is_playing: state?.is_playing === true,
       track: state?.track ?? null,
+      album_art_url: state?.album_art_url ?? null,
       position_ms: state?.progress_ms ?? null,
       fetched_at_ms: nowMs,
     }

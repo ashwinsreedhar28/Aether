@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "music.play",
-  "description": "Start Spotify playback on the active Spotify Connect device. Accepts either a free-text query (resolved via track search; the first match plays) or a spotify uri (spotify:<type>:<id> or an open.spotify.com link — track uris play directly, album/playlist/artist uris play as context). uri wins when both are supplied. The first authenticated call opens the system browser for the PKCE grant; thereafter the cached refresh token authenticates silently. Denies by name: music_no_client_id (SPOTIFY_CLIENT_ID unset), music_no_match (query found nothing), music_no_active_device (no active Spotify device — open the Spotify app and play something once), music_bad_uri, music_auth_* (grant denied / timed out / pending).",
+  "description": "Start Spotify playback on the active Spotify Connect device. Accepts either a free-text query (resolved via track search; the first match plays) or a spotify uri (spotify:<type>:<id> or an open.spotify.com link — track uris play directly, album/playlist/artist uris play as context). uri wins when both are supplied. The EMPTY form — no query, no uri — RESUMES the device's current context (Spotify's bodyless player/play). The first authenticated call opens the system browser for the PKCE grant; thereafter the cached refresh token authenticates silently. Denies by name: music_no_client_id (SPOTIFY_CLIENT_ID unset), music_no_match (query found nothing), music_no_active_device (no active Spotify device — open the Spotify app and play something once), music_bad_uri, music_auth_* (grant denied / timed out / pending).",
   "type": "object",
   "additionalProperties": true,
   "properties": {

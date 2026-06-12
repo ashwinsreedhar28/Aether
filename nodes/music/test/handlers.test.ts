@@ -43,6 +43,7 @@ function fakeClient(over: Partial<PlayerClient> = {}): PlayerClient & {
     calls,
     playbackState: record('playbackState', null as PlaybackState | null),
     play: record('play', undefined),
+    resume: record('resume', undefined),
     pause: record('pause', undefined),
     skip: record('skip', undefined),
     queue: record('queue', undefined),
@@ -118,10 +119,18 @@ describe('music.play', () => {
     ).rejects.toMatchObject({ reason: 'music_no_match' })
   })
 
-  it('denies music_bad_args when neither query nor uri given', async () => {
-    await expect(makePlayHandler(deps(fakeClient()))(envelope())).rejects.toMatchObject({
-      reason: 'music_bad_args',
-    })
+  it('resumes (bodyless play) when neither query nor uri given', async () => {
+    const client = fakeClient()
+    const res = await makePlayHandler(deps(client))(envelope())
+    expect(res).toEqual({ ok: true, resumed: true })
+    expect(client.calls.map((c) => c.method)).toEqual(['resume'])
+  })
+
+  it('treats an empty-string query as resume too', async () => {
+    const client = fakeClient()
+    const res = await makePlayHandler(deps(client))(envelope({ query: '  ' }))
+    expect(res).toEqual({ ok: true, resumed: true })
+    expect(client.calls.map((c) => c.method)).toEqual(['resume'])
   })
 })
 
@@ -151,6 +160,12 @@ describe('music.pause / music.skip / music.queue', () => {
     expect(res).toMatchObject({ ok: true, queued: 'spotify:track:abc123' })
     expect(client.calls.map((c) => c.method)).toEqual(['searchTracks', 'queue'])
   })
+
+  it('queue still denies music_bad_args when neither query nor uri given', async () => {
+    await expect(makeQueueHandler(deps(fakeClient()))(envelope())).rejects.toMatchObject({
+      reason: 'music_bad_args',
+    })
+  })
 })
 
 describe('music.search', () => {
@@ -175,6 +190,7 @@ describe('music.now_playing', () => {
     is_playing: true,
     progress_ms: 1234,
     track: aTrack({ uri }),
+    album_art_url: 'https://i.scdn.co/image/large',
   })
 
   it('serves a fresh snapshot from cache without touching the API', async () => {
@@ -184,7 +200,12 @@ describe('music.now_playing', () => {
     poller.observe(playing('spotify:track:abc123'))
     nowMs += 1_000
     const res = await makeNowPlayingHandler(deps(client, poller))(envelope())
-    expect(res).toMatchObject({ is_playing: true, source: 'cache', position_ms: 1234 })
+    expect(res).toMatchObject({
+      is_playing: true,
+      source: 'cache',
+      position_ms: 1234,
+      album_art_url: 'https://i.scdn.co/image/large',
+    })
     expect(client.calls).toEqual([])
   })
 
@@ -196,14 +217,23 @@ describe('music.now_playing', () => {
       },
     })
     const res = await makeNowPlayingHandler(deps(client))(envelope())
-    expect(res).toMatchObject({ is_playing: true, source: 'live' })
+    expect(res).toMatchObject({
+      is_playing: true,
+      source: 'live',
+      album_art_url: 'https://i.scdn.co/image/large',
+    })
     expect((res.track as { album: string }).album).toBe('Kind of Blue')
   })
 
-  it('reports idle state as is_playing false, track null', async () => {
+  it('reports idle state as is_playing false, track null, art null', async () => {
     const client = fakeClient({ playbackState: () => Promise.resolve(null) })
     const res = await makeNowPlayingHandler(deps(client))(envelope())
-    expect(res).toMatchObject({ is_playing: false, track: null, source: 'live' })
+    expect(res).toMatchObject({
+      is_playing: false,
+      track: null,
+      album_art_url: null,
+      source: 'live',
+    })
   })
 })
 
@@ -214,7 +244,9 @@ describe('NowPlayingPoller change events', () => {
       quietPoller({ onTrackChange: (t) => changes.push(t.uri) }),
     )
     const state = (uri: string | null, isPlaying = true): PlaybackState | null =>
-      uri === null ? null : { is_playing: isPlaying, progress_ms: 0, track: aTrack({ uri }) }
+      uri === null
+        ? null
+        : { is_playing: isPlaying, progress_ms: 0, track: aTrack({ uri }), album_art_url: null }
     poller.observe(state('spotify:track:one'))
     expect(changes).toEqual([])
     poller.observe(state('spotify:track:one'))
@@ -351,7 +383,7 @@ describe('SpotifyClient error mapping', () => {
     })
   })
 
-  it('parses playback state and returns null on 204', async () => {
+  it('parses playback state (largest album image wins) and returns null on 204', async () => {
     vi.stubGlobal(
       'fetch',
       vi
@@ -365,7 +397,14 @@ describe('SpotifyClient error mapping', () => {
                 name: 'So What',
                 uri: 'spotify:track:abc123',
                 duration_ms: 545000,
-                album: { name: 'Kind of Blue' },
+                album: {
+                  name: 'Kind of Blue',
+                  images: [
+                    { url: 'https://i.scdn.co/image/small', width: 64, height: 64 },
+                    { url: 'https://i.scdn.co/image/large', width: 640, height: 640 },
+                    { url: 'https://i.scdn.co/image/medium', width: 300, height: 300 },
+                  ],
+                },
                 artists: [{ name: 'Miles' }, { name: 'Davis' }],
               },
             }),
@@ -386,7 +425,44 @@ describe('SpotifyClient error mapping', () => {
         uri: 'spotify:track:abc123',
         duration_ms: 545000,
       },
+      album_art_url: 'https://i.scdn.co/image/large',
     })
     expect(await c.playbackState(false)).toBeNull()
+  })
+
+  it('album_art_url is null when the album carries no images', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              is_playing: true,
+              progress_ms: 1,
+              item: {
+                name: 'So What',
+                uri: 'spotify:track:abc123',
+                duration_ms: 545000,
+                album: { name: 'Kind of Blue' },
+                artists: [{ name: 'Miles Davis' }],
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+    )
+    const state = await client().playbackState(false)
+    expect(state?.album_art_url).toBeNull()
+  })
+
+  it('resume issues a bodyless PUT to player/play', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await client().resume(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://api.spotify.com/v1/me/player/play')
+    expect(init.method).toBe('PUT')
+    expect(init.body).toBeUndefined()
   })
 })

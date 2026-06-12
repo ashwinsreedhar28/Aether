@@ -437,6 +437,43 @@ nodes:
         invocation_mode: request_response
         schema: nodes/github/schemas/get_issue.json
 
+  - id: music
+    runtime: local-process
+    category: Actor
+    identity_secret: env:MESH_MUSIC_SECRET
+    metadata:
+      description: |
+        Spotify playback Actor (#332): play/pause/skip/queue/search drive
+        the active Spotify Connect device; now_playing polls at 3s only
+        while playback is recent. PKCE auth — SPOTIFY_CLIENT_ID only, no
+        client secret, refresh token cached owner-only. Denies loudly by
+        name.
+    surfaces:
+      - name: play
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/music/schemas/play.json
+      - name: pause
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/music/schemas/pause.json
+      - name: skip
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/music/schemas/skip.json
+      - name: queue
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/music/schemas/queue.json
+      - name: search
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/music/schemas/search.json
+      - name: now_playing
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/music/schemas/now_playing.json
+
   - id: viewer_desktop
     runtime: local-process
     category: Actor
@@ -832,3 +869,43 @@ relationships:
     to: calendar.today
   - from: visualizer
     to: calendar.upcoming
+
+  # Music Actor (#332, Lane A of #225): raven drives the full playback
+  # surface set by voice — the music_tool group itself lands in Lane B
+  # (#225), but the edges are node registration and belong to this lane.
+  # Every consumer/surface pair gets its own edge (#136's lesson).
+  - from: raven
+    to: music.play
+  - from: raven
+    to: music.pause
+  - from: raven
+    to: music.skip
+  - from: raven
+    to: music.queue
+  - from: raven
+    to: music.search
+  # The standard Sensor read path for now_playing: raven for voice
+  # ("what's playing?") in Lane B…
+  - from: raven
+    to: music.now_playing
+  # …and the shell, which is both the #332 SMOKE's signed-envelope test
+  # path (renderer devtools mesh.invoke routes as the shell node — the
+  # gate smoke exercises play/pause/skip/now_playing through these) and
+  # the read path Lane B's Viewer now-playing app will consume.
+  - from: shell
+    to: music.play
+  - from: shell
+    to: music.pause
+  - from: shell
+    to: music.skip
+  - from: shell
+    to: music.queue
+  - from: shell
+    to: music.search
+  - from: shell
+    to: music.now_playing
+  # The now_playing poller emits a change event on an observed track change
+  # ("Now playing: <track> — <artist>") on the house emission rail — the
+  # same lanes → host_notifications.notify precedent.
+  - from: music
+    to: host_notifications.notify

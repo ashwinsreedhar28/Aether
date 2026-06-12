@@ -1,0 +1,30 @@
+{
+  "name": "@aether/music",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Actor mesh node for Spotify playback: play/pause/skip/queue/search plus the now_playing sensor surface. Auth is Authorization Code with PKCE (SPOTIFY_CLIENT_ID only, no client secret); the refresh token is cached under AETHER_DATA_DIR with owner-only permissions.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node ./dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@aether/mesh-node-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.18.0",
+    "typescript": "~5.7.0",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}

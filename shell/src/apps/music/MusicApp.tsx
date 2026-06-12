@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react';
-import { Music, Pause, Play, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Music, Pause, Play, RefreshCw, SkipBack, SkipForward } from 'lucide-react';
 import { useMeshSurface } from '../../hooks/useMeshSurface';
 
-// Lane B of the music vertical (#225): a display-only now-playing card over
-// music.now_playing. Voice is the remote (standing Architect ruling — no
-// interactive panel kind), so there are no playback controls here. Polls
-// every 3s while open; the node's own 3s poller makes that a cache hit
-// during playback. Progress is interpolated client-side between polls from
-// position_ms / duration_ms.
+// The music vertical's face. Lane B (#225) built this display-only; #334
+// (ADR "apps are interactive MeshApps; panels stay display-only") adds the
+// playback controls — prev / play-pause / next ride mesh.invoke over the
+// manifest's shell → music.{play,pause,skip} edges, the same signed-envelope
+// path as the devtools smoke. Reads poll music.now_playing every 3s while
+// open; the node's own 3s poller makes that a cache hit during playback.
+// Progress is interpolated client-side between polls from
+// position_ms / duration_ms. Visual treatment per the #334 addendum: blurred
+// album-art backdrop under an edge-dense gradient, 300ms art crossfade on
+// track change, equalizer-as-state instead of a header chip.
 
 interface NowPlayingTrack {
   name: string;
@@ -55,6 +59,132 @@ function useInterpolatedPosition(data: NowPlayingPayload | null): number | null 
   return Math.min(data.position_ms + elapsed, data.track.duration_ms);
 }
 
+/**
+ * Stacked <img> layers that crossfade ~300ms when `url` changes: the
+ * outgoing layer lingers under the incoming one for the animation, then
+ * unmounts. Used by both the backdrop and the art card.
+ */
+function CrossfadeImage({
+  url,
+  alt,
+  imgStyle,
+}: {
+  url: string;
+  alt: string;
+  imgStyle?: CSSProperties;
+}) {
+  const [prevUrl, setPrevUrl] = useState<string | null>(null);
+  const lastUrlRef = useRef(url);
+  useEffect(() => {
+    if (url === lastUrlRef.current) return;
+    setPrevUrl(lastUrlRef.current);
+    lastUrlRef.current = url;
+    const timer = setTimeout(() => setPrevUrl(null), 320);
+    return () => clearTimeout(timer);
+  }, [url]);
+
+  const base: CSSProperties = {
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    ...imgStyle,
+  };
+  return (
+    <>
+      {prevUrl && <img src={prevUrl} alt="" style={base} draggable={false} />}
+      <img
+        key={url}
+        src={url}
+        alt={alt}
+        style={{ ...base, animation: 'music-fade-in 300ms ease both' }}
+        draggable={false}
+      />
+    </>
+  );
+}
+
+/** 3-bar CSS equalizer — animates while playing, freezes when paused. */
+function Equalizer({ playing }: { playing: boolean }) {
+  return (
+    <span
+      aria-hidden
+      style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 18, flexShrink: 0 }}
+    >
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          style={{
+            width: 3,
+            height: '100%',
+            borderRadius: 1.5,
+            background: 'var(--holo-accent)',
+            transformOrigin: 'bottom',
+            animation: `music-eq 0.9s ease-in-out ${i * 0.18}s infinite`,
+            animationPlayState: playing ? 'running' : 'paused',
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+const GHOST_BUTTON =
+  'rounded-full border flex items-center justify-center transition-colors ' +
+  'hover:bg-white/10 disabled:opacity-35 disabled:pointer-events-none';
+const GHOST_STYLE: CSSProperties = {
+  borderColor: 'rgba(255,255,255,0.14)',
+  background: 'rgba(255,255,255,0.04)',
+  color: 'rgba(255,255,255,0.9)',
+};
+
+function Controls({
+  playing,
+  disabled,
+  onPrev,
+  onToggle,
+  onNext,
+}: {
+  playing: boolean;
+  disabled: boolean;
+  onPrev: () => void;
+  onToggle: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-center gap-5">
+      <button
+        className={GHOST_BUTTON}
+        style={{ ...GHOST_STYLE, width: 44, height: 44 }}
+        onClick={onPrev}
+        disabled={disabled}
+        title="Previous track"
+      >
+        <SkipBack size={18} />
+      </button>
+      <button
+        className={GHOST_BUTTON}
+        style={{ ...GHOST_STYLE, width: 56, height: 56 }}
+        onClick={onToggle}
+        disabled={disabled}
+        title={playing ? 'Pause' : 'Play'}
+      >
+        {playing ? <Pause size={24} /> : <Play size={24} style={{ marginLeft: 2 }} />}
+      </button>
+      <button
+        className={GHOST_BUTTON}
+        style={{ ...GHOST_STYLE, width: 44, height: 44 }}
+        onClick={onNext}
+        disabled={disabled}
+        title="Next track"
+      >
+        <SkipForward size={18} />
+      </button>
+    </div>
+  );
+}
+
 export function MusicApp() {
   const { data, error, loading, refreshing, refetch } = useMeshSurface<NowPlayingPayload>(
     'music.now_playing',
@@ -63,24 +193,91 @@ export function MusicApp() {
   );
   const position = useInterpolatedPosition(data);
 
+  // Optimistic play/pause: the node's snapshot stays cache-fresh for up to
+  // ~4s after a command, so the toggle would read stale for a beat without
+  // this. Cleared when the polled state agrees, or after a 10s give-up.
+  const [assumedPlaying, setAssumedPlaying] = useState<boolean | null>(null);
+  const [controlError, setControlError] = useState<string | null>(null);
+  const pendingRef = useRef(false);
+
+  const dataPlaying = data?.is_playing === true;
+  useEffect(() => {
+    if (assumedPlaying === null) return;
+    if (dataPlaying === assumedPlaying) {
+      setAssumedPlaying(null);
+      return;
+    }
+    const timer = setTimeout(() => setAssumedPlaying(null), 10_000);
+    return () => clearTimeout(timer);
+  }, [assumedPlaying, dataPlaying]);
+
   const track = data?.track ?? null;
-  const playing = data?.is_playing === true && track !== null;
+  const playing = (assumedPlaying ?? dataPlaying) && track !== null;
+  const artUrl = data?.album_art_url ?? null;
   const progressPct =
     track && position !== null && track.duration_ms > 0
       ? Math.min(100, (position / track.duration_ms) * 100)
       : 0;
 
+  const control = async (
+    target: string,
+    payload: Record<string, unknown>,
+    assume?: boolean,
+  ): Promise<void> => {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    setControlError(null);
+    if (assume !== undefined) setAssumedPlaying(assume);
+    try {
+      const res = await window.aether.mesh.invoke(target, payload);
+      if (!res.ok) {
+        setControlError(res.error?.message ?? `${target} unavailable`);
+        if (assume !== undefined) setAssumedPlaying(null);
+      }
+    } catch (e) {
+      setControlError(e instanceof Error ? e.message : `${target} unavailable`);
+      if (assume !== undefined) setAssumedPlaying(null);
+    } finally {
+      pendingRef.current = false;
+      refetch();
+    }
+  };
+
+  // Bare music.play (no query/uri) is RESUME — the right inverse of pause.
+  const onToggle = () =>
+    void (playing ? control('music.pause', {}, false) : control('music.play', {}, true));
+  const onPrev = () => void control('music.skip', { direction: 'prev' });
+  const onNext = () => void control('music.skip', { direction: 'next' });
+
   return (
-    <div className="w-full h-full flex flex-col bg-[var(--holo-bg)] text-[var(--holo-text)]">
-      <header className="flex items-center gap-3 px-4 py-3 border-b border-[var(--holo-border)]">
+    <div className="relative w-full h-full flex flex-col bg-[var(--holo-bg)] text-[var(--holo-text)] overflow-hidden">
+      <style>{`
+        @keyframes music-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes music-eq { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+      `}</style>
+
+      {/* Backdrop: the album art itself, oversized and blurred, under a
+          gradient that is denser at the edges — every album recolors the
+          room. Crossfades with the art. */}
+      {artUrl && (
+        <div className="absolute inset-0 overflow-hidden" aria-hidden>
+          <div style={{ position: 'absolute', inset: 0, transform: 'scale(1.4)' }}>
+            <CrossfadeImage url={artUrl} alt="" imgStyle={{ filter: 'blur(70px) saturate(0.75)' }} />
+          </div>
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background:
+                'radial-gradient(ellipse at center, rgba(10,10,15,0.55) 0%, rgba(10,10,15,0.78) 60%, rgba(10,10,15,0.94) 100%)',
+            }}
+          />
+        </div>
+      )}
+
+      <header className="relative z-10 flex items-center gap-3 px-4 py-3 border-b border-[var(--holo-border)]">
         <Music size={18} className="text-[var(--holo-accent)]" />
         <h1 className="text-sm font-medium">Music</h1>
-        {track && (
-          <span className="flex items-center gap-1.5 text-xs text-[var(--holo-muted)]">
-            {playing ? <Play size={12} /> : <Pause size={12} />}
-            {playing ? 'Playing' : 'Paused'}
-          </span>
-        )}
         <button
           onClick={refetch}
           className="ml-auto text-[var(--holo-muted)] hover:text-[var(--holo-accent)] transition-colors"
@@ -90,59 +287,166 @@ export function MusicApp() {
         </button>
       </header>
 
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-6 overflow-y-auto">
+      <div className="relative z-10 flex-1 flex flex-col items-center justify-center gap-5 p-6 overflow-y-auto">
         {loading && <p className="text-sm text-[var(--holo-muted)]">Reading playback…</p>}
         {!loading && error && <p className="text-sm text-amber-300 text-center">{error}</p>}
 
         {!loading && !error && !track && (
           <div className="flex flex-col items-center gap-3 text-center">
-            <Music size={48} className="text-[var(--holo-muted)]" />
+            <Music size={120} style={{ color: 'rgba(255,255,255,0.08)' }} />
             <p className="text-sm text-[var(--holo-muted)]">Nothing playing</p>
             <p className="text-xs text-[var(--holo-muted)]">
               Say “play something” — voice is the remote.
             </p>
+            <div className="mt-2">
+              <Controls
+                playing={false}
+                disabled
+                onPrev={onPrev}
+                onToggle={onToggle}
+                onNext={onNext}
+              />
+            </div>
           </div>
         )}
 
         {!loading && !error && track && (
-          <div className="flex flex-col items-center gap-4 w-full max-w-xs">
-            {data?.album_art_url ? (
-              <img
-                src={data.album_art_url}
-                alt={`${track.album} album art`}
-                className="w-56 h-56 rounded-lg object-cover border border-[var(--holo-border)] shadow-lg"
-                draggable={false}
-              />
-            ) : (
-              <div className="w-56 h-56 rounded-lg border border-[var(--holo-border)] bg-[var(--holo-panel)]/40 flex items-center justify-center">
-                <Music size={56} className="text-[var(--holo-muted)]" />
+          <div className="flex flex-col items-center gap-5 w-full" style={{ maxWidth: 460 }}>
+            <div
+              className="relative"
+              style={{ width: 'min(42vh, 420px)', maxWidth: '100%', aspectRatio: '1' }}
+            >
+              <div
+                className="absolute inset-0 overflow-hidden"
+                style={{
+                  borderRadius: 14,
+                  border: '1px solid rgba(255,255,255,0.10)',
+                  boxShadow: '0 24px 64px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.5)',
+                  filter: playing ? 'none' : 'brightness(0.85)',
+                  transition: 'filter 300ms ease',
+                  background: 'var(--holo-panel)',
+                }}
+              >
+                {artUrl ? (
+                  <CrossfadeImage url={artUrl} alt={`${track.album} album art`} />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Music size={56} className="text-[var(--holo-muted)]" />
+                  </div>
+                )}
               </div>
-            )}
+              {!playing && (
+                <div
+                  className="absolute inset-0 flex items-center justify-center"
+                  style={{ pointerEvents: 'none' }}
+                >
+                  <Pause
+                    size={36}
+                    style={{
+                      color: 'rgba(255,255,255,0.85)',
+                      filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.6))',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
 
             <div className="text-center w-full">
-              <p className="text-base font-medium truncate" title={track.name}>
-                {track.name}
-              </p>
-              <p className="text-sm text-[var(--holo-muted)] truncate" title={track.artist}>
+              <div className="flex items-center justify-center gap-2.5">
+                <Equalizer playing={playing} />
+                <p
+                  className="truncate"
+                  style={{
+                    fontSize: 30,
+                    fontWeight: 600,
+                    color: 'rgba(255,255,255,0.95)',
+                    lineHeight: 1.2,
+                    minWidth: 0,
+                  }}
+                  title={track.name}
+                >
+                  {track.name}
+                </p>
+              </div>
+              <p
+                className="truncate"
+                style={{ fontSize: 17, color: 'rgba(255,255,255,0.70)', marginTop: 8 }}
+                title={track.artist}
+              >
                 {track.artist}
               </p>
-              <p className="text-xs text-[var(--holo-muted)] truncate" title={track.album}>
+              <p
+                className="truncate"
+                style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', marginTop: 4 }}
+                title={track.album}
+              >
                 {track.album}
               </p>
             </div>
 
             <div className="w-full">
-              <div className="h-1 rounded-full bg-[var(--holo-panel)] overflow-hidden">
+              <div
+                style={{
+                  position: 'relative',
+                  height: 6,
+                  borderRadius: 9999,
+                  background: 'rgba(255,255,255,0.12)',
+                }}
+              >
                 <div
-                  className="h-full bg-[var(--holo-accent)] transition-[width] duration-500 ease-linear"
-                  style={{ width: `${progressPct}%` }}
-                />
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: `${progressPct}%`,
+                    minWidth: 6,
+                    borderRadius: 9999,
+                    background: 'var(--holo-accent)',
+                    transition: 'width 500ms linear',
+                  }}
+                >
+                  <span
+                    style={{
+                      position: 'absolute',
+                      right: -1,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: 10,
+                      height: 10,
+                      borderRadius: '50%',
+                      background: '#fff',
+                      boxShadow: '0 0 6px rgba(0,0,0,0.5)',
+                    }}
+                  />
+                </div>
               </div>
-              <div className="flex justify-between mt-1 text-[10px] font-mono text-[var(--holo-muted)]">
+              <div
+                className="flex justify-between"
+                style={{
+                  marginTop: 6,
+                  fontSize: 12,
+                  color: 'rgba(255,255,255,0.5)',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
                 <span>{position !== null ? formatMs(position) : '–:––'}</span>
                 <span>{formatMs(track.duration_ms)}</span>
               </div>
             </div>
+
+            <Controls
+              playing={playing}
+              disabled={false}
+              onPrev={onPrev}
+              onToggle={onToggle}
+              onNext={onNext}
+            />
+            {controlError && (
+              <p className="text-xs text-amber-300 text-center" style={{ marginTop: -8 }}>
+                {controlError}
+              </p>
+            )}
           </div>
         )}
       </div>

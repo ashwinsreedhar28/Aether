@@ -8,15 +8,18 @@ import {
   makeNowPlayingHandler,
   makePauseHandler,
   makePlayHandler,
+  makePlaylistsHandler,
   makeQueueHandler,
+  makeRecentlyPlayedHandler,
   makeSearchHandler,
   makeSkipHandler,
 } from './handlers'
 
 // music is the mesh's Spotify playback Actor (#332, Lane A of the #225
 // decomposition — the pipeline-validation vertical's substrate). Five Actor
-// surfaces (play / pause / skip / queue / search) plus the now_playing
-// sensor surface. Auth is Authorization Code with PKCE: SPOTIFY_CLIENT_ID
+// surfaces (play / pause / skip / queue / search), two library reads
+// (playlists / recently_played — #334), plus the now_playing sensor
+// surface. Auth is Authorization Code with PKCE: SPOTIFY_CLIENT_ID
 // only (no client secret anywhere), browser grant on the first
 // authenticated Actor call, refresh token cached owner-only under
 // AETHER_DATA_DIR/music/, silent refresh thereafter. A missing CLIENT_ID
@@ -99,6 +102,8 @@ async function main(): Promise<void> {
   node.on('skip', makeSkipHandler(deps))
   node.on('queue', makeQueueHandler(deps))
   node.on('search', makeSearchHandler(deps))
+  node.on('playlists', makePlaylistsHandler(deps))
+  node.on('recently_played', makeRecentlyPlayedHandler(deps))
   node.on('now_playing', makeNowPlayingHandler(deps))
   await node.start()
   log(

@@ -1,13 +1,17 @@
 """Music Tool - Spotify playback control by voice via the mesh.
 
-Five voice tools, all routed through ``mesh_invoke`` to the music node
-(#225, Lane B — the node itself is Lane A, #332/#333):
+Eight voice tools, all routed through ``mesh_invoke`` to the music node
+(#225, Lane B — the node itself is Lane A, #332/#333; library + memory
+tools are Lane C, #334):
 
   - ``play_music(query?)``      → ``music.play``   (empty query = RESUME)
   - ``pause_music()``           → ``music.pause``
   - ``skip_track(direction?)``  → ``music.skip``   (default next)
   - ``queue_music(query)``      → ``music.queue``
   - ``whats_playing()``         → ``music.now_playing``
+  - ``play_playlist(name)``     → ``music.playlists`` + ``music.play``
+  - ``play_last_song()``        → ``music.recently_played`` + ``music.play``
+  - ``list_playlists()``        → ``music.playlists`` (spoken cap: five)
 
 NOT confirm-gated, by standing Architect ruling on #225: media controls
 are non-destructive and instantly reversible — the confirm convention
@@ -23,6 +27,7 @@ device…") instead of error strings read aloud.
 """
 from __future__ import annotations
 
+import difflib
 from typing import Any
 
 from google.genai import types
@@ -35,6 +40,9 @@ FUNCTIONS = [
     "skip_track",
     "queue_music",
     "whats_playing",
+    "play_playlist",
+    "play_last_song",
+    "list_playlists",
 ]
 
 # Mirrors nodes/music/src/handlers.ts QUERY_MAX — the node truncates at the
@@ -173,6 +181,136 @@ async def _whats_playing() -> dict[str, Any]:
     return {**response, "spoken": spoken}
 
 
+# list_playlists speaks at most this many names; the count covers the rest
+# ("you have 14, sir; the first five are…").
+SPOKEN_PLAYLIST_CAP = 5
+
+
+def _normalize(text: str) -> str:
+    """Lowercase + collapse non-alphanumerics, so 'Jazz  Classics!' == 'jazz classics'."""
+    return " ".join("".join(c if c.isalnum() else " " for c in text.lower()).split())
+
+
+def _match_playlist(name: str, playlists: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Case-insensitive fuzzy match (viewer_tool app-resolution precedent).
+
+    Exact normalized match wins outright; then substring containment either
+    way ('jazz' finds 'Jazz Classics', 'my workout mix' finds 'Workout Mix');
+    then a difflib close match absorbs small STT slips. None when nothing
+    clears the bar — the caller speaks the friendly no-match line.
+    """
+    want = _normalize(name)
+    if not want:
+        return None
+    by_key: list[tuple[str, dict[str, Any]]] = []
+    for p in playlists:
+        pname = p.get("name")
+        if not isinstance(pname, str):
+            continue
+        key = _normalize(pname)
+        if key:
+            by_key.append((key, p))
+    for key, p in by_key:
+        if key == want:
+            return p
+    for key, p in by_key:
+        if want in key or key in want:
+            return p
+    close = difflib.get_close_matches(want, [key for key, _ in by_key], n=1, cutoff=0.75)
+    if close:
+        for key, p in by_key:
+            if key == close[0]:
+                return p
+    return None
+
+
+def _spoken_list(names: list[str]) -> str:
+    """'A', 'A and B', or 'A, B, and C' — natural spoken enumeration."""
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + (", and " if len(names) > 2 else " and ") + names[-1]
+
+
+async def _play_playlist(name: str) -> dict[str, Any]:
+    try:
+        listing = await mesh_invoke("music.playlists", {})
+    except MeshUnavailable as e:
+        return _deny_result(e)
+
+    playlists = listing.get("playlists")
+    playlists = playlists if isinstance(playlists, list) else []
+    match = _match_playlist(name, playlists)
+    if match is None:
+        # The friendly no-match deny names what was heard (#334 spec) — the
+        # mishearing is the most likely cause and the user can correct it.
+        return {
+            "error": "music_no_playlist_match",
+            "spoken": f"I couldn't find a playlist called {name}, sir.",
+        }
+
+    try:
+        response = await mesh_invoke("music.play", {"uri": match.get("uri")})
+    except MeshUnavailable as e:
+        return _deny_result(e)
+    matched_name = match.get("name") or name
+    return {
+        **response,
+        "playlist": {"name": match.get("name"), "uri": match.get("uri")},
+        "spoken": f"Playing your {matched_name} playlist, sir.",
+    }
+
+
+async def _play_last_song() -> dict[str, Any]:
+    try:
+        recent = await mesh_invoke("music.recently_played", {"limit": 1})
+    except MeshUnavailable as e:
+        return _deny_result(e)
+
+    tracks = recent.get("tracks")
+    first = tracks[0] if isinstance(tracks, list) and tracks else None
+    if not isinstance(first, dict) or not first.get("uri"):
+        return {
+            "error": "music_no_recent_tracks",
+            "spoken": "There's nothing in your recent listening history, sir.",
+        }
+
+    try:
+        response = await mesh_invoke("music.play", {"uri": first.get("uri")})
+    except MeshUnavailable as e:
+        return _deny_result(e)
+    name = first.get("name")
+    artist = first.get("artist")
+    phrase = f"{name} by {artist}" if name and artist else str(name or "it")
+    return {
+        **response,
+        "track": {"name": name, "artist": artist, "uri": first.get("uri")},
+        "spoken": f"Playing {phrase} again, sir.",
+    }
+
+
+async def _list_playlists() -> dict[str, Any]:
+    try:
+        response = await mesh_invoke("music.playlists", {})
+    except MeshUnavailable as e:
+        return _deny_result(e)
+
+    playlists = response.get("playlists")
+    playlists = playlists if isinstance(playlists, list) else []
+    names = [p.get("name") for p in playlists if isinstance(p, dict) and p.get("name")]
+    total = response.get("total")
+    count = total if isinstance(total, int) else len(names)
+    if not names:
+        spoken = "You don't have any playlists, sir."
+    elif count <= SPOKEN_PLAYLIST_CAP:
+        spoken = f"You have {count} playlist{'s' if count != 1 else ''}, sir: {_spoken_list(names[:count])}."
+    else:
+        spoken = (
+            f"You have {count}, sir; the first {SPOKEN_PLAYLIST_CAP} are "
+            f"{_spoken_list(names[:SPOKEN_PLAYLIST_CAP])}."
+        )
+    return {**response, "spoken": spoken}
+
+
 def get_tools() -> list[types.Tool]:
     """Return Gemini function declarations for the music_tool group."""
     play_func = types.FunctionDeclaration(
@@ -266,6 +404,56 @@ def get_tools() -> list[types.Tool]:
         ),
         parameters=types.Schema(type=types.Type.OBJECT, properties={}),
     )
+    play_playlist_func = types.FunctionDeclaration(
+        name="play_playlist",
+        description=(
+            "Play one of the user's own Spotify playlists by name ('play my "
+            "jazz playlist', 'put on the workout mix'). The name is matched "
+            "case-insensitively and fuzzily against the user's playlists, so "
+            "pass what the user SAID — don't correct or expand it. A media "
+            "control: no confirmation, call it immediately. The result "
+            "carries a `spoken` field pre-written for the situation — read "
+            "it verbatim; when no playlist matches, the spoken line already "
+            "names what was heard."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "name": types.Schema(
+                    type=types.Type.STRING,
+                    description=(
+                        "The playlist name as the user said it, e.g. 'jazz "
+                        "classics' or 'workout mix'. Strip only filler like "
+                        "'my' or 'playlist'."
+                    ),
+                ),
+            },
+            required=["name"],
+        ),
+    )
+    play_last_song_func = types.FunctionDeclaration(
+        name="play_last_song",
+        description=(
+            "Replay the most recent track from the user's Spotify listening "
+            "history ('play the last song', 'play that again from earlier', "
+            "'put the previous song back on'). Distinct from skip_track "
+            "prev, which moves within the CURRENT queue — this one replays "
+            "from history even when nothing is playing. A media control: no "
+            "confirmation, call it immediately. Read the result's `spoken` "
+            "field verbatim."
+        ),
+        parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+    )
+    list_playlists_func = types.FunctionDeclaration(
+        name="list_playlists",
+        description=(
+            "List the user's Spotify playlists ('what playlists do I have', "
+            "'list my playlists'). The result's `spoken` field reads out at "
+            "most five names with the total count — read it verbatim and "
+            "never recite the raw list yourself."
+        ),
+        parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+    )
     return [
         types.Tool(
             function_declarations=[
@@ -274,6 +462,9 @@ def get_tools() -> list[types.Tool]:
                 skip_func,
                 queue_func,
                 whats_playing_func,
+                play_playlist_func,
+                play_last_song_func,
+                list_playlists_func,
             ]
         )
     ]
@@ -303,4 +494,16 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
         return await _queue_music(query)
     if name == "whats_playing":
         return await _whats_playing()
+    if name == "play_playlist":
+        playlist_name = _clean_query(args.get("name"))
+        if not playlist_name:
+            return {
+                "error": "bad name",
+                "spoken": "Which playlist, sir?",
+            }
+        return await _play_playlist(playlist_name)
+    if name == "play_last_song":
+        return await _play_last_song()
+    if name == "list_playlists":
+        return await _list_playlists()
     return None

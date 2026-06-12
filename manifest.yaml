@@ -444,7 +444,8 @@ nodes:
     metadata:
       description: |
         Spotify playback Actor (#332): play/pause/skip/queue/search drive
-        the active Spotify Connect device; now_playing polls at 3s only
+        the active Spotify Connect device; playlists/recently_played are
+        the library + memory reads (#334); now_playing polls at 3s only
         while playback is recent. PKCE auth — SPOTIFY_CLIENT_ID only, no
         client secret, refresh token cached owner-only. Denies loudly by
         name.
@@ -469,6 +470,14 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/music/schemas/search.json
+      - name: playlists
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/music/schemas/playlists.json
+      - name: recently_played
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/music/schemas/recently_played.json
       - name: now_playing
         type: tool
         invocation_mode: request_response
@@ -888,6 +897,13 @@ relationships:
   # ("what's playing?") in Lane B…
   - from: raven
     to: music.now_playing
+  # Library + memory reads (#334, Lane C): playlists backs play_playlist /
+  # list_playlists, recently_played backs play_last_song. Every
+  # consumer/surface pair gets its own edge (#136's lesson).
+  - from: raven
+    to: music.playlists
+  - from: raven
+    to: music.recently_played
   # …and the shell, which is both the #332 SMOKE's signed-envelope test
   # path (renderer devtools mesh.invoke routes as the shell node — the
   # gate smoke exercises play/pause/skip/now_playing through these) and
@@ -904,6 +920,13 @@ relationships:
     to: music.search
   - from: shell
     to: music.now_playing
+  # …and the same #334 reads for the shell: the devtools signed-envelope
+  # smoke path today, and the surface a future in-app playlist picker
+  # would consume.
+  - from: shell
+    to: music.playlists
+  - from: shell
+    to: music.recently_played
   # The now_playing poller emits a change event on an observed track change
   # ("Now playing: <track> — <artist>") on the house emission rail — the
   # same lanes → host_notifications.notify precedent.

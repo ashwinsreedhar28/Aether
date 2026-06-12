@@ -1,9 +1,11 @@
 # music — Spotify playback Actor
 
 Mesh node controlling Spotify playback over the Web API (#332, Lane A of the
-#225 decomposition). Five Actor surfaces plus the `now_playing` sensor
-surface. Raven's `music_tool` group and the Viewer now-playing app are Lane B
-(#225) — this node is their substrate.
+#225 decomposition). Five Actor surfaces, two library reads (`playlists` /
+`recently_played`, #334), plus the `now_playing` sensor surface. Raven's
+`music_tool` group and the Viewer now-playing app are Lane B (#225); the
+playlist / last-song voice tools and the app's playback controls are Lane C
+(#334) — this node is their substrate.
 
 ## Surfaces
 
@@ -18,6 +20,17 @@ surface. Raven's `music_tool` group and the Viewer now-playing app are Lane B
 - `music.queue` — `{ query?, uri? }`, appends to the active device's queue.
 - `music.search` — `{ query, limit? (1-20, default 5) }` → 
   `{ tracks: [{ name, artist, uri }], fetched_at_ms }`.
+- `music.playlists` — no params →
+  `{ playlists: [{ name, uri, track_count }], total, fetched_at_ms }`. One
+  page at the API-max page size (50); `total` is the account-wide count.
+  Library read on the Actor auth posture (first use may open the browser
+  grant); no active device needed.
+- `music.recently_played` — `{ limit? (1-50, default 10) }` →
+  `{ tracks: [{ name, artist, uri, played_at }], fetched_at_ms }`, most
+  recent first. Spotify logs a track after ~30s of listening and excludes
+  the currently-playing one, so `tracks[0]` is the last completed listen.
+  Same auth posture as `playlists`; a 404 here is NOT mapped to
+  `music_no_active_device`.
 - `music.now_playing` — no params →
   `{ is_playing, track: { name, artist, album, uri, duration_ms } | null,
   album_art_url (largest album image; null when absent), position_ms,
@@ -92,7 +105,8 @@ flow — just re-issue the call after granting.
 ## Tests
 
 `pnpm --filter @aether/music test` — handlers against a fake client (uri
-normalization, query resolution, named-deny paths), poller change-event
-semantics, auth refusals + refresh rotation + 0600 cache, and the client's
-error mapping (NO_ACTIVE_DEVICE → `music_no_active_device`, single 401
-retry, 429).
+normalization, query resolution, named-deny paths, playlist/recently-played
+shaping + limit clamps), poller change-event semantics, auth refusals +
+refresh rotation + 0600 cache, and the client's error mapping
+(NO_ACTIVE_DEVICE → `music_no_active_device`, single 401 retry, 429,
+playlist uris routed as `context_uri`).

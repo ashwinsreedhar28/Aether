@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "music.now_playing",
-  "description": "Current playback snapshot: { is_playing, track: { name, artist, album, uri, duration_ms } | null, position_ms, fetched_at_ms, source: 'cache' | 'live' }. Spotify is polled (3s) only while playback is active or was active in the last 60s; when idle, an invocation performs one live read — so the snapshot is always readable on demand with zero standing API traffic at rest. Track changes observed by the poller emit a host_notifications.notify change event. This is the read path: it NEVER opens the browser grant — with no cached token it denies music_not_authenticated by name (run music.play once to authenticate). No parameters.",
+  "description": "Current playback snapshot: { is_playing, track: { name, artist, album, uri, duration_ms } | null, album_art_url (largest album image from the same currently-playing response; null when absent), position_ms, fetched_at_ms, source: 'cache' | 'live' }. Spotify is polled (3s) only while playback is active or was active in the last 60s; when idle, an invocation performs one live read — so the snapshot is always readable on demand with zero standing API traffic at rest. Track changes observed by the poller emit a host_notifications.notify change event (opt-in: only when MUSIC_TOAST=1 is set in env). This is the read path: it NEVER opens the browser grant — with no cached token it denies music_not_authenticated by name (run music.play once to authenticate). No parameters.",
   "type": "object",
   "additionalProperties": true,
   "properties": {}

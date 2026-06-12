@@ -62,10 +62,15 @@ async function main(): Promise<void> {
 
   const node = new MeshNode(NODE_ID, secret, CORE_URL)
 
+  // Per-track toast is opt-in (#225): the Music app is the visible surface
+  // now, so the host_notifications emit fires only with MUSIC_TOAST=1 set.
+  const toastEnabled = process.env.MUSIC_TOAST === '1'
+
   const poller = new NowPlayingPoller({
     // Sensor reads are never interactive — a poll must not pop a browser.
     fetchState: () => client.playbackState(false),
     onTrackChange: (track) => {
+      if (!toastEnabled) return
       // Change event on the house emission rail (lanes-sensor precedent):
       // fire-and-forget from our perspective — a missing edge or a down
       // notifier is logged and swallowed, never crashes the poller.

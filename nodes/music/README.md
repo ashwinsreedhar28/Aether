@@ -10,7 +10,9 @@ surface. Raven's `music_tool` group and the Viewer now-playing app are Lane B
 - `music.play` — `{ query?, uri? }`. A query resolves via track search (first
   match plays); a `spotify:<type>:<id>` URI or open.spotify.com link plays
   directly (track URIs as `uris`, album/playlist/artist as `context_uri`).
-  `uri` wins when both are supplied.
+  `uri` wins when both are supplied. The EMPTY form — no query, no uri —
+  RESUMES the active device's current context (Spotify's bodyless
+  player/play; #225).
 - `music.pause` — no params.
 - `music.skip` — `{ direction?: 'next' | 'prev' }`, default `next`.
 - `music.queue` — `{ query?, uri? }`, appends to the active device's queue.
@@ -18,7 +20,8 @@ surface. Raven's `music_tool` group and the Viewer now-playing app are Lane B
   `{ tracks: [{ name, artist, uri }], fetched_at_ms }`.
 - `music.now_playing` — no params →
   `{ is_playing, track: { name, artist, album, uri, duration_ms } | null,
-  position_ms, fetched_at_ms, source: 'cache' | 'live' }`.
+  album_art_url (largest album image; null when absent), position_ms,
+  fetched_at_ms, source: 'cache' | 'live' }`.
 
 ## Auth — Authorization Code with PKCE
 
@@ -59,7 +62,9 @@ on-demand `now_playing` call while idle performs one live read (and re-arms
 the poller if it reveals active playback). A track change observed by any
 read emits a `host_notifications.notify` change event
 ("Now playing: <name> — <artist>"; lanes-sensor precedent — failures logged
-and swallowed).
+and swallowed). The toast is **opt-in** since #225 — it fires only with
+`MUSIC_TOAST=1` in env (`.env.local`); the Viewer Music app is the default
+visible surface for track changes.
 
 ## Smoke (#332, Director-runnable, no voice)
 

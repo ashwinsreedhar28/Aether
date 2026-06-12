@@ -13,6 +13,7 @@ import type { NowPlayingPoller, NowPlayingSnapshot } from './nowPlaying'
 export interface PlayerClient {
   playbackState(interactive: boolean): Promise<PlaybackState | null>
   play(uri: string, interactive: boolean): Promise<void>
+  resume(interactive: boolean): Promise<void>
   pause(interactive: boolean): Promise<void>
   skip(direction: 'next' | 'prev', interactive: boolean): Promise<void>
   queue(uri: string, interactive: boolean): Promise<void>
@@ -90,7 +91,20 @@ function trackEcho(track: Track): Record<string, unknown> {
 
 export function makePlayHandler(deps: HandlerDeps) {
   return async (env: Envelope): Promise<Record<string, unknown>> => {
-    const resolved = await resolveTarget(env.payload ?? {}, deps.client, 'music.play')
+    const payload = (env.payload ?? {}) as { uri?: unknown; query?: unknown }
+    // Bare play (no query, no uri) is RESUME (#225): Spotify's bodyless
+    // player/play continues the active device's current context. Named denies
+    // (music_no_active_device etc.) ride the same player-command path.
+    if (
+      optStr(payload.uri, 'uri', URI_MAX) === null &&
+      optStr(payload.query, 'query', QUERY_MAX) === null
+    ) {
+      await deps.client.resume(true)
+      deps.poller.arm()
+      deps.log('play (resume)')
+      return { ok: true, resumed: true }
+    }
+    const resolved = await resolveTarget(payload, deps.client, 'music.play')
     await deps.client.play(resolved.uri, true)
     deps.poller.arm()
     deps.log(`play ${resolved.uri}`)
@@ -172,6 +186,7 @@ function snapshotPayload(snap: NowPlayingSnapshot, source: 'cache' | 'live'): Re
           duration_ms: snap.track.duration_ms,
         }
       : null,
+    album_art_url: snap.album_art_url,
     position_ms: snap.position_ms,
     fetched_at_ms: snap.fetched_at_ms,
     source,

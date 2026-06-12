@@ -30,13 +30,21 @@ export interface PlaybackState {
   is_playing: boolean
   progress_ms: number | null
   track: Track | null
+  /** Largest album image from the currently-playing response; null when absent. */
+  album_art_url: string | null
+}
+
+interface RawImage {
+  url?: string
+  width?: number | null
+  height?: number | null
 }
 
 interface RawTrackItem {
   name?: string
   uri?: string
   duration_ms?: number
-  album?: { name?: string }
+  album?: { name?: string; images?: RawImage[] }
   artists?: { name?: string }[]
 }
 
@@ -44,6 +52,22 @@ export interface SpotifyClientDeps {
   /** Returns a live access token; forceRefresh drops the cached one first. */
   getToken: (opts: { interactive: boolean; forceRefresh?: boolean }) => Promise<string>
   log: (msg: string) => void
+}
+
+/** Largest by area; Spotify sends dimensioned images, but missing dims rank 0
+ *  (first-listed wins ties — Spotify orders largest-first). */
+function largestImageUrl(images: RawImage[] | undefined): string | null {
+  let bestUrl: string | null = null
+  let bestArea = -1
+  for (const img of images ?? []) {
+    if (typeof img.url !== 'string' || img.url.length === 0) continue
+    const area = (img.width ?? 0) * (img.height ?? 0)
+    if (area > bestArea) {
+      bestUrl = img.url
+      bestArea = area
+    }
+  }
+  return bestUrl
 }
 
 function toTrack(item: RawTrackItem | null | undefined): Track | null {
@@ -73,6 +97,7 @@ export class SpotifyClient {
       is_playing: body.is_playing === true,
       progress_ms: typeof body.progress_ms === 'number' ? body.progress_ms : null,
       track: toTrack(body.item),
+      album_art_url: largestImageUrl(body.item?.album?.images),
     }
   }
 
@@ -80,6 +105,11 @@ export class SpotifyClient {
   async play(uri: string, interactive: boolean): Promise<void> {
     const body = uri.startsWith('spotify:track:') ? { uris: [uri] } : { context_uri: uri }
     await this.playerCommand('PUT', '/me/player/play', { interactive, body })
+  }
+
+  /** Bodyless PUT /me/player/play — resume the active device's current context. */
+  async resume(interactive: boolean): Promise<void> {
+    await this.playerCommand('PUT', '/me/player/play', { interactive })
   }
 
   async pause(interactive: boolean): Promise<void> {

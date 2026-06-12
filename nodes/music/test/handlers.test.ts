@@ -5,13 +5,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MeshDeny, type Envelope } from '@aether/mesh-node-sdk'
 
 import { SpotifyAuth } from '../src/auth'
-import { SpotifyClient, type PlaybackState, type Track } from '../src/spotify'
+import {
+  SpotifyClient,
+  type PlaybackState,
+  type PlayedTrack,
+  type Playlist,
+  type Track,
+} from '../src/spotify'
 import { NowPlayingPoller } from '../src/nowPlaying'
 import {
   makeNowPlayingHandler,
   makePauseHandler,
   makePlayHandler,
+  makePlaylistsHandler,
   makeQueueHandler,
+  makeRecentlyPlayedHandler,
   makeSearchHandler,
   makeSkipHandler,
   type PlayerClient,
@@ -26,6 +34,21 @@ const aTrack = (over: Partial<Track> = {}): Track => ({
   album: 'Kind of Blue',
   uri: 'spotify:track:abc123',
   duration_ms: 545_000,
+  ...over,
+})
+
+const aPlaylist = (over: Partial<Playlist> = {}): Playlist => ({
+  name: 'Jazz Classics',
+  uri: 'spotify:playlist:pl1',
+  track_count: 42,
+  ...over,
+})
+
+const aPlayedTrack = (over: Partial<PlayedTrack> = {}): PlayedTrack => ({
+  name: 'Blue in Green',
+  artist: 'Miles Davis',
+  uri: 'spotify:track:big1',
+  played_at: '2026-06-11T10:00:00.000Z',
   ...over,
 })
 
@@ -48,6 +71,8 @@ function fakeClient(over: Partial<PlayerClient> = {}): PlayerClient & {
     skip: record('skip', undefined),
     queue: record('queue', undefined),
     searchTracks: record('searchTracks', [aTrack()]),
+    playlists: record('playlists', { playlists: [aPlaylist()], total: 1 }),
+    recentlyPlayed: record('recentlyPlayed', [aPlayedTrack()]),
     ...over,
   }
 }
@@ -182,6 +207,55 @@ describe('music.search', () => {
       { name: 'So What', artist: 'Miles Davis', uri: 'spotify:track:abc123' },
     ])
     expect(client.calls[0]).toMatchObject({ method: 'searchTracks', args: ['miles', 20, true] })
+  })
+})
+
+describe('music.playlists / music.recently_played', () => {
+  it('playlists shapes { playlists, total } and asks interactively', async () => {
+    const client = fakeClient({
+      playlists: (interactive: boolean) => {
+        expect(interactive).toBe(true)
+        return Promise.resolve({
+          playlists: [aPlaylist(), aPlaylist({ name: 'Focus', uri: 'spotify:playlist:pl2' })],
+          total: 14,
+        })
+      },
+    })
+    const res = await makePlaylistsHandler(deps(client))()
+    expect(res).toMatchObject({
+      ok: true,
+      total: 14,
+      playlists: [
+        { name: 'Jazz Classics', uri: 'spotify:playlist:pl1', track_count: 42 },
+        { name: 'Focus', uri: 'spotify:playlist:pl2', track_count: 42 },
+      ],
+    })
+    expect(typeof res.fetched_at_ms).toBe('number')
+  })
+
+  it('recently_played defaults to limit 10 and shapes the history', async () => {
+    const client = fakeClient()
+    const res = await makeRecentlyPlayedHandler(deps(client))(envelope())
+    expect(res).toMatchObject({
+      ok: true,
+      tracks: [
+        {
+          name: 'Blue in Green',
+          artist: 'Miles Davis',
+          uri: 'spotify:track:big1',
+          played_at: '2026-06-11T10:00:00.000Z',
+        },
+      ],
+    })
+    expect(client.calls[0]).toMatchObject({ method: 'recentlyPlayed', args: [10, true] })
+  })
+
+  it('recently_played clamps limit to 1-50', async () => {
+    const client = fakeClient()
+    await makeRecentlyPlayedHandler(deps(client))(envelope({ limit: 99 }))
+    expect(client.calls[0]?.args[0]).toBe(50)
+    await makeRecentlyPlayedHandler(deps(client))(envelope({ limit: 0 }))
+    expect(client.calls[1]?.args[0]).toBe(1)
   })
 })
 
@@ -453,6 +527,84 @@ describe('SpotifyClient error mapping', () => {
     )
     const state = await client().playbackState(false)
     expect(state?.album_art_url).toBeNull()
+  })
+
+  it('plays a playlist uri as context_uri, not uris (#334 spec check)', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await client().play('spotify:playlist:37i9dQZF1DXbITWG1ZJKYt', true)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://api.spotify.com/v1/me/player/play')
+    expect(JSON.parse(String(init.body))).toEqual({
+      context_uri: 'spotify:playlist:37i9dQZF1DXbITWG1ZJKYt',
+    })
+  })
+
+  it('parses playlists (drops uri-less items, keeps the account-wide total)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              items: [
+                { name: 'Jazz Classics', uri: 'spotify:playlist:pl1', tracks: { total: 42 } },
+                { name: 'broken', tracks: { total: 3 } },
+                { name: 'Focus', uri: 'spotify:playlist:pl2', tracks: null },
+              ],
+              total: 14,
+            }),
+            { status: 200 },
+          ),
+      ),
+    )
+    await expect(client().playlists(false)).resolves.toEqual({
+      playlists: [
+        { name: 'Jazz Classics', uri: 'spotify:playlist:pl1', track_count: 42 },
+        { name: 'Focus', uri: 'spotify:playlist:pl2', track_count: 0 },
+      ],
+      total: 14,
+    })
+  })
+
+  it('parses recently-played items and passes the limit through', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                track: { name: 'Blue in Green', uri: 'spotify:track:big1', artists: [{ name: 'Miles Davis' }] },
+                played_at: '2026-06-11T10:00:00.000Z',
+              },
+              { track: null, played_at: '2026-06-11T09:00:00.000Z' },
+            ],
+          }),
+          { status: 200 },
+        ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const tracks = await client().recentlyPlayed(10, false)
+    expect(tracks).toEqual([
+      {
+        name: 'Blue in Green',
+        artist: 'Miles Davis',
+        uri: 'spotify:track:big1',
+        played_at: '2026-06-11T10:00:00.000Z',
+      },
+    ])
+    const [url] = fetchMock.mock.calls[0] as unknown as [string]
+    expect(url).toBe('https://api.spotify.com/v1/me/player/recently-played?limit=10')
+  })
+
+  it('a recently-played 404 is NOT mapped to music_no_active_device', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: { message: 'gone' } }), { status: 404 })),
+    )
+    await expect(client().recentlyPlayed(10, false)).rejects.toMatchObject({
+      reason: 'music_api_error',
+    })
   })
 
   it('resume issues a bodyless PUT to player/play', async () => {

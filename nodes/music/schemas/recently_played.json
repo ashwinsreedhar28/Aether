@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "music.recently_played",
+  "description": "The user's Spotify play history (GET /me/player/recently-played), most recent first. Returns { tracks: [{ name, artist, uri, played_at }], fetched_at_ms }. Spotify logs a track after ~30 seconds of listening and excludes whatever is currently playing, so tracks[0] is the last completed listen — the play_last_song target. A library read on the Actor auth posture: it fires only on explicit user intent, so the first authenticated call may open the browser grant; no active device needed (a 404 here is NOT mapped to music_no_active_device). Denies by name: music_no_client_id, music_auth_* (grant denied / timed out / pending), music_rate_limited, music_api_error.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "description": "Number of history entries to return. Default 10; clamped to 1-50."
+    }
+  }
+}

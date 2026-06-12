@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "music.playlists",
+  "description": "The user's Spotify playlists (GET /me/playlists, one page at the API-max page size of 50). Returns { playlists: [{ name, uri, track_count }], total, fetched_at_ms } — `total` is the account-wide playlist count even when the account holds more than one page. A library read on the Actor auth posture: it fires only on explicit user intent, so the first authenticated call may open the browser grant; no active device needed. Denies by name: music_no_client_id, music_auth_* (grant denied / timed out / pending), music_rate_limited, music_api_error. No parameters.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

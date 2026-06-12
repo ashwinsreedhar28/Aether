@@ -34,6 +34,20 @@ export interface PlaybackState {
   album_art_url: string | null
 }
 
+export interface Playlist {
+  name: string
+  uri: string
+  track_count: number
+}
+
+export interface PlayedTrack {
+  name: string
+  artist: string
+  uri: string
+  /** ISO timestamp from Spotify's play history; '' when absent. */
+  played_at: string
+}
+
 interface RawImage {
   url?: string
   width?: number | null
@@ -46,6 +60,12 @@ interface RawTrackItem {
   duration_ms?: number
   album?: { name?: string; images?: RawImage[] }
   artists?: { name?: string }[]
+}
+
+interface RawPlaylistItem {
+  name?: string
+  uri?: string
+  tracks?: { total?: number } | null
 }
 
 export interface SpotifyClientDeps {
@@ -130,6 +150,46 @@ export class SpotifyClient {
     })
   }
 
+  /** GET /me/playlists — one page at the API-max page size (50). `total` is
+   *  the account-wide playlist count, so callers can speak it honestly even
+   *  when the account holds more than one page. */
+  async playlists(interactive: boolean): Promise<{ playlists: Playlist[]; total: number }> {
+    const res = await this.request('GET', '/me/playlists?limit=50', { interactive })
+    const body = (await res.json()) as { items?: (RawPlaylistItem | null)[]; total?: number }
+    const playlists: Playlist[] = []
+    for (const item of body.items ?? []) {
+      if (!item || typeof item.uri !== 'string' || item.uri.length === 0) continue
+      playlists.push({
+        name: item.name ?? '',
+        uri: item.uri,
+        track_count: item.tracks?.total ?? 0,
+      })
+    }
+    return { playlists, total: typeof body.total === 'number' ? body.total : playlists.length }
+  }
+
+  /** GET /me/player/recently-played — play history, most recent first. */
+  async recentlyPlayed(limit: number, interactive: boolean): Promise<PlayedTrack[]> {
+    const res = await this.request('GET', `/me/player/recently-played?limit=${limit}`, {
+      interactive,
+    })
+    const body = (await res.json()) as {
+      items?: ({ track?: RawTrackItem | null; played_at?: string } | null)[]
+    }
+    const out: PlayedTrack[] = []
+    for (const item of body.items ?? []) {
+      const track = toTrack(item?.track)
+      if (!track) continue
+      out.push({
+        name: track.name,
+        artist: track.artist,
+        uri: track.uri,
+        played_at: item?.played_at ?? '',
+      })
+    }
+    return out
+  }
+
   /** GET /search?type=track — top tracks for a free-text query. */
   async searchTracks(query: string, limit: number, interactive: boolean): Promise<Track[]> {
     const qs = new URLSearchParams({ q: query, type: 'track', limit: String(limit) })
@@ -183,10 +243,15 @@ export class SpotifyClient {
       return this.request(method, path, opts, true)
     }
     const detail = await this.errorDetail(res)
-    if (res.status === 404 && path.startsWith('/me/player')) {
+    if (
+      res.status === 404 &&
+      path.startsWith('/me/player') &&
+      !path.startsWith('/me/player/recently-played')
+    ) {
       // Spotify Connect needs an active device; the player endpoints 404
       // (reason NO_ACTIVE_DEVICE) when there is none. Named per the spec —
-      // never a silent failure.
+      // never a silent failure. recently-played is a history read that works
+      // with no device, so a 404 there is NOT a device condition.
       throw new MeshDeny('music_no_active_device', {
         message: 'no active Spotify device',
         detail,

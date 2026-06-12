@@ -1,12 +1,14 @@
 // Surface handlers for the music Actor node, factored out of index.ts so the
 // unit tests (fake client/poller) drive exactly the code the mesh serves
 // (github-node precedent). Auth posture per #332: the five Actor surfaces
-// are interactive (a missing token cache starts the PKCE browser grant);
-// now_playing is the read path and never pops a browser — it denies
+// are interactive (a missing token cache starts the PKCE browser grant), and
+// the #334 library reads (playlists / recently_played) follow that posture —
+// they fire only on explicit user intent, never on a poll. now_playing is
+// the read path and never pops a browser — it denies
 // `music_not_authenticated` by name instead.
 
 import { MeshDeny, type Envelope } from '@aether/mesh-node-sdk'
-import type { PlaybackState, Track } from './spotify'
+import type { PlaybackState, PlayedTrack, Playlist, Track } from './spotify'
 import type { NowPlayingPoller, NowPlayingSnapshot } from './nowPlaying'
 
 /** The slice of SpotifyClient the handlers use — fakeable in tests. */
@@ -18,6 +20,8 @@ export interface PlayerClient {
   skip(direction: 'next' | 'prev', interactive: boolean): Promise<void>
   queue(uri: string, interactive: boolean): Promise<void>
   searchTracks(query: string, limit: number, interactive: boolean): Promise<Track[]>
+  playlists(interactive: boolean): Promise<{ playlists: Playlist[]; total: number }>
+  recentlyPlayed(limit: number, interactive: boolean): Promise<PlayedTrack[]>
 }
 
 export interface HandlerDeps {
@@ -30,6 +34,9 @@ const QUERY_MAX = 300
 const URI_MAX = 250
 const SEARCH_DEFAULT_LIMIT = 5
 const SEARCH_MAX_LIMIT = 20
+const RECENT_DEFAULT_LIMIT = 10
+// Spotify's recently-played page max.
+const RECENT_MAX_LIMIT = 50
 // A snapshot younger than one poll interval (+ scheduling slack) is current;
 // anything older triggers a live read so "readable on demand" holds while
 // the poller is idle.
@@ -169,6 +176,43 @@ export function makeSearchHandler(deps: HandlerDeps) {
     return {
       ok: true,
       tracks: tracks.map(trackEcho),
+      fetched_at_ms: Date.now(),
+    }
+  }
+}
+
+export function makePlaylistsHandler(deps: HandlerDeps) {
+  return async (): Promise<Record<string, unknown>> => {
+    // Library reads ride the Actor auth posture (search precedent): they only
+    // fire on explicit user intent, so first use may open the browser grant.
+    const { playlists, total } = await deps.client.playlists(true)
+    deps.log(`playlists → ${playlists.length} of ${total}`)
+    return {
+      ok: true,
+      playlists: playlists.map((p) => ({ name: p.name, uri: p.uri, track_count: p.track_count })),
+      total,
+      fetched_at_ms: Date.now(),
+    }
+  }
+}
+
+export function makeRecentlyPlayedHandler(deps: HandlerDeps) {
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
+    const payload = (env.payload ?? {}) as { limit?: unknown }
+    let limit = RECENT_DEFAULT_LIMIT
+    if (typeof payload.limit === 'number' && Number.isFinite(payload.limit)) {
+      limit = Math.min(Math.max(Math.floor(payload.limit), 1), RECENT_MAX_LIMIT)
+    }
+    const tracks = await deps.client.recentlyPlayed(limit, true)
+    deps.log(`recently_played → ${tracks.length} tracks`)
+    return {
+      ok: true,
+      tracks: tracks.map((t) => ({
+        name: t.name,
+        artist: t.artist,
+        uri: t.uri,
+        played_at: t.played_at,
+      })),
       fetched_at_ms: Date.now(),
     }
   }

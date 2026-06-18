@@ -3,6 +3,7 @@ import { CircleDot, KeyRound, MessageSquare, RefreshCw } from 'lucide-react';
 import { useMeshSurface } from '../../hooks/useMeshSurface';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { app as browserApp } from '../browser';
+import { relTime } from '../../utils/relTime';
 
 // Re-homed Aether surface: the gap board (nodes/github). Gaps are GitHub
 // issues (#255) — this panel is a live view over the open issue board, read
@@ -27,15 +28,6 @@ interface BoardPayload {
   fetched_at_ms: number;
   stale: boolean;
   token_available: boolean;
-}
-
-function relTime(ms: number): string {
-  if (!ms || Number.isNaN(ms)) return '—';
-  const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
 }
 
 const GAP_CHIP =

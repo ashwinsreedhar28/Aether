@@ -3,6 +3,7 @@ import { Newspaper, RefreshCw, Zap } from 'lucide-react';
 import { useMeshSurface } from '../../hooks/useMeshSurface';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { app as browserApp } from '../browser';
+import { relTime } from '../../utils/relTime';
 
 // The news vertical's face. Wave 1 of the Pulse-vertical program (#344),
 // mirroring music Lane B (#335): a display MeshApp over the existing
@@ -61,18 +62,6 @@ interface NewsPayload {
   articles: NewsArticle[];
 }
 
-/** Relative "12m ago" from an ISO timestamp — same buckets as the Gaps /
- * Lanes boards, adapted to parse an ISO string instead of epoch ms. */
-function relTime(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return '';
-  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
 // Urgency badge palette — grey / amber / red ascending with the intensity
 // scale (low → medium → high), the mapping called out in types.ts.
 const URGENCY_BADGE: Record<Urgency, string> = {
@@ -113,7 +102,7 @@ function ArticleRow({ article, onOpen }: { article: NewsArticle; onOpen: () => v
           {CATEGORY_LABELS[article.category] ?? article.category}
         </span>
         <span className="ml-auto text-[11px] text-[var(--holo-muted)] whitespace-nowrap">
-          {article.feed} · {relTime(article.published_at)}
+          {article.feed} · {relTime(Date.parse(article.published_at), '')}
         </span>
       </div>
       <h3

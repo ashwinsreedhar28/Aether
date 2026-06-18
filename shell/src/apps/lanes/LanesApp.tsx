@@ -3,6 +3,7 @@ import { GitBranch, RefreshCw, Circle } from 'lucide-react';
 import { useMeshSurface } from '../../hooks/useMeshSurface';
 import { useSpawnUi } from '../../stores/spawnUi';
 import { matchSpawnRecord } from '../../utils/spawnMatch';
+import { relTime } from '../../utils/relTime';
 import type { SpawnSnapshot } from '../../types/aether';
 
 // Re-homed Aether surface: dev lanes (nodes/lanes). Which git worktrees are
@@ -40,15 +41,6 @@ interface LanesPayload {
   fetched_at_ms: number;
   stale: boolean;
   gh_available: boolean;
-}
-
-function relTime(ms: number): string {
-  if (!ms) return '—';
-  const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
 }
 
 export function LanesApp() {

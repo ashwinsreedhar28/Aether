@@ -33,6 +33,7 @@ export interface MeshSecrets {
   lanesSecret: string
   githubSecret: string
   musicSecret: string
+  researchSecret: string
   viewerDesktopSecret: string
 }
 
@@ -73,6 +74,7 @@ export function generateMeshSecrets(): MeshSecrets {
     lanesSecret: getNodeSecret('lanes'),
     githubSecret: getNodeSecret('github'),
     musicSecret: getNodeSecret('music'),
+    researchSecret: getNodeSecret('research'),
     viewerDesktopSecret: getNodeSecret('viewer_desktop'),
   }
 }

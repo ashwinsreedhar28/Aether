@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "research.recent",
+  "description": "Recall recently synthesized research briefs from the node's local store, newest first. Backs 'what did I find on X' recall and the Research app's recent-briefs list without re-calling the language model. Each returned brief carries its query, sections, papers, and generatedAt timestamp.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "description": "Maximum number of recent briefs to return. Default 10 if omitted; clamped to 50."
+    }
+  }
+}

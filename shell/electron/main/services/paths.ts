@@ -126,6 +126,13 @@ export const MUSIC_ENTRY: string = join(
   'dist',
   'index.js',
 )
+export const RESEARCH_ENTRY: string = join(
+  REPO_ROOT,
+  'nodes',
+  'research',
+  'dist',
+  'index.js',
+)
 
 export function meshRuntimeDir(): string {
   return join(app.getPath('userData'), 'mesh')

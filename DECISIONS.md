@@ -11,6 +11,7 @@ edit a past ADR file — supersede with a new file and flip the old file's
 change. Entries dated before the rename PR refer to the project by its
 working name; they are preserved verbatim as historical record.
 
+- **[2026-06-17]** [ADR: the research Mixer is the first node to call an LLM directly — key from env, model is config, failure is a MeshDeny (#353)](decisions/2026-06-17-research-mixer-anthropic-caller.md)
 - **[2026-06-11]** [ADR: apps are interactive MeshApps; panels stay display-only (#334)](decisions/2026-06-11-apps-interactive-panels-display-only.md)
 - **[2026-06-11]** [ADR: per-lane changelog fragments + ADR-per-file split — the two shared append surfaces stop being rebase magnets (#222)](decisions/2026-06-11-changelog-fragments-adr-per-file-split.md)
 - **[2026-06-11]** [ADR: closeout is the spawn's mirror — guarded teardown executed by the shell, confirm-gated, capacity freed only by closed (#317)](decisions/2026-06-11-closeout-spawn-s-mirror-guarded-teardown-executed-shell.md)

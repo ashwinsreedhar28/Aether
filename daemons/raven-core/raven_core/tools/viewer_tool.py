@@ -44,6 +44,7 @@ APP_HINTS = (
     "gaps",
     "stocks",
     "news",
+    "research",
     "calculator",
     "settings",
     "kanban-board",

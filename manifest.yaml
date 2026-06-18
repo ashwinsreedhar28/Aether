@@ -251,6 +251,34 @@ nodes:
         invocation_mode: request_response
         schema: nodes/digest/schemas/evening.json
 
+  - id: research
+    runtime: local-process
+    category: Mixer
+    identity_secret: env:MESH_RESEARCH_SECRET
+    metadata:
+      description: |
+        Research Mixer. Searches the Semantic Scholar Graph API (no key)
+        and synthesizes a multi-paper, cited brief with Claude — the first
+        Aether node that calls an LLM directly (Sensors only read). brief
+        runs ONE synthesis call per query and persists the result to local
+        SQLite so recent can recall it without re-calling Claude. search is
+        papers-only (no LLM). Needs ANTHROPIC_API_KEY for brief; without it
+        boots degraded — search works, brief denies by name. Model is config
+        (AETHER_RESEARCH_MODEL; defaults to claude-opus-4-8).
+    surfaces:
+      - name: search
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/research/schemas/search.json
+      - name: brief
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/research/schemas/brief.json
+      - name: recent
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/research/schemas/recent.json
+
   - id: vision
     runtime: local-process
     category: Sensor
@@ -761,6 +789,26 @@ relationships:
     to: digest.morning
   - from: raven
     to: digest.evening
+
+  # Research Mixer. The Research app (renderer-side) drives all three
+  # surfaces — search backs a future paper-only mode, brief is the on-submit
+  # synthesis, recent backs the recall strip. Raven consumes brief + recent
+  # via the research_brief ("research X" / "what does the literature say on
+  # Y") and research_recent ("what did I find on X") voice tools. research
+  # is the first Mixer that calls an LLM directly (see
+  # decisions/2026-06-17-research-mixer-anthropic-caller.md).
+  - from: shell
+    to: research.search
+  - from: shell
+    to: research.brief
+  - from: shell
+    to: research.recent
+  - from: raven
+    to: research.search
+  - from: raven
+    to: research.brief
+  - from: raven
+    to: research.recent
 
   # Vision capture: raven reads camera frames via vision.frame(). First
   # consumer is piece 2 (gesture detection): raven calls vision.frame()

@@ -13,6 +13,7 @@ import {
   MESH_INTROSPECTION_ENTRY,
   MUSIC_ENTRY,
   NEWS_FEEDS_ENTRY,
+  RESEARCH_ENTRY,
   SPORTS_ENTRY,
   SYSTEM_INFO_ENTRY,
   TIME_ENTRY,
@@ -89,6 +90,7 @@ export class NodeManager {
       this.spawnLanes(),
       this.spawnGithub(),
       this.spawnMusic(),
+      this.spawnResearch(),
     ])
   }
 
@@ -363,6 +365,28 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/music build`',
       secretEnvName: 'MESH_MUSIC_SECRET',
       secretValue: this.secrets.musicSecret,
+      extraEnv: {
+        AETHER_DATA_DIR: dataDir,
+      },
+    })
+  }
+
+  private async spawnResearch(): Promise<void> {
+    // research Mixer — the first node that calls an LLM. Semantic Scholar
+    // search (no key) + ONE Claude synthesis per brief. ANTHROPIC_API_KEY and
+    // the optional AETHER_RESEARCH_MODEL ride the inherited process env
+    // (.env.local via env-loader); a missing key is handled by the node
+    // itself (boots degraded — search works, brief denies by name), so the
+    // spawn is unconditional. AETHER_DATA_DIR is the writable root for the
+    // running marker + the brief SQLite store (research/research.db).
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'research',
+      entry: RESEARCH_ENTRY,
+      buildHint: '`pnpm --filter @aether/research build`',
+      secretEnvName: 'MESH_RESEARCH_SECRET',
+      secretValue: this.secrets.researchSecret,
       extraEnv: {
         AETHER_DATA_DIR: dataDir,
       },

@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "research.search",
+  "description": "Search Semantic Scholar for academic papers matching a keyword query, ranked by influence (influential-citation count, with a recency lift). Returns papers only — NO large-language-model synthesis, no brief. Use research.brief when the user wants a synthesized, cited summary. Scope is the open Semantic Scholar Graph corpus, not a private library.",
+  "type": "object",
+  "required": ["query"],
+  "additionalProperties": true,
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "description": "Free-text research query — a topic, technique, question, or field (e.g. 'sparse mixture-of-experts scaling', 'CRISPR off-target effects')."
+    }
+  }
+}

@@ -42,6 +42,7 @@ APP_HINTS = (
     "mesh",
     "lanes",
     "gaps",
+    "stocks",
     "calculator",
     "settings",
     "kanban-board",

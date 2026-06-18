@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "research.brief",
+  "description": "Search Semantic Scholar for a query and synthesize a multi-paper research brief with Claude: sectioned prose with inline citations into the returned paper list. ONE language-model call per query. The brief is persisted so research.recent can recall it without re-synthesizing. Requires ANTHROPIC_API_KEY on the node; without it (or on a search / synthesis failure) the surface denies cleanly rather than returning a half-rendered brief.",
+  "type": "object",
+  "required": ["query"],
+  "additionalProperties": true,
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "description": "Free-text research query — what to read the literature on. Example: user asks 'what does the literature say on retrieval-augmented generation' → pass 'retrieval-augmented generation'."
+    }
+  }
+}

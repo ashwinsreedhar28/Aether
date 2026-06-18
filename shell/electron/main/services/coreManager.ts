@@ -177,6 +177,12 @@ export class CoreManager {
       // nodeManager can inject the same value into the child's env. No
       // ADMIN_TOKEN: it talks to Spotify's API, no broker endpoint.
       MESH_MUSIC_SECRET: this.secrets.musicSecret,
+      // research is a TypeScript Mixer node (spawned by nodeManager — the first
+      // node that calls an LLM directly). Same env contract — Core resolves
+      // env:MESH_RESEARCH_SECRET at manifest load so nodeManager can inject the
+      // same value into the research child's env. No ADMIN_TOKEN: it talks to
+      // Semantic Scholar + Anthropic, no broker endpoint.
+      MESH_RESEARCH_SECRET: this.secrets.researchSecret,
       // viewer_desktop is the agent->renderer control node, hosted IN the shell
       // main process (not spawned) — index.ts creates its MeshNode directly with
       // this.secrets.viewerDesktopSecret. Core still has to resolve

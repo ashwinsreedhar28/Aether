@@ -280,6 +280,22 @@ const env: NodeJS.ProcessEnv = {
 }
 ```
 
+> **⚠️ Reviewer-cell-blind step.** The spec-review cell
+> (`.github/workflows/claude-spec-review.yml`) mocks Core boot, so a missed
+> `coreManager.ts` secret injection passes every automated test — it surfaces
+> only at runtime in production. Core's `_resolve_secret` finds
+> `env:MESH_<NODE>_SECRET` unset, falls through to its SHA256 autogen
+> fallback, and the node — handed a fresh hex32 by nodeManager (or its daemon
+> manager) — fails `/v0/register` with `401 bad_signature`, exits, and turns
+> every invoke into a `503 denied_node_unreachable`. `core.log` announces the
+> cause on every boot (`WARNING: ... 'MESH_<NODE>_SECRET' is unset; Core will
+> autogenerate a secret and set it`). This bit the research node (#358) — the
+> 5-file pattern table lists this file, but the env line is easy to drop.
+
+Ship-it checklist:
+
+- [ ] Confirmed MESH_<NODE>_SECRET is in coreManager.ts env block
+
 ### 9. `shell/electron/main/services/nodeManager.ts`
 
 Three changes:

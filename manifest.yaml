@@ -144,11 +144,11 @@ nodes:
     identity_secret: env:MESH_FINANCE_SECRET
     metadata:
       description: |
-        Stock-quote aggregator. Polls Yahoo Finance every 5 minutes
-        for a hardcoded US ticker list, Stooq CSV fallback, no API
-        key. Current quotes cached in-memory; a separate 90-day SQLite
-        series backs `history`. Seven surfaces: quotes, movers,
-        sectors, earnings, market overviews.
+        Stock-quote aggregator. Batch-polls Yahoo (Stooq fallback)
+        for a ~95-symbol sector-tagged US universe, no API key.
+        In-memory quote cache; 90-day SQLite series backs `history`;
+        `chart` fetches live upstream OHLC. Nine surfaces incl.
+        market_summary (sector filter), chart, search.
     surfaces:
       - name: quote
         type: tool
@@ -162,6 +162,14 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/finance/schemas/history.json
+      - name: chart
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/finance/schemas/chart.json
+      - name: search
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/finance/schemas/search.json
       - name: movers
         type: tool
         invocation_mode: request_response
@@ -703,26 +711,38 @@ relationships:
   - from: raven
     to: news_feeds.search_by_entity
 
-  # The Finance app (renderer-side) reads the cached ticker grid via the
-  # market_summary surface, and the per-symbol quote surface backs any
-  # future single-symbol click-through. The history surface backs the
-  # in-card sparkline (last 24h per QuoteCard).
+  # The Stocks app (renderer-side) reads the cached ticker grid via the
+  # market_summary surface (now enriched with sector for grouping; accepts
+  # an optional sector filter), the per-symbol quote surface backs the
+  # detail page header, history backs the in-card sparkline, chart backs
+  # the detail page's multi-span price chart (live upstream OHLC), and
+  # search backs the app's search box (#354).
   - from: shell
     to: finance.market_summary
   - from: shell
     to: finance.quote
   - from: shell
     to: finance.history
+  - from: shell
+    to: finance.chart
+  - from: shell
+    to: finance.search
 
   # Voice tools: finance_market_summary ("how's the market today") +
   # finance_quote ("what's AAPL at") + finance_history ("AAPL last
-  # week"). All route through mesh.invoke.
+  # week") + stock_detail ("show me NVDA") via quote+history +
+  # stock_search ("find lockheed stock") via search. All route through
+  # mesh.invoke.
   - from: raven
     to: finance.market_summary
   - from: raven
     to: finance.quote
   - from: raven
     to: finance.history
+  - from: raven
+    to: finance.chart
+  - from: raven
+    to: finance.search
 
   # Sprint 2 finance extensions: movers, sectors, earnings, market_overview.
   # Shell edges reserved for future Finance app UI enhancements. Raven

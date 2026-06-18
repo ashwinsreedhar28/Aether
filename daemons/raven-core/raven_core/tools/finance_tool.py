@@ -1,6 +1,6 @@
 """Finance Tool - Stock quote readbacks via the mesh.
 
-Seven tools, all routed through ``mesh_invoke`` to the finance node:
+Nine tools, all routed through ``mesh_invoke`` to the finance node:
 
   - ``finance_quote(symbol)``           → ``finance.quote(symbol)``
   - ``finance_market_summary()``        → ``finance.market_summary()``
@@ -9,6 +9,10 @@ Seven tools, all routed through ``mesh_invoke`` to the finance node:
   - ``finance_sectors()``               → ``finance.sectors()``
   - ``finance_earnings()``              → ``finance.earnings()``
   - ``finance_market_overview()``       → ``finance.market_overview()``
+  - ``stock_detail(symbol, period?)``   → ``finance.quote`` + ``finance.history``
+                                          (combined "show me NVDA" readback)
+  - ``stock_search(query)``             → ``finance.search(query)``
+                                          (resolve a company name to a ticker)
 
 The pattern matches news_tool / notify_tool: declare the function for
 Gemini, implement as a thin ``await mesh_invoke(...)``, add edges in
@@ -45,6 +49,8 @@ FUNCTIONS = [
     "finance_sectors",
     "finance_earnings",
     "finance_market_overview",
+    "stock_detail",
+    "stock_search",
 ]
 
 # Valid period values for finance_history. Mirrors VALID_PERIODS in
@@ -214,6 +220,76 @@ async def _finance_history(symbol: str, period: str) -> dict[str, Any]:
     if not isinstance(raw_points, list):
         return {"error": "malformed response", "detail": "missing points list"}
     return _summarise_history(upper, norm_period, raw_points)
+
+
+async def _stock_detail(symbol: str, period: str) -> dict[str, Any]:
+    """Combined readback for "show me NVDA" / "how's AAPL over the last
+    month": the current quote plus the recent-trend summary in one spoken
+    line. Reuses _finance_quote + _finance_history so the
+    insufficient-history honesty and the anti-hallucination guardrail come
+    for free. The app draws the real multi-span chart (finance.chart); the
+    voice answer is the spoken trend, which the passive-accumulation
+    summary already serves."""
+    upper = symbol.strip().upper()
+    if not upper:
+        return {"error": "bad symbol", "detail": "symbol is required"}
+    quote_part = await _finance_quote(upper)
+    norm_period = _normalise_period(period)
+    hist_part = await _finance_history(upper, norm_period)
+
+    spoken_bits: list[str] = []
+    q = quote_part.get("quote") if isinstance(quote_part, dict) else None
+    price = q.get("price") if isinstance(q, dict) else None
+    if isinstance(price, (int, float)):
+        pct = q.get("change_percent") if isinstance(q, dict) else None
+        if isinstance(pct, (int, float)):
+            direction = "up" if pct >= 0 else "down"
+            spoken_bits.append(
+                f"{upper} is at ${price:.2f}, {direction} {abs(pct):.1f} percent today."
+            )
+        else:
+            spoken_bits.append(f"{upper} is at ${price:.2f}.")
+    hist_spoken = hist_part.get("spoken") if isinstance(hist_part, dict) else None
+    if isinstance(hist_spoken, str) and hist_spoken:
+        spoken_bits.append(hist_spoken)
+
+    if not spoken_bits:
+        # Both legs failed — surface the quote error so the model can
+        # explain rather than inventing a price.
+        return quote_part if isinstance(quote_part, dict) else {"error": "unavailable"}
+    return {
+        "symbol": upper,
+        "quote": q,
+        "history": hist_part,
+        "spoken": " ".join(spoken_bits),
+    }
+
+
+async def _stock_search(query: str) -> dict[str, Any]:
+    """Resolve a spoken company name / ticker fragment to tracked symbols
+    ("find lockheed stock" → LMT). Catalog-only via finance.search — no
+    upstream call, no hallucinated tickers."""
+    q = query.strip()
+    if not q:
+        return {"error": "bad query", "detail": "query is required"}
+    try:
+        response = await mesh_invoke("finance.search", {"query": q})
+    except MeshUnavailable as e:
+        return {"error": "mesh unavailable", "detail": str(e)}
+
+    matches = response.get("matches") if isinstance(response, dict) else None
+    if not isinstance(matches, list) or not matches:
+        return {
+            "query": q,
+            "matches": [],
+            "count": 0,
+            "spoken": f"I couldn't find a tracked stock matching '{q}', sir.",
+        }
+    top = [m for m in matches[:5] if isinstance(m, dict)]
+    parts = [f"{m.get('symbol')} ({m.get('name')})" for m in top]
+    plural = "es" if len(matches) != 1 else ""
+    spoken = f"I found {len(matches)} match{plural}: " + ", ".join(parts) + "."
+    return {"query": q, "matches": matches, "count": len(matches), "spoken": spoken}
 
 
 async def _finance_market_summary() -> dict[str, Any]:
@@ -457,12 +533,80 @@ def get_tools() -> list[types.Tool]:
             properties={},
         ),
     )
+    detail_func = types.FunctionDeclaration(
+        name="stock_detail",
+        description=(
+            "Pull up a single stock and give a combined readback: the "
+            "current price + day change, then the recent-trend summary. "
+            "Use for 'show me NVDA', 'pull up Apple', 'how's Tesla doing "
+            "over the last month', 'what's Lockheed been doing'. The "
+            "optional period scopes the trend leg (defaults to the past "
+            "week). Read the 'spoken' field aloud — it already combines "
+            "both legs. The detail chart the user sees is drawn in the "
+            "Stocks app; if they want it on screen, also call "
+            "open_app('stocks'). Symbol must be a tracked US ticker — use "
+            "stock_search first if the user names a company you can't map "
+            "to a ticker. Never read prices from your training data."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "symbol": types.Schema(
+                    type=types.Type.STRING,
+                    description=(
+                        "US ticker symbol (e.g. NVDA, AAPL, LMT). "
+                        "Case-insensitive."
+                    ),
+                ),
+                "period": types.Schema(
+                    type=types.Type.STRING,
+                    enum=list(HISTORY_PERIODS),
+                    description=(
+                        "Optional trend window for the history leg. 1d "
+                        "(today), 1w (past week, default), 1m (past "
+                        "month), all (retained window). Map 'this month' "
+                        "→ 1m, 'today' → 1d, etc."
+                    ),
+                ),
+            },
+            required=["symbol"],
+        ),
+    )
+    search_func = types.FunctionDeclaration(
+        name="stock_search",
+        description=(
+            "Find tracked stocks by company name or ticker fragment. Use "
+            "when the user names a company but you don't know its ticker, "
+            "or asks 'find {company} stock', 'is {company} in my stocks', "
+            "'what semiconductor names do you track'. Returns matching "
+            "{symbol, name, sector}. The tracked universe is ~95 US names "
+            "(heavy on semiconductors, plus defense, mining, materials, "
+            "mega-cap tech and broad-market ETFs) — this is the way to "
+            "resolve a name to a ticker before calling stock_detail / "
+            "finance_quote. Read the 'spoken' field aloud."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "query": types.Schema(
+                    type=types.Type.STRING,
+                    description=(
+                        "Company name or ticker fragment, e.g. 'lockheed', "
+                        "'nvidia', 'NVDA', 'lithium'."
+                    ),
+                ),
+            },
+            required=["query"],
+        ),
+    )
     return [
         types.Tool(
             function_declarations=[
                 quote_func,
                 summary_func,
                 history_func,
+                detail_func,
+                search_func,
                 movers_func,
                 sectors_func,
                 earnings_func,
@@ -491,4 +635,11 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
         return await _finance_earnings()
     if name == "finance_market_overview":
         return await _finance_market_overview()
+    if name == "stock_detail":
+        return await _stock_detail(
+            symbol=str(args.get("symbol", "")),
+            period=str(args.get("period", DEFAULT_HISTORY_PERIOD)),
+        )
+    if name == "stock_search":
+        return await _stock_search(query=str(args.get("query", "")))
     return None

@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "finance.chart",
+  "description": "Get a historical price series for a tracked symbol over a fixed span, fetched live from Yahoo Finance's chart endpoint. Unlike finance.history (which replays the node's passively-accumulated poll samples), this surface fetches real upstream OHLC so the detail-page chart works on a fresh install and over spans longer than the 90-day retention window. Symbols outside the tracked list return MeshDeny: finance_untracked_symbol. Returns { symbol, range, points: [{ t, close, volume }] } oldest-first.",
+  "type": "object",
+  "required": ["symbol"],
+  "additionalProperties": true,
+  "properties": {
+    "symbol": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8,
+      "description": "US ticker symbol (case-insensitive, normalised to uppercase by the handler). Must be in the node's tracked list."
+    },
+    "range": {
+      "type": "string",
+      "enum": ["1D", "5D", "1M", "3M", "1Y"],
+      "description": "Chart span (shortest → longest). Default '1M' if omitted. Intraday intervals are used for 1D/5D, daily bars for 1M/3M/1Y."
+    }
+  }
+}

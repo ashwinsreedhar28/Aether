@@ -1,8 +1,13 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "finance.market_summary",
-  "description": "Get cached quotes for every tracked symbol. No parameters. The response is a snapshot of whatever is currently in the node's in-memory cache; the poller refreshes the cache on its own 5-minute cadence and this surface does not trigger fetches.",
+  "description": "Get cached quotes for every tracked symbol, each enriched with its catalog display name + sector. The response is a snapshot of whatever is currently in the node's in-memory cache; the poller refreshes the cache on its own 5-minute cadence and this surface does not trigger fetches. Pass an optional `sector` to return only quotes in that sector group (case-insensitive exact match against the catalog tag).",
   "type": "object",
   "additionalProperties": true,
-  "properties": {}
+  "properties": {
+    "sector": {
+      "type": "string",
+      "description": "Optional sector filter, e.g. 'Semiconductors' or 'Defense'. Case-insensitive exact match against the catalog sector tag. Omit for the full tracked set."
+    }
+  }
 }

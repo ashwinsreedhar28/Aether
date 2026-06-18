@@ -6,7 +6,8 @@ import { QuoteStore } from './storage'
 import { readCache, writeCache } from './cache'
 import { QuoteHistory } from './history'
 import { QuotePoller } from './poller'
-import { TICKERS, isTracked } from './tickers'
+import { TICKERS, isTracked, findTicker, searchTickers } from './tickers'
+import { CHART_RANGES, type ChartRange, type Quote } from './types'
 
 const NODE_ID = 'finance'
 const CORE_URL = process.env.MESH_CORE_URL ?? 'http://127.0.0.1:8000'
@@ -21,6 +22,18 @@ const VALID_PERIODS = new Set(['1d', '1w', '1m', 'all'])
 const DEFAULT_PERIOD = '1w'
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
+// finance.chart range enum (#354). Distinct from history's periods — these
+// are live upstream Yahoo-chart spans (see client.fetchChart). Validated
+// here, mirrored in schemas/chart.json and the ChartRange type.
+const VALID_RANGES = new Set<string>(CHART_RANGES)
+const DEFAULT_RANGE: ChartRange = '1M'
+
+// Chart responses are cached briefly so toggling the span back and forth
+// (or two viewers on the same ticker) doesn't re-hit Yahoo each time. The
+// detail-page chart is interactive, not a 30s poll, so a short TTL keeps
+// it responsive without going stale on a meaningful timescale.
+const CHART_CACHE_TTL_MS = 2 * 60_000
+
 interface QuoteArgs {
   symbol?: unknown
 }
@@ -30,8 +43,29 @@ interface HistoryArgs {
   period?: unknown
 }
 
+interface ChartArgs {
+  symbol?: unknown
+  range?: unknown
+}
+
+interface SearchArgs {
+  query?: unknown
+  limit?: unknown
+}
+
 function log(msg: string): void {
   process.stdout.write(`[${NODE_ID}] ${msg}\n`)
+}
+
+// Attach the catalog's display name + sector to an upstream Quote. The
+// upstream feed doesn't carry our curated sector tag; the node owns it
+// (tickers.ts) and stamps it at the surface boundary so the app can group
+// + label without a second round-trip. Untracked-but-cached symbols (none
+// in practice) pass through unenriched.
+function enrich(quote: Quote): Quote {
+  const meta = findTicker(quote.symbol)
+  if (!meta) return quote
+  return { ...quote, name: meta.name, sector: meta.sector }
 }
 
 function makeQuoteHandler(store: QuoteStore, poller: QuotePoller) {
@@ -54,7 +88,7 @@ function makeQuoteHandler(store: QuoteStore, poller: QuotePoller) {
 
     const fresh = store.getFresh(symbol)
     if (fresh) {
-      return { quote: fresh }
+      return { quote: enrich(fresh) }
     }
 
     try {
@@ -74,17 +108,25 @@ function makeQuoteHandler(store: QuoteStore, poller: QuotePoller) {
       // bug in the poller. Surface explicitly.
       throw new MeshDeny('finance_no_quote_after_fetch', { symbol })
     }
-    return { quote: after }
+    return { quote: enrich(after) }
   }
 }
 
 function makeMarketSummaryHandler(store: QuoteStore) {
-  return async (): Promise<Record<string, unknown>> => {
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
     // No on-demand refresh here. The poller drives cache state on its
     // own cadence; market_summary is a cheap read of whatever is
-    // currently cached. The Finance app's 60s refresh exists to pick up
-    // poller writes, not to force new fetches.
-    return { quotes: store.getAll() }
+    // currently cached. The app's 30s refresh exists to pick up poller
+    // writes, not to force new fetches. Quotes are enriched with the
+    // catalog name + sector so the app can group/label client-side.
+    const payload = env.payload as { sector?: unknown }
+    const sectorFilter =
+      typeof payload?.sector === 'string' ? payload.sector.trim().toLowerCase() : ''
+    let quotes = store.getAll().map(enrich)
+    if (sectorFilter) {
+      quotes = quotes.filter((q) => (q.sector ?? '').toLowerCase() === sectorFilter)
+    }
+    return { quotes }
   }
 }
 
@@ -133,6 +175,82 @@ function makeHistoryHandler(history: QuoteHistory) {
     // sparkline skips render below the 3-point threshold; the voice
     // tool says "insufficient history" below 2 samples.
     return { points }
+  }
+}
+
+// finance.chart — live upstream Yahoo-chart fetch for the detail page's
+// multi-span price chart (#354). Distinct from finance.history (passive
+// accumulation, sparkline). A short per-(symbol,range) cache absorbs span
+// toggling; entries are not persisted — restart-fresh is correct for a
+// live chart. See DECISIONS "finance.chart upstream fetch for the detail
+// page" for why this surface, unlike history, fetches upstream.
+function makeChartHandler(client: QuoteClient) {
+  const cache = new Map<string, { points: unknown[]; atMs: number }>()
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
+    const payload = env.payload as ChartArgs
+    const symbol =
+      typeof payload?.symbol === 'string' ? payload.symbol.toUpperCase() : ''
+    if (!symbol) {
+      throw new MeshDeny('finance_bad_symbol', { reason: 'symbol_required' })
+    }
+    if (!isTracked(symbol)) {
+      throw new MeshDeny('finance_untracked_symbol', {
+        symbol,
+        tracked: TICKERS.map((t) => t.symbol),
+      })
+    }
+    const rawRange =
+      typeof payload?.range === 'string' ? payload.range.toUpperCase() : DEFAULT_RANGE
+    if (!VALID_RANGES.has(rawRange)) {
+      throw new MeshDeny('finance_bad_range', {
+        range: rawRange,
+        valid: Array.from(VALID_RANGES),
+      })
+    }
+    const range = rawRange as ChartRange
+    const key = `${symbol}:${range}`
+    const hit = cache.get(key)
+    if (hit && Date.now() - hit.atMs < CHART_CACHE_TTL_MS) {
+      return { symbol, range, points: hit.points }
+    }
+    let points: unknown[]
+    try {
+      points = await client.fetchChart(symbol, range)
+    } catch (e) {
+      if (e instanceof QuoteClientError) {
+        throw new MeshDeny(`finance_${e.reason}`, { symbol, range, ...e.details })
+      }
+      throw new MeshDeny('finance_chart_failed', {
+        symbol,
+        range,
+        details: (e as Error).message,
+      })
+    }
+    cache.set(key, { points, atMs: Date.now() })
+    return { symbol, range, points }
+  }
+}
+
+// finance.search — catalog-only substring search over the tracked
+// universe (symbol + name). No upstream call. Backs the app's search box
+// and the stock_search voice tool ("find {name} stock").
+function makeSearchHandler() {
+  return async (env: Envelope): Promise<Record<string, unknown>> => {
+    const payload = env.payload as SearchArgs
+    const query = typeof payload?.query === 'string' ? payload.query : ''
+    if (!query.trim()) {
+      throw new MeshDeny('finance_bad_query', { reason: 'query_required' })
+    }
+    const limit =
+      typeof payload?.limit === 'number' && payload.limit > 0
+        ? Math.min(Math.floor(payload.limit), 100)
+        : 25
+    const matches = searchTickers(query, limit).map((t) => ({
+      symbol: t.symbol,
+      name: t.name,
+      sector: t.sector,
+    }))
+    return { query: query.trim(), matches, count: matches.length }
   }
 }
 
@@ -338,6 +456,8 @@ async function main(): Promise<void> {
   node.on('quote', makeQuoteHandler(store, poller))
   node.on('market_summary', makeMarketSummaryHandler(store))
   node.on('history', makeHistoryHandler(history))
+  node.on('chart', makeChartHandler(client))
+  node.on('search', makeSearchHandler())
   node.on('movers', makeMoversHandler(store))
   node.on('sectors', makeSectorsHandler(store))
   node.on('earnings', makeEarningsHandler())

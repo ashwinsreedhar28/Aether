@@ -1,21 +1,19 @@
 import type { QuoteClient } from './client'
-import { QuoteClientError } from './client'
 import type { QuoteStore } from './storage'
 import type { QuoteHistory } from './history'
 import { RETENTION_DAYS } from './history'
 import type { TickerSource } from './tickers'
 
 // 5-minute cycle: every five minutes we refresh every tracked ticker.
-// One symbol per stagger slot. With 10 tickers × 30s stagger = exactly
-// 5 minutes, so the next cycle begins immediately after the previous
-// finishes — effectively continuous polling, but never more than ~2
-// requests/min averaged across the cycle. Neither Yahoo nor Stooq
-// publishes a hard rate limit for anonymous use, but staggering is
-// kept (vs. burst fetching) to be polite, spread fetch latency across
-// the cycle, and avoid bursts that might trip an anti-scrape heuristic
-// on either upstream.
+// The universe is now ~95 symbols (#354), so per-symbol staggered fetches
+// (the Wave-1 design: 21 × 30s ≈ 5 min) no longer fit one cycle. We batch
+// instead — one Yahoo multi-symbol request per chunk (Stooq batched CSV as
+// the fallback), with a short gap between chunks so we don't fire a single
+// ~100-symbol request and to spread fetch latency. CHUNK_SIZE × (cost per
+// batch) is well under the cycle even at the full universe.
 const POLL_CYCLE_MS = 5 * 60_000
-const STAGGER_MS = 30_000
+const CHUNK_GAP_MS = 2_000
+const CHUNK_SIZE = 50
 
 export interface PollerOptions {
   tickers: TickerSource[]
@@ -34,8 +32,10 @@ export interface PollerOptions {
   onCycleDone?: () => void
   /** Override the 5-min cycle. Used by tests; not exposed via env. */
   cycleMs?: number
-  /** Override the per-symbol stagger. Used by tests. */
+  /** Override the per-chunk gap. Used by tests. */
   staggerMs?: number
+  /** Override the batch chunk size. Used by tests. */
+  chunkSize?: number
 }
 
 export class QuotePoller {
@@ -49,7 +49,7 @@ export class QuotePoller {
   }
 
   // Kicks off the first poll immediately so the renderer sees data within
-  // (tickers × stagger) seconds of node startup, then schedules at the
+  // (chunks × gap + fetch latency) of node startup, then schedules at the
   // cycle interval. Returns after scheduling — callers don't need to wait
   // for the first cycle to complete.
   start(): void {
@@ -96,34 +96,36 @@ export class QuotePoller {
   }
 
   private async runCycle(): Promise<void> {
-    const stagger = this.opts.staggerMs ?? STAGGER_MS
+    const gap = this.opts.staggerMs ?? CHUNK_GAP_MS
+    const chunkSize = this.opts.chunkSize ?? CHUNK_SIZE
     const startedAt = Date.now()
     // Prune retention window at cycle start: cheap (one DELETE keyed on
     // the indexed column) and amortised across the 5-min cadence. Done
     // here rather than at startup so a long-running node still bounds
     // its on-disk size without needing a separate timer.
     this.pruneHistory()
+    const symbols = this.opts.tickers.map((t) => t.symbol)
     let ok = 0
-    let failed = 0
-    for (let i = 0; i < this.opts.tickers.length; i += 1) {
-      if (this.stopped) break
-      const t = this.opts.tickers[i]
-      if (!t) continue
+    for (let i = 0; i < symbols.length && !this.stopped; i += chunkSize) {
+      const chunk = symbols.slice(i, i + chunkSize)
       try {
-        const quote = await this.opts.client.fetchQuote(t.symbol)
-        this.opts.store.set(quote)
-        this.persistHistory(quote)
-        ok += 1
+        const quotes = await this.opts.client.fetchQuotes(chunk)
+        for (const quote of quotes) {
+          this.opts.store.set(quote)
+          this.persistHistory(quote)
+          ok += 1
+        }
       } catch (e) {
-        failed += 1
-        const reason = e instanceof QuoteClientError ? e.reason : 'unknown'
-        this.opts.log(`fetch failed for ${t.symbol}: ${reason}`)
+        // fetchQuotes already swallows per-symbol failures and never
+        // throws; this catch is belt-and-braces so an unexpected throw
+        // can't kill the loop.
+        this.opts.log(`chunk fetch failed (${chunk[0]}…): ${(e as Error).message}`)
       }
-      // Stagger: don't sleep after the last symbol, just exit.
-      if (i < this.opts.tickers.length - 1 && !this.stopped) {
-        await sleep(stagger)
+      if (i + chunkSize < symbols.length && !this.stopped) {
+        await sleep(gap)
       }
     }
+    const failed = symbols.length - ok
     const elapsed = Date.now() - startedAt
     this.opts.log(
       `cycle done: ok=${ok} failed=${failed} in ${elapsed}ms ` +

@@ -42,6 +42,13 @@ export const WEATHER_ENTRY: string = join(
   'dist',
   'index.js',
 )
+export const SPORTS_ENTRY: string = join(
+  REPO_ROOT,
+  'nodes',
+  'sports',
+  'dist',
+  'index.js',
+)
 export const DIGEST_ENTRY: string = join(
   REPO_ROOT,
   'nodes',

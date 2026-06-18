@@ -19,6 +19,7 @@ export interface MeshSecrets {
   financeSecret: string
   digestSecret: string
   weatherSecret: string
+  sportsSecret: string
   visionSecret: string
   calendarSecret: string
   remindersSecret: string
@@ -58,6 +59,7 @@ export function generateMeshSecrets(): MeshSecrets {
     financeSecret: getNodeSecret('finance'),
     digestSecret: getNodeSecret('digest'),
     weatherSecret: getNodeSecret('weather'),
+    sportsSecret: getNodeSecret('sports'),
     visionSecret: getNodeSecret('vision'),
     calendarSecret: getNodeSecret('calendar'),
     remindersSecret: getNodeSecret('reminders'),

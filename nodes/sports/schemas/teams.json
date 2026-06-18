@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "sports.teams",
+  "description": "Team directory for a league, alphabetised by display name. League must be one of the supported ids (see sports.leagues); an unknown league returns MeshDeny: sports_unknown_league. Cached ~24h.",
+  "type": "object",
+  "required": ["league"],
+  "additionalProperties": true,
+  "properties": {
+    "league": {
+      "type": "string",
+      "description": "League id (case-insensitive, normalised to lowercase by the handler). One of the ids returned by sports.leagues, e.g. 'nba', 'epl', 'worldcup'."
+    }
+  }
+}

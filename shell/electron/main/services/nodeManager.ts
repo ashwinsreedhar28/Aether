@@ -13,6 +13,7 @@ import {
   MESH_INTROSPECTION_ENTRY,
   MUSIC_ENTRY,
   NEWS_FEEDS_ENTRY,
+  SPORTS_ENTRY,
   SYSTEM_INFO_ENTRY,
   TIME_ENTRY,
   WEATHER_ENTRY,
@@ -71,6 +72,7 @@ export class NodeManager {
       this.spawnFinance(),
       this.spawnDigest(),
       this.spawnWeather(),
+      this.spawnSports(),
       this.spawnSystemInfo(),
       this.spawnClipboardHistory(),
       this.spawnMacosMessages(),
@@ -168,6 +170,23 @@ export class NodeManager {
       buildHint: '`pnpm --filter @aether/weather build`',
       secretEnvName: 'MESH_WEATHER_SECRET',
       secretValue: this.secrets.weatherSecret,
+      extraEnv: { AETHER_DATA_DIR: dataDir },
+    })
+  }
+
+  private async spawnSports(): Promise<void> {
+    // Sports node — request-driven scores/box-scores/teams via ESPN's
+    // public site API. No API key. No persistent state — the per-surface
+    // TTL caches live in-memory, so AETHER_DATA_DIR is the writable root
+    // for the running marker only (matches the data-node liveness pattern).
+    const dataDir = nodeDataDir()
+    mkdirSync(dataDir, { recursive: true })
+    await this.spawnNode({
+      id: 'sports',
+      entry: SPORTS_ENTRY,
+      buildHint: '`pnpm --filter @aether/sports build`',
+      secretEnvName: 'MESH_SPORTS_SECRET',
+      secretValue: this.secrets.sportsSecret,
       extraEnv: { AETHER_DATA_DIR: dataDir },
     })
   }

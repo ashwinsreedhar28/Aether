@@ -620,12 +620,14 @@ relationships:
   - from: raven
     to: news_feeds.search
 
-  # News breaking — high-urgency-only shortcut. Shell edge is reserved
-  # for a future "breaking" view inside the News app (the v0.3.6 UI
-  # uses the Urgent chip to filter via news_feeds.recent with
-  # urgency='high', so the breaking surface itself is not consumed
-  # renderer-side in this PR). Raven consumes immediately via the
-  # news_breaking voice tool — "what's breaking", "anything urgent".
+  # News breaking — high-urgency-only shortcut, bounded to a recency
+  # window (default the last 48h; callers may override via breaking.json's
+  # `since` / `hours`) so a quiet feed pool doesn't surface stale
+  # high-urgency items. Both consumers go through the same handler default:
+  # the shipped News app (#346) consumes this surface directly — its
+  # Breaking toggle swaps the renderer read from news_feeds.recent to
+  # news_feeds.breaking — and Raven via the news_breaking voice tool
+  # ("what's breaking", "anything urgent").
   - from: shell
     to: news_feeds.breaking
   - from: raven

@@ -31,6 +31,14 @@ const QUERY_MAX_LEN = 200
 // without round-tripping a paginator that doesn't exist yet.
 const BREAKING_DEFAULT_LIMIT = 10
 const BREAKING_MAX_LIMIT = 50
+// Breaking is bounded to a recency window so a quiet feed pool (few fresh
+// high-urgency items) doesn't surface stale ones — the bug the Director hit
+// at smoke, a 28-day-old item in the Breaking view. Default 48h back from
+// now; callers can widen/narrow with `hours` or pin an explicit `since`.
+// Max mirrors breaking.json's `hours` ceiling (one year) — past that the
+// "breaking" framing is meaningless and you should use recent instead.
+const BREAKING_DEFAULT_HOURS = 48
+const BREAKING_MAX_HOURS = 8760
 
 // search_by_entity uses tighter bounds — entity surfaces are exact-
 // match lookups not phrase searches, so the cap of 50 from FTS5 search
@@ -58,6 +66,8 @@ interface SearchArgs {
 
 interface BreakingArgs {
   limit?: number
+  since?: string
+  hours?: number
 }
 
 interface SearchByEntityArgs {
@@ -269,11 +279,35 @@ function makeRecentHandler(store: ArticleStore) {
   }
 }
 
+// Resolve the breaking recency floor into an ISO `since` string. An
+// explicit `since` (ISO) wins; otherwise `hours` back from now; otherwise
+// the 48h default. The surface ALWAYS has a floor — that's the fix: a bare
+// breaking({}) is now "high-urgency in the last 48h", not "high-urgency
+// ever". Mirrors recent()'s since parse-check so a malformed ISO string
+// falls out as a clean MeshDeny rather than an opaque sqlite comparison.
+function resolveBreakingSince(payload: BreakingArgs): string {
+  if (typeof payload?.since === 'string') {
+    const t = Date.parse(payload.since)
+    if (Number.isNaN(t)) {
+      throw new MeshDeny('news_feeds_bad_since', { since: payload.since })
+    }
+    return payload.since
+  }
+  let hours = BREAKING_DEFAULT_HOURS
+  if (typeof payload?.hours === 'number' && Number.isFinite(payload.hours) && payload.hours > 0) {
+    // Clamp to the schema ceiling — belt-and-suspenders for a Core that
+    // ever stops enforcing breaking.json's `hours` maximum.
+    hours = Math.min(payload.hours, BREAKING_MAX_HOURS)
+  }
+  return new Date(Date.now() - hours * 3_600_000).toISOString()
+}
+
 function makeBreakingHandler(store: ArticleStore) {
   return async (env: Envelope): Promise<Record<string, unknown>> => {
     const payload = env.payload as BreakingArgs
     const limit = clampBreakingLimit(payload?.limit ?? BREAKING_DEFAULT_LIMIT)
-    const articles = store.breaking({ limit })
+    const since = resolveBreakingSince(payload)
+    const articles = store.breaking({ limit, since })
     return { articles }
   }
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "news_feeds.breaking",
-  "description": "Get articles whose urgency bucket is 'high', ordered by published_at desc. Convenience surface — equivalent to news_feeds.recent({urgency: 'high'}) but named explicitly so the voice tool and any future 'what's breaking' UI can address it directly. Urgency is computed deterministically per article at fetch time by the node's scorer (source weight + title language + recency + topic keywords). Returns an empty list when no current articles cleared the high threshold — that means 'nothing breaking in the feed pool right now,' not 'an error occurred.'",
+  "description": "Get articles whose urgency bucket is 'high' AND were published within a recency window (default the last 48 hours), ordered by published_at desc. Convenience surface — equivalent to news_feeds.recent({urgency: 'high', since}) but named explicitly so the voice tool and the 'what's breaking' UI can address it directly. Urgency is computed deterministically per article at fetch time by the node's scorer (source weight + title language + recency + topic keywords). The recency window keeps a quiet feed pool from surfacing stale high-urgency items. Returns an empty list when no recent articles cleared the high threshold — that means 'nothing breaking in the feed pool right now,' not 'an error occurred.'",
   "type": "object",
   "additionalProperties": true,
   "properties": {
@@ -10,6 +10,16 @@
       "minimum": 1,
       "maximum": 50,
       "description": "Maximum number of high-urgency articles to return. Default 10 if omitted; clamped to 50."
+    },
+    "since": {
+      "type": "string",
+      "description": "Optional ISO 8601 datetime recency floor. Only high-urgency articles with published_at >= since are returned. Takes precedence over `hours` when both are given. Mirrors news_feeds.recent's `since`. When neither `since` nor `hours` is given, the floor defaults to 48 hours before now."
+    },
+    "hours": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 8760,
+      "description": "Optional recency window in hours: only high-urgency articles published within the last `hours` hours are returned. A convenience alternative to computing `since` yourself. Ignored when `since` is given. Defaults to 48 when omitted; clamped to one year."
     }
   }
 }

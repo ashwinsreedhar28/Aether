@@ -33,6 +33,14 @@ export interface SearchQuery {
 
 export interface BreakingQuery {
   limit: number
+  /** Recency floor — when present, only high-urgency articles whose
+   * published_at is >= since are returned. Applied exactly like
+   * RecentQuery.since (same column, same idx_articles_urgency_published_at
+   * index). The 48h default lives in the breaking handler (index.ts),
+   * not here: this layer just applies whatever floor it's handed, mirroring
+   * recent() which never defaults since either. A direct caller that omits
+   * since gets no floor. */
+  since?: string
 }
 
 export interface EntitySearchQuery {
@@ -437,20 +445,32 @@ export class ArticleStore {
   }
 
   // Convenience read for "what's breaking" — equivalent to recent() with
-  // urgencies=['high'] but named explicitly because the voice tool and
-  // the prompts surface it as a distinct capability. Sorted newest-first
-  // among the high bucket, capped at `limit`. Uses the
+  // urgencies=['high'] plus an optional recency floor, named explicitly
+  // because the voice tool and the prompts surface it as a distinct
+  // capability. Sorted newest-first among the high bucket, capped at
+  // `limit`. When q.since is present it AND-combines a published_at >= ?
+  // clause exactly as recent() does — bounding the surface to a recency
+  // window so a quiet feed pool (few fresh high-urgency items) doesn't
+  // surface stale ones. The 48h default for that window is owned by the
+  // breaking handler, not this layer (see BreakingQuery.since). Uses the
   // (urgency, published_at DESC) compound index added in the v3
   // migration; reads stay sub-ms on the curated pool size.
   breaking(q: BreakingQuery): Article[] {
+    const whereParts: string[] = ["urgency = 'high'"]
+    const positional: unknown[] = []
+    if (q.since) {
+      whereParts.push('published_at >= ?')
+      positional.push(q.since)
+    }
     const sql = `
       SELECT id, feed, category, urgency, urgency_reason, title, summary, url, published_at, fetched_at
       FROM articles
-      WHERE urgency = 'high'
+      WHERE ${whereParts.join(' AND ')}
       ORDER BY published_at DESC
       LIMIT ?
     `
-    return this.db.prepare(sql).all(q.limit) as Article[]
+    positional.push(q.limit)
+    return this.db.prepare(sql).all(...positional) as Article[]
   }
 
   // Replace the entity set for one article. Atomic delete-then-insert

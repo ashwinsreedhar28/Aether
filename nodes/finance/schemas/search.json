@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "finance.search",
+  "description": "Search the node's tracked universe by ticker symbol or company name (case-insensitive substring; symbol-prefix matches rank first). Catalog-only — no upstream fetch. Returns { query, matches: [{ symbol, name, sector }], count }. Used by the app's search box and the stock_search voice tool to resolve a spoken company name to a ticker.",
+  "type": "object",
+  "required": ["query"],
+  "additionalProperties": true,
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Search text — a ticker fragment ('NV') or a company name fragment ('lockheed')."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Maximum matches to return. Default 25."
+    }
+  }
+}

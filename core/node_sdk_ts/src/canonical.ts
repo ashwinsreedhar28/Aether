@@ -7,6 +7,11 @@ import { createHmac } from 'node:crypto'
 // Python defaults to ensure_ascii=True, which escapes any code point above
 // 0x7E as \uXXXX. JS's JSON.stringify emits non-ASCII as UTF-8, so we
 // hand-roll the encoder here to keep signatures byte-identical to Python's.
+//
+// Load-bearing invariant: canonical(x) MUST equal
+// canonical(JSON.parse(JSON.stringify(x))), because the wire carries
+// JSON.stringify(x) and the receiver (Core) re-canonicalizes what it parses.
+// See decisions/2026-06-18-ts-sdk-canonical-undefined.md.
 
 function escapeString(s: string): string {
   let out = '"'
@@ -36,7 +41,13 @@ function canonicalValue(v: unknown): string {
   if (Array.isArray(v)) return '[' + v.map(canonicalValue).join(',') + ']'
   if (typeof v === 'object') {
     const obj = v as Record<string, unknown>
-    const keys = Object.keys(obj).sort()
+    // Drop undefined-valued keys before sorting — JSON.stringify omits them
+    // from the wire JSON, so signing over "key":null would diverge from what
+    // the receiver re-canonicalizes. (Array elements differ: JSON.stringify
+    // emits [null] for [undefined], which the top-level branch already does.)
+    const keys = Object.keys(obj)
+      .filter((k) => obj[k] !== undefined)
+      .sort()
     return '{' + keys.map((k) => escapeString(k) + ':' + canonicalValue(obj[k])).join(',') + '}'
   }
   return 'null'

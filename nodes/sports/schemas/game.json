@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "sports.game",
+  "description": "Box-score detail for one game: the game header (teams, score, status, series) plus the home/away team-stat comparison and a few headlines. event_id is an ESPN event id taken from a sports.scores game (the game's `id` field). An unknown event id returns MeshDeny: sports_game_not_found. Cached ~60s.",
+  "type": "object",
+  "required": ["league", "event_id"],
+  "additionalProperties": true,
+  "properties": {
+    "league": {
+      "type": "string",
+      "description": "League id (case-insensitive). Must match the league the event belongs to, e.g. 'nba'."
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ESPN event id for the game, as returned in a sports.scores game's `id` field."
+    }
+  }
+}

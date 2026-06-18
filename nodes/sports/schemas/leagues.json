@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "sports.leagues",
+  "description": "List the supported leagues with their per-call in-season / in-playoffs flags. No parameters. The flags are computed from hardcoded season/playoff windows against today's date, so the caller can default to a league that is actually in session. The World Cup uses a fixed 2026 tournament window (in-season ~Jun 11 - Jul 19 2026, off otherwise).",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {}
+}

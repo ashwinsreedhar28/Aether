@@ -200,6 +200,36 @@ nodes:
         invocation_mode: request_response
         schema: nodes/weather/schemas/forecast.json
 
+  - id: sports
+    runtime: local-process
+    category: Sensor
+    identity_secret: env:MESH_SPORTS_SECRET
+    metadata:
+      description: |
+        Sports scores + box scores via ESPN's public (unofficial) site
+        API. No API key. Request-driven (no poller): each surface fetches
+        on demand with a short in-memory TTL cache (scoreboard ~15s, box
+        score ~60s, teams ~24h). Lifts Pulse's ESPN integration + league
+        catalog / season-window logic. Substrate only — voice tools + the
+        Sports app and their consumer edges land in Lane B.
+    surfaces:
+      - name: leagues
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/sports/schemas/leagues.json
+      - name: scores
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/sports/schemas/scores.json
+      - name: game
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/sports/schemas/game.json
+      - name: teams
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/sports/schemas/teams.json
+
   - id: digest
     runtime: local-process
     category: Mixer
@@ -934,3 +964,28 @@ relationships:
   # same lanes → host_notifications.notify precedent.
   - from: music
     to: host_notifications.notify
+
+  # Sports Sensor (#352). Lane A registered the node + its four surfaces;
+  # this lane (node-then-face, music #333 → #335 precedent) adds the
+  # consumer edges. raven drives the sports_* voice tools (scores / game /
+  # leagues); the teams edge is reserved for a future voice tool. shell is
+  # the Sports MeshApp's read path — scores back the league slate, game the
+  # box-score drill-in, leagues the in-season default tab, teams reserved
+  # for a future directory view. Every consumer/surface pair gets its own
+  # edge (#136's lesson).
+  - from: raven
+    to: sports.leagues
+  - from: raven
+    to: sports.scores
+  - from: raven
+    to: sports.game
+  - from: raven
+    to: sports.teams
+  - from: shell
+    to: sports.leagues
+  - from: shell
+    to: sports.scores
+  - from: shell
+    to: sports.game
+  - from: shell
+    to: sports.teams

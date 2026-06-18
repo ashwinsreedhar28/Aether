@@ -101,6 +101,11 @@ export class CoreManager {
       // at manifest load so nodeManager can inject the same value into the
       // weather child's env.
       MESH_WEATHER_SECRET: this.secrets.weatherSecret,
+      // Sports is a TypeScript data node (spawned by nodeManager). Same
+      // env contract — Core resolves env:MESH_SPORTS_SECRET at manifest
+      // load so nodeManager can inject the same value into the sports
+      // child's env.
+      MESH_SPORTS_SECRET: this.secrets.sportsSecret,
       // Vision is the camera-capture Python daemon (spawned by
       // visionDaemonManager, not nodeManager). Same env contract — Core
       // resolves env:MESH_VISION_SECRET at manifest load so that

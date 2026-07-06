@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node ./dist/index.js",
+    "harness": "tsc -p tsconfig.json 1>&2 && node ./dist/harness.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint ."
   },

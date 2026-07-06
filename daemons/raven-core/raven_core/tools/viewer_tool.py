@@ -25,6 +25,7 @@ FUNCTIONS = [
     "focus_window",
     "close_window",
     "arrange_windows",
+    "place_window",
 ]
 
 # App-id HINTS seeded into the open_app declaration — common spoken targets,
@@ -54,6 +55,28 @@ APP_HINTS = (
 
 # Mirrors LAYOUT_PRESETS in shell/electron/main/services/viewerNode.ts.
 LAYOUT_PRESETS = ("tile", "focus", "split", "thirds", "quarters")
+
+# Mirrors REGIONS in shell/src/utils/regionResolver.ts — the canonical v1
+# placement grammar (#337). The renderer resolves these to pixel bounds; this
+# tuple only pre-validates so a hallucinated region fails fast with the
+# grammar instead of a mesh round-trip.
+REGIONS = (
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "top-left",
+    "top-right",
+    "bottom-left",
+    "bottom-right",
+    "left-third",
+    "center-third",
+    "right-third",
+    "left-two-thirds",
+    "right-two-thirds",
+    "center",
+    "full",
+)
 
 
 def _normalize_app_id(s: str) -> str:
@@ -182,6 +205,73 @@ async def _arrange_windows(preset: str) -> dict[str, Any]:
     return {"ok": bool(response.get("ok", False)), "preset": preset}
 
 
+async def _place_window(target: str, region: str) -> dict[str, Any]:
+    """Place one window into a named screen region (#337).
+
+    Voice speaks regions only; explicit pixel bounds stay a programmatic
+    escape hatch on the mesh surface. On a target miss ('the browser' when
+    the appId is 'browser' works, but titles drift), fuzzy-resolve against
+    the open windows once — the open_app recovery ethos — then hand the
+    model the open-window list so it can recover in-turn.
+    """
+    target = (target or "").strip()
+    region = (region or "").strip().lower()
+    if not target:
+        return {"error": "bad_target", "detail": "target (an app id or window_id) is required"}
+    if region not in REGIONS:
+        return {
+            "error": "bad_region",
+            "detail": f"region must be one of {', '.join(REGIONS)}",
+            "regions": list(REGIONS),
+        }
+
+    async def attempt(t: str) -> dict[str, Any]:
+        return await mesh_invoke(
+            "viewer_desktop.place_window", {"target": t, "region": region}
+        )
+
+    try:
+        response = await attempt(target)
+        if not response.get("ok", False):
+            windows_resp = await mesh_invoke("viewer_desktop.list_windows", {})
+            windows = [w for w in (windows_resp.get("windows") or []) if isinstance(w, dict)]
+            want = _normalize_app_id(target)
+            candidates = [
+                w["id"]
+                for w in windows
+                if isinstance(w.get("id"), str)
+                and any(
+                    want and (want in k or k in want)
+                    for k in (
+                        _normalize_app_id(w.get("appId") or ""),
+                        _normalize_app_id(w.get("title") or ""),
+                    )
+                    if k
+                )
+            ]
+            if len(candidates) == 1:
+                retry = await attempt(candidates[0])
+                if retry.get("ok", False):
+                    return {
+                        "ok": True,
+                        "window_id": retry.get("windowId"),
+                        "region": region,
+                        "resolved_from": target,
+                    }
+            return {
+                "ok": False,
+                "error": response.get("error") or "placement failed",
+                "requested": target,
+                "open_windows": [
+                    {"window_id": w.get("id"), "app_id": w.get("appId"), "title": w.get("title")}
+                    for w in windows
+                ],
+            }
+    except MeshUnavailable as e:
+        return {"error": "viewer unavailable", "detail": str(e)}
+    return {"ok": True, "window_id": response.get("windowId"), "region": region}
+
+
 async def _list_apps() -> dict[str, Any]:
     try:
         response = await mesh_invoke("viewer_desktop.list_apps", {})
@@ -293,6 +383,45 @@ def get_tools() -> list[types.Tool]:
             required=["preset"],
         ),
     )
+    place_window = types.FunctionDeclaration(
+        name="place_window",
+        description=(
+            "Place ONE window into a named region of the screen. Use when the "
+            "user asks to put, move, snap, or dock a specific window somewhere "
+            "('put the browser in the left half' → place_window({ target: "
+            "'browser', region: 'left' }); 'move the terminal to the top right' "
+            "→ region 'top-right'). Regions: 'left', 'right', 'top', 'bottom' "
+            "(halves); 'top-left', 'top-right', 'bottom-left', 'bottom-right' "
+            "(quadrants); 'left-third', 'center-third', 'right-third' (columns); "
+            "'left-two-thirds', 'right-two-thirds'; 'center' (60% centered); "
+            "'full' (the whole screen). target is the app id or a window_id — "
+            "close matches resolve against the open windows. Distinct from "
+            "arrange_windows, which lays out EVERY window with a preset. "
+            "Confirm by naming the region ('Left half, sir.')."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "target": types.Schema(
+                    type=types.Type.STRING,
+                    description=(
+                        "The window to place: an app id ('browser', 'terminal') "
+                        "or a window_id from open_app / list_windows."
+                    ),
+                ),
+                "region": types.Schema(
+                    type=types.Type.STRING,
+                    description=(
+                        "One of: 'left', 'right', 'top', 'bottom', 'top-left', "
+                        "'top-right', 'bottom-left', 'bottom-right', "
+                        "'left-third', 'center-third', 'right-third', "
+                        "'left-two-thirds', 'right-two-thirds', 'center', 'full'."
+                    ),
+                ),
+            },
+            required=["target", "region"],
+        ),
+    )
     list_apps = types.FunctionDeclaration(
         name="list_apps",
         description=(
@@ -355,6 +484,7 @@ def get_tools() -> list[types.Tool]:
                 focus_window,
                 close_window,
                 arrange_windows,
+                place_window,
             ]
         )
     ]
@@ -377,4 +507,8 @@ async def handle_call_async(name: str, args: dict) -> dict[str, Any] | None:
         return await _close_window(window_id=str(args.get("window_id", "")))
     if name == "arrange_windows":
         return await _arrange_windows(preset=str(args.get("preset", "")))
+    if name == "place_window":
+        return await _place_window(
+            target=str(args.get("target", "")), region=str(args.get("region", ""))
+        )
     return None

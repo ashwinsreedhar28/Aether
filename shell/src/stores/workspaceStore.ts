@@ -55,6 +55,7 @@ export interface WorkspaceStore {
   restoreWindow: (id: string) => void;
   moveWindow: (id: string, position: { x: number; y: number }) => void;
   resizeWindow: (id: string, size: { width: number; height: number }) => void;
+  setWindowBounds: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;
   tileWindows: () => void;
   applyLayoutPreset: (preset: LayoutPreset) => void;
 
@@ -108,8 +109,10 @@ function debouncedSave(store: WorkspaceStore) {
 // Constants for layout calculations
 const WORKSPACE_TABS_HEIGHT = 40;
 
-// Helper to get consistent container dimensions for tiling
-function getDesktopContainerSize(workspaceCount: number) {
+// Helper to get consistent container dimensions for tiling. Exported for the
+// controlBridge 'place-window' handler (#337) so region resolution sees the
+// same display bounds the tile/preset layouts do.
+export function getDesktopContainerSize(workspaceCount: number) {
   // WorkspaceTabs only shown when more than one workspace
   const tabsHeight = workspaceCount > 1 ? WORKSPACE_TABS_HEIGHT : 0;
   return {
@@ -604,6 +607,40 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
             ...w,
             windows: w.windows.map(win =>
               win.id === id ? { ...win, size } : win
+            ),
+            isTiled: false,
+            preTileState: new Map(),
+          };
+        }
+        return w;
+      }),
+    }));
+    debouncedSave(get());
+  },
+
+  // Atomic position+size (#337): ONE set() so a placement never renders as a
+  // move-then-resize double paint. Explicit bounds supersede maximized state
+  // (applyLayoutPreset precedent) and unhide a minimized window — a placement
+  // the user can't see didn't happen.
+  setWindowBounds: (id: string, bounds: { x: number; y: number; width: number; height: number }) => {
+    const { activeWorkspaceId } = get();
+    if (!activeWorkspaceId) return;
+
+    set(state => ({
+      workspaces: state.workspaces.map(w => {
+        if (w.id === activeWorkspaceId) {
+          return {
+            ...w,
+            windows: w.windows.map(win =>
+              win.id === id
+                ? {
+                    ...win,
+                    position: { x: bounds.x, y: bounds.y },
+                    size: { width: bounds.width, height: bounds.height },
+                    isMaximized: false,
+                    isMinimized: false,
+                  }
+                : win
             ),
             isTiled: false,
             preTileState: new Map(),

@@ -4,9 +4,10 @@
  * The control server calls these actions via mainWindow.webContents.executeJavaScript().
  */
 
-import { useWorkspaceStore } from '../stores/workspaceStore';
+import { getDesktopContainerSize, useWorkspaceStore } from '../stores/workspaceStore';
 import { useSpawnUi } from '../stores/spawnUi';
 import { matchSpawnRecord } from './spawnMatch';
+import { isRegion, REGIONS, resolveRegion } from './regionResolver';
 import { getAppForFile, getApps } from '../apps';
 
 type ActionHandler = (params: Record<string, unknown>) => unknown | Promise<unknown>;
@@ -265,6 +266,69 @@ const handlers: Record<string, ActionHandler> = {
       store.applyLayoutPreset(preset as 'focus' | 'split' | 'thirds' | 'quarters');
     }
     return { success: true };
+  },
+
+  // Semantic window placement (#337): put ONE window into a named screen
+  // region ('left', 'top-right', 'center-third', …) or explicit pixel bounds.
+  // Exactly one of region|bounds. The region grammar resolves through
+  // regionResolver against the same container size the layout presets use;
+  // explicit bounds are the escape hatch, never the default (see ADR
+  // 2026-07-06-semantic-region-grammar). Every refusal is named — the error
+  // payload flows back to the calling agent (open-app precedent), so an
+  // unknown region carries the full grammar for in-turn recovery.
+  'place-window': (params: Record<string, unknown>) => {
+    const target = params.target;
+    const region = params.region;
+    const bounds = params.bounds as { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | undefined;
+
+    if (typeof target !== 'string' || target.length === 0) {
+      return { error: 'target (a windowId or appId) is required' };
+    }
+    if ((region !== undefined) === (bounds !== undefined)) {
+      return { error: 'exactly one of region | bounds is required' };
+    }
+
+    const store = useWorkspaceStore.getState();
+    const workspace = store.getActiveWorkspace();
+    if (!workspace) return { error: 'No active workspace' };
+
+    // Resolve target: exact windowId first, else the topmost window hosting a
+    // tab of that appId (voice says "the browser", not a window id).
+    let win = workspace.windows.find(w => w.id === target);
+    if (!win) {
+      win = workspace.windows
+        .filter(w => (w.tabs || []).some(t => t.appId === target))
+        .sort((a, b) => b.zIndex - a.zIndex)[0];
+    }
+    if (!win) {
+      return { error: `no open window for target '${target}'` };
+    }
+
+    let resolved: { x: number; y: number; width: number; height: number };
+    if (region !== undefined) {
+      if (typeof region !== 'string' || !isRegion(region)) {
+        return { error: `unknown region '${String(region)}'`, regions: [...REGIONS] };
+      }
+      resolved = resolveRegion(region, getDesktopContainerSize(store.workspaces.length));
+    } else {
+      const { x, y, width, height } = bounds ?? {};
+      if (
+        typeof x !== 'number' || typeof y !== 'number' ||
+        typeof width !== 'number' || typeof height !== 'number' ||
+        !Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0
+      ) {
+        return { error: 'bounds must be { x, y, width, height } numbers with positive width and height' };
+      }
+      resolved = { x, y, width, height };
+    }
+
+    store.setWindowBounds(win.id, resolved);
+    return {
+      ok: true,
+      windowId: win.id,
+      ...(typeof region === 'string' ? { region } : {}),
+      bounds: resolved,
+    };
   },
 };
 

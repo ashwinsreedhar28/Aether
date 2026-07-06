@@ -157,6 +157,7 @@ export interface ViewerNode {
     close_window: (env: Envelope) => Promise<Record<string, unknown>>
     focus_window: (env: Envelope) => Promise<Record<string, unknown>>
     apply_layout: (env: Envelope) => Promise<Record<string, unknown>>
+    place_window: (env: Envelope) => Promise<Record<string, unknown>>
     notify: (env: Envelope) => Promise<void>
     show_lane_card: (env: Envelope) => Promise<Record<string, unknown>>
   }
@@ -451,6 +452,58 @@ export function createViewerNode(deps: ViewerNodeDeps): ViewerNode {
     return { ok: true, preset }
   }
 
+  // Place ONE window into a named screen region or explicit bounds (#337) —
+  // the semantic-placement surface behind raven's place_window voice tool.
+  // Structural payload errors deny here; the region GRAMMAR is owned by the
+  // renderer's regionResolver (the canonical resolver), so an unknown region
+  // comes back as a structured ok:false carrying the full grammar (open_app's
+  // recovery pattern) rather than an opaque mesh error.
+  async function placeWindow(env: Envelope): Promise<Record<string, unknown>> {
+    const payload = env.payload as {
+      target?: unknown
+      region?: unknown
+      bounds?: { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+    }
+    if (typeof payload.target !== 'string' || payload.target.length === 0) {
+      throw new MeshDeny('viewer_bad_payload', { have: { target: typeof payload.target } })
+    }
+    if ((payload.region !== undefined) === (payload.bounds !== undefined)) {
+      throw new MeshDeny('viewer_bad_payload', {
+        detail: 'exactly one of region | bounds is required',
+        have: { region: payload.region !== undefined, bounds: payload.bounds !== undefined },
+      })
+    }
+    if (payload.region !== undefined && typeof payload.region !== 'string') {
+      throw new MeshDeny('viewer_bad_payload', { have: { region: typeof payload.region } })
+    }
+    const result = (await dispatch('place-window', {
+      target: payload.target,
+      ...(payload.region !== undefined ? { region: payload.region } : {}),
+      ...(payload.bounds !== undefined ? { bounds: payload.bounds } : {}),
+    })) as {
+      ok?: boolean
+      windowId?: string
+      region?: string
+      bounds?: { x: number; y: number; width: number; height: number }
+      error?: string
+      regions?: string[]
+    } | null
+    if (!result || result.ok !== true) {
+      return {
+        ok: false,
+        target: payload.target,
+        error: result?.error ?? 'placement failed',
+        ...(Array.isArray(result?.regions) ? { regions: result.regions } : {}),
+      }
+    }
+    return {
+      ok: true,
+      windowId: result.windowId,
+      ...(typeof result.region === 'string' ? { region: result.region } : {}),
+      bounds: result.bounds,
+    }
+  }
+
   // Raise the SpawnApproval card for lane N (#305) — the surface behind
   // raven's show_lane_card voice tool. The renderer resolves N to a spawn
   // record (issue number / branch, the same matcher as the clickable Lanes
@@ -550,6 +603,7 @@ export function createViewerNode(deps: ViewerNodeDeps): ViewerNode {
     n.on('close_window', closeWindow)
     n.on('focus_window', focusWindow)
     n.on('apply_layout', applyLayout)
+    n.on('place_window', placeWindow)
     n.on('notify', notifyHandler)
     n.on('show_lane_card', showLaneCard)
     await n.start()
@@ -578,6 +632,7 @@ export function createViewerNode(deps: ViewerNodeDeps): ViewerNode {
       close_window: closeWindow,
       focus_window: focusWindow,
       apply_layout: applyLayout,
+      place_window: placeWindow,
       notify: notifyHandler,
       show_lane_card: showLaneCard,
     },

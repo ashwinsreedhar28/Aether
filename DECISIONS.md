@@ -11,6 +11,7 @@ edit a past ADR file — supersede with a new file and flip the old file's
 change. Entries dated before the rename PR refer to the project by its
 working name; they are preserved verbatim as historical record.
 
+- **[2026-07-06]** [ADR: The semantic region grammar is the canonical placement path (#337)](decisions/2026-07-06-semantic-region-grammar.md)
 - **[2026-06-18]** [ADR: TS SDK canonical must match wire-roundtrip canonical (#359)](decisions/2026-06-18-ts-sdk-canonical-undefined.md)
 - **[2026-06-17]** [ADR: finance.chart fetches live upstream OHLC for the detail page — the "no upstream historical fetch" posture is scoped to the history series, not the node (#354)](decisions/2026-06-17-finance-chart-upstream-fetch-detail-page.md)
 - **[2026-06-17]** [ADR: the research Mixer is the first node to call an LLM directly — key from env, model is config, failure is a MeshDeny (#353)](decisions/2026-06-17-research-mixer-anthropic-caller.md)

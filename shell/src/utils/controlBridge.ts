@@ -256,6 +256,18 @@ const handlers: Record<string, ActionHandler> = {
     return { ok: true, id: rec.id, issue: rec.issue ?? null, status: rec.status };
   },
 
+  'apply-layout': (params: Record<string, unknown>) => {
+    const preset = params.preset as string;
+    const store = useWorkspaceStore.getState();
+
+    if (preset === 'tile') {
+      store.tileWindows();
+    } else {
+      store.applyLayoutPreset(preset as 'focus' | 'split' | 'thirds' | 'quarters');
+    }
+    return { success: true };
+  },
+
   // Semantic window placement (#337): put ONE window into a named screen
   // region ('left', 'top-right', 'center-third', …) or explicit pixel bounds.
   // Exactly one of region|bounds. The region grammar resolves through
@@ -317,18 +329,6 @@ const handlers: Record<string, ActionHandler> = {
       ...(typeof region === 'string' ? { region } : {}),
       bounds: resolved,
     };
-  },
-
-  'apply-layout': (params: Record<string, unknown>) => {
-    const preset = params.preset as string;
-    const store = useWorkspaceStore.getState();
-
-    if (preset === 'tile') {
-      store.tileWindows();
-    } else {
-      store.applyLayoutPreset(preset as 'focus' | 'split' | 'thirds' | 'quarters');
-    }
-    return { success: true };
   },
 };
 

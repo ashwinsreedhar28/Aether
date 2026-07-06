@@ -142,6 +142,74 @@ def test_handle_call_accepts_id_alias():
     assert result == {"ok": True, "app_id": "browser", "window_id": "w3"}
 
 
+# -------------------------------------------------------------- place_window
+
+WINDOWS = [
+    {"id": "w-browser", "appId": "browser", "title": "Browser"},
+    {"id": "w-term", "appId": "terminal", "title": "Terminal 1"},
+]
+
+
+def test_place_window_direct_hit():
+    hit = {"ok": True, "windowId": "w-browser", "region": "left"}
+    responses = {"viewer_desktop.place_window": [hit]}
+    with mock.patch.object(vt, "mesh_invoke", _mesh(responses)):
+        result = asyncio.run(vt._place_window("browser", "left"))
+    assert result == {"ok": True, "window_id": "w-browser", "region": "left"}
+
+
+def test_place_window_fuzzy_retries_once_against_open_windows():
+    # The model says 'the browser'; the appId is 'browser' — exact target
+    # misses, the open-window fuzzy pass resolves it, one retry.
+    miss = {"ok": False, "error": "no open window for target 'the browser'"}
+    hit = {"ok": True, "windowId": "w-browser", "region": "top-right"}
+    responses = {
+        "viewer_desktop.place_window": [miss, hit],
+        "viewer_desktop.list_windows": {"windows": WINDOWS},
+    }
+    with mock.patch.object(vt, "mesh_invoke", _mesh(responses)):
+        result = asyncio.run(vt._place_window("the browser", "top-right"))
+    assert result == {
+        "ok": True,
+        "window_id": "w-browser",
+        "region": "top-right",
+        "resolved_from": "the browser",
+    }
+
+
+def test_place_window_no_candidate_returns_open_windows():
+    miss = {"ok": False, "error": "no open window for target 'flerbnerb'"}
+    responses = {
+        "viewer_desktop.place_window": [miss],
+        "viewer_desktop.list_windows": {"windows": WINDOWS},
+    }
+    with mock.patch.object(vt, "mesh_invoke", _mesh(responses)):
+        result = asyncio.run(vt._place_window("flerbnerb", "left"))
+    assert result["ok"] is False
+    assert [w["window_id"] for w in result["open_windows"]] == ["w-browser", "w-term"]
+
+
+def test_place_window_bad_region_fails_fast_with_grammar():
+    # Never hits the mesh — a hallucinated region returns the grammar.
+    async def explode(surface, payload):
+        raise AssertionError("mesh must not be invoked for a bad region")
+
+    with mock.patch.object(vt, "mesh_invoke", explode):
+        result = asyncio.run(vt._place_window("browser", "middle"))
+    assert result["error"] == "bad_region"
+    assert result["regions"] == list(vt.REGIONS)
+
+
+def test_handle_call_routes_place_window():
+    hit = {"ok": True, "windowId": "w-term", "region": "bottom"}
+    responses = {"viewer_desktop.place_window": [hit]}
+    with mock.patch.object(vt, "mesh_invoke", _mesh(responses)):
+        result = asyncio.run(
+            vt.handle_call_async("place_window", {"target": "w-term", "region": "bottom"})
+        )
+    assert result == {"ok": True, "window_id": "w-term", "region": "bottom"}
+
+
 # ----------------------------------------------------------------- anti-drift
 
 def _shell_registry_ids():

@@ -9,7 +9,9 @@ import {
   writeFileSync,
   readFileSync,
   rmSync,
+  mkdtempSync,
 } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, basename, join } from 'node:path'
 import {
   SpawnLedger,
@@ -19,6 +21,8 @@ import {
   pythonCandidates,
   pickFirstCapable,
   RELAY_TEXT,
+  REVISE_TEXT,
+  RELAY_ALLOWLIST,
   type SpawnRecord,
   type RelayRecord,
   type TeardownRecord,
@@ -156,6 +160,8 @@ export class SpawnService extends EventEmitter {
   // login shell (so PATH semantics stay Homebrew-aware). Lifecycle calls run
   // it DIRECTLY — never under a capturing shell (see runTmux).
   private tmuxBin: string | null = null
+  // The gh binary, lazily resolved by requireGhBin (#339 feedback posts).
+  private ghBin: string | null = null
   // lane-* sessions alive in tmux that no terminal window of THIS app lifetime
   // is attached to. A pull-refreshed CACHE, not a boot snapshot (#318): the
   // boot probe seeds it, refreshOrphans() re-probes on demand (Lanes open,
@@ -687,6 +693,81 @@ export class SpawnService extends EventEmitter {
     return this.executeRelay(rec.id)
   }
 
+  /** The card's REVISE path (#339): post the Director's typed feedback to the
+   * lane's issue thread as a DIRECTOR FEEDBACK comment, then relay the fixed
+   * REVISE_TEXT — post BEFORE relay, so the sentence never points a lane at
+   * feedback that isn't there; a failed post returns without relaying. An
+   * empty `feedbackText` skips the post (the card only offers it when the
+   * thread already holds feedback newer than the report — resolveReviseAction
+   * in laneGate.ts owns that refusal). The thread is the durable record of
+   * the post; the revise relay line is the ledgered Director act. */
+  async revise(
+    issue: number,
+    feedbackText?: string,
+  ): Promise<{ ok: boolean; error?: string; posted?: boolean }> {
+    if (!Number.isInteger(issue) || issue < 1) {
+      return { ok: false, error: 'bad issue number' }
+    }
+    const text = (feedbackText ?? '').trim()
+    let posted = false
+    if (text) {
+      const post = await this.postFeedbackComment(issue, text)
+      if (!post.ok) {
+        return { ok: false, posted: false, error: `feedback post failed — ${post.error}` }
+      }
+      posted = true
+    }
+    const rec = this.ledger.requestRelay(issue, REVISE_TEXT)
+    const relayed = await this.executeRelay(rec.id)
+    return { ...relayed, posted }
+  }
+
+  // Post one DIRECTOR FEEDBACK comment on the lane's issue. Shells NOTHING:
+  // the body rides a temp file into `gh issue comment N --body-file <file>`
+  // via execFile (the same no-quoting law as the send-keys paths), and gh's
+  // own keyring auth carries the credential — matching how lanes post their
+  // GATE REPORTs, no raw-token path anywhere. Failures return named, never
+  // throw — the card surfaces them verbatim.
+  private async postFeedbackComment(
+    issue: number,
+    text: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    let dir: string | null = null
+    try {
+      const gh = await this.requireGhBin()
+      dir = mkdtempSync(join(tmpdir(), 'aether-feedback-'))
+      const bodyFile = join(dir, 'body.md')
+      writeFileSync(bodyFile, feedbackCommentBody(text))
+      await execFileAsync(gh, ghCommentArgs(issue, bodyFile), {
+        cwd: this.repoRoot,
+        timeout: TERMINAL_TIMEOUT_MS,
+        maxBuffer: MAX_OUTPUT_BYTES,
+      })
+      return { ok: true }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: msg.slice(0, 1000) }
+    } finally {
+      if (dir) rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  // Resolve the gh BINARY once through the login shell (Homebrew shellenv
+  // PATH — a GUI-launched Electron main otherwise gets an impoverished PATH),
+  // exactly the probeTmux strategy including the pickBinaryLine defence
+  // against rc-file stdout noise. Lazy: probed on the first REVISE-with-text,
+  // cached on the instance after.
+  private async requireGhBin(): Promise<string> {
+    if (this.ghBin) return this.ghBin
+    const captured = await this.runShellCapture('command -v gh', this.repoRoot)
+    const bin = pickBinaryLine(captured)
+    if (!bin || !existsSync(bin)) {
+      throw new Error('gh not found on the login-shell PATH (remedy: brew install gh)')
+    }
+    this.ghBin = bin
+    return bin
+  }
+
   // The boot sweep: a relay still 'requested' at startup is a crash leftover
   // (raven runs under the shell, so nothing appends while we're down). Fail
   // it by name instead of typing into a pane minutes after the words were
@@ -734,11 +815,15 @@ export class SpawnService extends EventEmitter {
       return { ok: false, error }
     }
     try {
-      // THE ALLOWLIST (#310): the ledger is plain JSONL — a hand-edited line
-      // must not be able to type arbitrary text into a live implementer
-      // session. Enforced here, on the side that owns the pane.
-      if (relay.text !== RELAY_TEXT) {
-        return fail(`relay text not allowlisted — v1 relays only the literal "${RELAY_TEXT}"`)
+      // THE ALLOWLIST (#310; two literals since #339): the ledger is plain
+      // JSONL — a hand-edited line must not be able to type arbitrary text
+      // into a live implementer session. Enforced here, on the side that owns
+      // the pane, even though requestRelay refuses off-list text at write
+      // time too.
+      if (!RELAY_ALLOWLIST.includes(relay.text)) {
+        return fail(
+          `relay text not allowlisted — relays carry only "${RELAY_TEXT}" or "${REVISE_TEXT}"`,
+        )
       }
       const lane = this.ledger
         .list()
@@ -754,12 +839,12 @@ export class SpawnService extends EventEmitter {
         return fail(`tmux session ${lane.tmuxSession} is not alive — the lane may be done or torn down`)
       }
       const paneId = await this.resolveLanePaneId(lane.tmuxSession)
-      await execFileAsync(this.requireTmuxBin(), relaySendKeysArgs(paneId), {
+      await execFileAsync(this.requireTmuxBin(), relaySendKeysArgs(paneId, relay.text), {
         timeout: TERMINAL_TIMEOUT_MS,
       })
       this.ledger.markRelayed(id)
       this.broadcast()
-      console.log(`[spawnService] relayed "${RELAY_TEXT}" to lane #${relay.issue} (${lane.tmuxSession})`)
+      console.log(`[spawnService] relayed "${relay.text}" to lane #${relay.issue} (${lane.tmuxSession})`)
       return { ok: true }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -1485,7 +1570,10 @@ export class SpawnService extends EventEmitter {
 // link are POSTED TO THE ISSUE THREAD with fixed prefixes — the thread is the
 // machine-readable lane channel the card's AT GATE / PR OPENED states fold
 // (prefix literals kept in sync with shell/src/utils/laneGate.ts; both sides
-// pin them in tests). Exported for the card preview and tests.
+// pin them in tests). R2 (#339): the kickoff also dictates the revision loop —
+// on the fixed REVISE_TEXT relay, the lane reads the LATEST DIRECTOR FEEDBACK
+// comment (latest-comment-only by doctrine), addresses it, and re-gates.
+// Exported for the card preview and tests.
 export function laneKickoff(issue: number): string {
   return (
     `You are the Implementer for Aether issue #${issue}. ` +
@@ -1498,7 +1586,10 @@ export function laneKickoff(issue: number): string {
     `CHANGELOG.md or DECISIONS.md; both are generated. ` +
     `When done: run the verify suite, then post the FULL gate report as a comment on issue ` +
     `#${issue}, prefixed exactly "GATE REPORT — " (gh issue comment ${issue} --body-file <file>), ` +
-    `and stop at the gate. Open the PR only on "clean, proceed," with the full §7 self-review ` +
+    `and stop at the gate. On receiving "${REVISE_TEXT}": read the latest DIRECTOR FEEDBACK ` +
+    `comment on this issue, address it fully, post a fresh GATE REPORT, and stop at the gate ` +
+    `again. Only the newest DIRECTOR FEEDBACK comment is in contract — earlier feedback is ` +
+    `history. Open the PR only on "clean, proceed," with the full §7 self-review ` +
     `body, ending Closes #${issue}; the moment the PR is open, comment ` +
     `"PR OPENED — #<pr-number> <pr-url>" on issue #${issue}.`
   )
@@ -1522,12 +1613,39 @@ export function laneSendKeysArgs(paneId: string): string[] {
 }
 
 // The exact send-keys argv for a gate relay (#310) — same no-quoting law as
-// laneSendKeysArgs: handed straight to the tmux binary, the pane id is the
-// ONLY varying element, and the typed line is the RELAY_TEXT allowlist
-// literal. This function taking no text parameter IS the v1 scope fence —
-// arbitrary relay text has no code path to the pane. Exported for tests.
-export function relaySendKeysArgs(paneId: string): string[] {
-  return ['send-keys', '-t', paneId, RELAY_TEXT, 'Enter']
+// laneSendKeysArgs: handed straight to the tmux binary, the pane id and the
+// ALLOWLISTED sentence are the only varying elements. This function refusing
+// off-list text IS the scope fence — arbitrary relay text has no code path
+// to the pane (two sentences since #339: the go-ahead and the revise order).
+// Exported for tests.
+export function relaySendKeysArgs(paneId: string, text: string = RELAY_TEXT): string[] {
+  if (!RELAY_ALLOWLIST.includes(text)) {
+    throw new Error(`relay text not allowlisted — refusing to build a send-keys argv for it`)
+  }
+  return ['send-keys', '-t', paneId, text, 'Enter']
+}
+
+// ---- DIRECTOR FEEDBACK posts (#339) -------------------------------------------
+
+// The feedback comment's prefix — the third lane-channel literal, kept in
+// sync with shell/src/utils/laneGate.ts (renderer and main share no imports;
+// both sides pin it in tests). The card's REVISE path posts this comment;
+// the fold resolves it to the REVISING phase.
+export const DIRECTOR_FEEDBACK_PREFIX = 'DIRECTOR FEEDBACK'
+
+// The comment body: prefix, em-dash, the Director's text verbatim — the same
+// "<PREFIX> — " lead shape the kickoff dictates for GATE REPORT / PR OPENED.
+// Exported for tests.
+export function feedbackCommentBody(text: string): string {
+  return `${DIRECTOR_FEEDBACK_PREFIX} — ${text}`
+}
+
+// The exact gh argv for a feedback post — argv array straight into the gh
+// binary, the body riding a temp FILE (--body-file) so the Director's
+// freeform text never transits shell quoting (the #300 no-quoting law; same
+// reason the kickoff travels .lane-kickoff.md). Exported for tests.
+export function ghCommentArgs(issue: number, bodyFile: string): string[] {
+  return ['issue', 'comment', String(issue), '--body-file', bodyFile]
 }
 
 // First line of `list-panes -F '#{pane_id}'` output, validated against the

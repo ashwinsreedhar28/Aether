@@ -21,6 +21,8 @@ import {
   pythonCandidates,
   pickFirstCapable,
   RELAY_TEXT,
+  REVISE_TEXT,
+  RELAY_ALLOWLIST,
 } from './spawnLedger.ts'
 
 function freshLedger(): { ledger: SpawnLedger; path: string; cleanup: () => void } {
@@ -238,6 +240,22 @@ test('cleanupBlock leads with kill-session for a recorded tmux session (#305)', 
   assert.ok(killAt !== -1 && removeAt !== -1 && killAt < removeAt)
 })
 
+test('cleanupBlock carries the #363 submodule-die fallback lines in the load-bearing order', () => {
+  const block = cleanupBlock('/Users/x/aether', '/Users/x/aether-lane-339', 'lane/issue-339')
+  // The fallback the executor automates, offered to the manual operator too:
+  // rm -rf → worktree prune → the branch -D that follows. Commented lines —
+  // they engage only when the remove dies on submodules, never by default.
+  const removeAt = block.indexOf('git worktree remove')
+  const rmAt = block.indexOf("#   rm -rf '/Users/x/aether-lane-339'")
+  const pruneAt = block.indexOf('#   git worktree prune')
+  const branchAt = block.indexOf("git branch -D 'lane/issue-339'")
+  assert.ok(removeAt !== -1 && rmAt !== -1 && pruneAt !== -1 && branchAt !== -1)
+  // Order is load-bearing (#363): remove first, rm -rf before prune (prune
+  // must observe the dir gone), prune before branch -D (checked-out status is
+  // read from the stale admin dir until the prune).
+  assert.ok(removeAt < rmAt && rmAt < pruneAt && pruneAt < branchAt)
+})
+
 // ---- RAG bootstrap outcome folds onto the spawned event ---------------------
 
 test('markSpawned records a successful rag bootstrap', () => {
@@ -425,10 +443,30 @@ test('targetsForLane sanitizes and defaults like the draft path does', () => {
 
 // ---- relay family (#310): kind-tagged lines, segregated folds ----------------
 
-test('RELAY_TEXT is the allowlist literal (Python tool parity)', () => {
-  // Pinned: lane_proceed_tool.py duplicates this string; a drift here is a
-  // relay the shell would refuse.
+test('the relay allowlist literals (Python tool parity)', () => {
+  // Pinned: lane_proceed_tool.py / lane_revise_tool.py duplicate these
+  // strings; a drift on either side is a relay the shell would refuse.
   assert.equal(RELAY_TEXT, 'clean, proceed')
+  assert.equal(REVISE_TEXT, 'revise per the latest DIRECTOR FEEDBACK, then re-gate')
+  assert.deepEqual([...RELAY_ALLOWLIST], [RELAY_TEXT, REVISE_TEXT])
+})
+
+test('requestRelay accepts exactly the two allowlisted texts and refuses anything else (#339)', () => {
+  const { ledger, cleanup } = freshLedger()
+  try {
+    assert.equal(ledger.requestRelay(339, RELAY_TEXT).text, RELAY_TEXT)
+    assert.equal(ledger.requestRelay(339, REVISE_TEXT).text, REVISE_TEXT)
+    // Off-list text never even reaches the JSONL — no freeform crosses the
+    // relay, not even as a recorded-then-refused line.
+    assert.throws(
+      () => ledger.requestRelay(339, 'please also refactor the store'),
+      /not allowlisted/,
+    )
+    assert.throws(() => ledger.requestRelay(339, ''), /not allowlisted/)
+    assert.equal(ledger.listRelays().length, 2)
+  } finally {
+    cleanup()
+  }
 })
 
 test('relay lines fold separately and never touch spawn records', () => {

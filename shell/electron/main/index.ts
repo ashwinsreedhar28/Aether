@@ -639,6 +639,14 @@ ipcMain.handle('spawn:refresh-orphans', () => spawnService.refreshOrphans())
 // against the lane working `issue` — the same ledger path raven's
 // lane_proceed tool writes, so voice and card relays share one audit trail.
 ipcMain.handle('spawn:proceed', (_e, issue: unknown) => spawnService.proceed(Number(issue)))
+// The card's REVISE button (#339): post the typed feedback (if any) to the
+// issue thread as a DIRECTOR FEEDBACK comment, then record + execute the
+// fixed "revise per the latest DIRECTOR FEEDBACK, then re-gate" relay — the
+// same ledger path raven's lane_revise tool writes. A failed post relays
+// nothing.
+ipcMain.handle('spawn:revise', (_e, issue: unknown, feedback: unknown) =>
+  spawnService.revise(Number(issue), typeof feedback === 'string' ? feedback : undefined),
+)
 // The card's CLOSE OUT button (#317): record + execute a guarded teardown of
 // the lane working `issue` — the same ledger path raven's close_lane tool
 // writes. `force` rides only the warn card's CLOSE ANYWAY (the #308

@@ -211,6 +211,10 @@ export interface SpawnActionResult {
   // 'pr-open' / 'dirty' / 'lane-busy' (#317): closeLane guard outcomes —
   // only 'dirty' is force-overridable (the warn card's CLOSE ANYWAY).
   code?: 'live-session' | TeardownGuardCode
+  // revise() only (#339): true when a DIRECTOR FEEDBACK comment was posted to
+  // the issue thread on this call (typed feedback) — lets the card name the
+  // post outcome separately from the relay's RELAY row.
+  posted?: boolean
 }
 
 // ---- Files types ----------------------------------------------------------
@@ -328,6 +332,13 @@ const spawn = {
   // `issue` (#310) — the card's PROCEED button on AT GATE.
   proceed: (issue: number): Promise<SpawnActionResult> =>
     ipcRenderer.invoke('spawn:proceed', issue),
+  // The revision loop (#339) — the card's REVISE button on AT GATE/REVISING:
+  // post `feedbackText` (when non-empty) to the issue thread as a DIRECTOR
+  // FEEDBACK comment, then relay the fixed "revise per the latest DIRECTOR
+  // FEEDBACK, then re-gate" into the lane's pane. A failed post relays
+  // nothing; `posted` on the result names the post outcome.
+  revise: (issue: number, feedbackText?: string): Promise<SpawnActionResult> =>
+    ipcRenderer.invoke('spawn:revise', issue, feedbackText),
   // Guarded teardown of the live lane working `issue` (#317) — the card's
   // CLOSE OUT button; `force` only from its CLOSE ANYWAY on the dirty warn.
   closeLane: (issue: number, force?: boolean): Promise<SpawnActionResult> =>

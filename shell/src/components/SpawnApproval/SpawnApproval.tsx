@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { OrphanLane, SpawnSnapshot, SpawnView, TeardownRecord } from '../../types/aether'
 import { useSpawnUi } from '../../stores/spawnUi'
-import { foldGateComments, shouldToastGate, type LaneGateState } from '../../utils/laneGate'
+import {
+  foldGateComments,
+  gatePhase,
+  resolveReviseAction,
+  shouldToastGate,
+  type GatePhase,
+  type LaneGateState,
+} from '../../utils/laneGate'
 
 // The spawn actor's window — a global modal raised by the shell's SpawnService
 // when a spawn request lands in the ledger (raven's request_spawn tool wrote it
@@ -395,8 +402,13 @@ function teardownRowValue(t: TeardownRecord): string {
 // comment on the issue thread newer than the spawn renders LANE AT GATE with
 // the report inline and a PROCEED button (the "clean, proceed" relay — the
 // same ledger path the lane_proceed voice tool writes); a PR OPENED comment
-// upgrades the state and links the PR. Draft spawns render exactly as before.
-// Mounted with key={display.id} so gate/relay state never leaks across records.
+// upgrades the state and links the PR. The revision loop (#339): AT GATE and
+// REVISING carry a feedback input whose REVISE posts the typed text to the
+// thread as DIRECTOR FEEDBACK and relays the fixed re-gate order; DIRECTOR
+// FEEDBACK newer than the report renders LANE REVISING with the feedback
+// inline, and PROCEED stays available there as the accept-anyway override.
+// Draft spawns render exactly as before. Mounted with key={display.id} so
+// gate/relay state never leaks across records.
 function ActiveCard({
   display,
   snap,
@@ -422,11 +434,9 @@ function ActiveCard({
   // thread to fold.
   const issue = display.kind === 'lane' ? (display.issue ?? null) : null
   const { gate, checking, gateError, refresh } = useLaneGate(issue, display.ts)
-  const phase: 'working' | 'at-gate' | 'pr-opened' = gate?.pr
-    ? 'pr-opened'
-    : gate?.report
-      ? 'at-gate'
-      : 'working'
+  // Pure fold → phase (#339): PR OPENED > REVISING (feedback newer than the
+  // report) > AT GATE > working. laneGate.gatePhase owns the precedence.
+  const phase: GatePhase = gatePhase(gate)
   const prUrl = gate?.pr?.url ?? null
 
   // PROCEED outcome, local to this card; the ledger keeps the audit trail
@@ -442,6 +452,42 @@ function ActiveCard({
     if (!res.ok) setProceedError(res.error ?? 'relay failed')
   }
 
+  // REVISE (#339): typed feedback posts to the thread then relays the fixed
+  // re-gate order; an empty press against fresh thread feedback relays only;
+  // an empty press with nothing to revise against refuses by name — the
+  // decision is resolveReviseAction's (pure, unit-tested), this handler just
+  // dispatches it. Post outcome is card-local; the relay's audit trail is
+  // the ledger's RELAY row, same as PROCEED.
+  const [feedbackInput, setFeedbackInput] = useState('')
+  const [revisingBusy, setRevisingBusy] = useState(false)
+  const [reviseError, setReviseError] = useState<string | null>(null)
+  const [revisePosted, setRevisePosted] = useState(false)
+  const onRevise = async (): Promise<void> => {
+    if (issue == null || revisingBusy) return
+    const action = resolveReviseAction(gate, feedbackInput)
+    if (action.kind === 'refuse') {
+      setReviseError(action.error)
+      return
+    }
+    setRevisingBusy(true)
+    setReviseError(null)
+    setRevisePosted(false)
+    const res = await window.aether.spawn.revise(
+      issue,
+      action.kind === 'post-and-relay' ? action.text : undefined,
+    )
+    setRevisingBusy(false)
+    if (!res.ok) {
+      setReviseError(res.error ?? 'revise failed')
+      return
+    }
+    setFeedbackInput('')
+    setRevisePosted(res.posted === true)
+    // Re-fold the thread: the fresh DIRECTOR FEEDBACK comment flips the card
+    // to REVISING and renders the posted body inline.
+    refresh()
+  }
+
   // The lane's newest relay (snapshot arrives newest-first) — makes a voice
   // "proceed lane N" observable on the card, success or failure.
   const lastRelay = issue != null ? (snap.relays.find((r) => r.issue === issue) ?? null) : null
@@ -453,7 +499,13 @@ function ActiveCard({
   const { closing, closeError, closePhase, onCloseOut } = useCloseOut(issue, lastTeardown)
 
   const heading =
-    phase === 'pr-opened' ? 'LANE PR OPENED' : phase === 'at-gate' ? 'LANE AT GATE' : 'SPAWN ACTIVE'
+    phase === 'pr-opened'
+      ? 'LANE PR OPENED'
+      : phase === 'revising'
+        ? 'LANE REVISING'
+        : phase === 'at-gate'
+          ? 'LANE AT GATE'
+          : 'SPAWN ACTIVE'
 
   return (
     <Frame heading={heading} onMinimize={onMinimize}>
@@ -472,11 +524,13 @@ function ActiveCard({
                 ? 'checking the issue thread…'
                 : phase === 'pr-opened'
                   ? (gate?.pr?.body.split('\n')[0]?.trim() ?? 'PR opened')
-                  : phase === 'at-gate'
-                    ? 'AT GATE — report below; PROCEED relays "clean, proceed"'
-                    : gateError
-                      ? `check failed — ${gateError}`
-                      : 'working — no gate report on the issue thread yet'
+                  : phase === 'revising'
+                    ? 'REVISING — latest DIRECTOR FEEDBACK below; REVISE re-relays the re-gate order'
+                    : phase === 'at-gate'
+                      ? 'AT GATE — report below; PROCEED relays "clean, proceed"'
+                      : gateError
+                        ? `check failed — ${gateError}`
+                        : 'working — no gate report on the issue thread yet'
             }
           />
         )}
@@ -493,6 +547,9 @@ function ActiveCard({
           />
         )}
         {lastTeardown && <Row label="TEARDOWN" value={teardownRowValue(lastTeardown)} />}
+        {revisePosted && (
+          <Row label="FEEDBACK" value="DIRECTOR FEEDBACK posted to the issue thread ✓" />
+        )}
         {closePhase === 'armed' && (
           <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
             CONFIRM CLOSE OUT runs the teardown: tmux session killed, worktree removed, branch
@@ -503,6 +560,19 @@ function ActiveCard({
         {closePhase === 'warn' && (
           <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
             This lane has uncommitted or unpushed work — CLOSE ANYWAY destroys it permanently.
+          </div>
+        )}
+        {phase === 'revising' && gate?.feedback && (
+          <div className="pt-2">
+            <div className="text-[10px] tracking-[0.2em] mb-1.5" style={{ color: 'var(--holo-muted)' }}>
+              DIRECTOR FEEDBACK — the lane&apos;s current revision contract
+            </div>
+            <pre
+              className="text-[11px] font-mono whitespace-pre-wrap break-words rounded p-3 max-h-[34vh] overflow-y-auto"
+              style={{ color: 'var(--holo-text)', background: 'var(--holo-bg)', border: '1px solid var(--holo-border)' }}
+            >
+              {gate.feedback}
+            </pre>
           </div>
         )}
         {gate?.report && (
@@ -518,6 +588,25 @@ function ActiveCard({
             </pre>
           </div>
         )}
+        {(phase === 'at-gate' || phase === 'revising') && (
+          <div className="pt-2">
+            <div className="text-[10px] tracking-[0.2em] mb-1.5" style={{ color: 'var(--holo-muted)' }}>
+              FEEDBACK — posted as &quot;DIRECTOR FEEDBACK — …&quot; on the issue thread
+            </div>
+            <textarea
+              value={feedbackInput}
+              onChange={(e) => setFeedbackInput(e.target.value)}
+              rows={3}
+              placeholder="What the lane must address before it re-gates (REVISE posts it, then relays the fixed re-gate order)"
+              className="w-full text-[11px] font-mono rounded p-2 resize-y outline-none"
+              style={{
+                color: 'var(--holo-text)',
+                background: 'var(--holo-bg)',
+                border: '1px solid var(--holo-border)',
+              }}
+            />
+          </div>
+        )}
         <div className="text-[11px] font-mono pt-1" style={{ color: 'var(--holo-muted)' }}>
           {display.tmuxSession
             ? displayOrphan
@@ -527,9 +616,9 @@ function ActiveCard({
               ? 'A Claude Code session is running in a plain terminal pane (tmux is not installed) — quitting Aether KILLS this lane. Mark complete when the session is done.'
               : 'A Claude Code session is running in its own Terminal window. Closing that window stops the agent (the kill switch). Mark complete when the session is done. You can also minimize this window and reopen it from the Spawns strip.'}
         </div>
-        {(actionError || proceedError || closeError) && (
+        {(actionError || proceedError || reviseError || closeError) && (
           <div className="text-[11px] font-mono" style={{ color: 'var(--holo-muted)' }}>
-            {actionError ?? proceedError ?? closeError}
+            {actionError ?? proceedError ?? reviseError ?? closeError}
           </div>
         )}
         <OrphanStrip orphans={otherOrphans} />
@@ -557,11 +646,24 @@ function ActiveCard({
             onClick={() => void window.aether.shell.openExternal(prUrl)}
           />
         )}
-        {phase === 'at-gate' && (
+        {(phase === 'at-gate' || phase === 'revising') && (
+          // REVISE is primary while the lane owes a revision; on AT GATE it
+          // stands ready beside PROCEED for the first feedback round.
+          <Btn
+            label={revisingBusy ? (feedbackInput.trim() ? 'POSTING…' : 'RELAYING…') : 'REVISE'}
+            variant={phase === 'revising' ? 'accent' : 'ghost'}
+            disabled={revisingBusy || proceeding}
+            title={`Posts typed feedback to the issue thread, then types "revise per the latest DIRECTOR FEEDBACK, then re-gate" into the lane's pane`}
+            onClick={() => void onRevise()}
+          />
+        )}
+        {(phase === 'at-gate' || phase === 'revising') && (
+          // From REVISING this is the Director's accept-anyway override — the
+          // feedback stays on the thread as history, the lane ships.
           <Btn
             label={proceeding ? 'RELAYING…' : 'PROCEED'}
-            variant="accent"
-            disabled={proceeding}
+            variant={phase === 'at-gate' ? 'accent' : 'ghost'}
+            disabled={proceeding || revisingBusy}
             title={`Types "clean, proceed" into the lane's pane — it will open its PR`}
             onClick={() => void onProceed()}
           />
@@ -598,7 +700,7 @@ function ActiveCard({
         ) : (
           <Btn
             label="MARK COMPLETE"
-            variant={displayOrphan || phase === 'at-gate' ? 'ghost' : 'accent'}
+            variant={displayOrphan || phase === 'at-gate' || phase === 'revising' ? 'ghost' : 'accent'}
             onClick={() => onComplete(display.id)}
           />
         )}

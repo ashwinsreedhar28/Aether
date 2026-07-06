@@ -13,6 +13,7 @@ working name; they are preserved verbatim as historical record.
 
 - **[2026-07-06]** [ADR: Browser tabs are shell tabs — one tab system, no in-app strip (#336)](decisions/2026-07-06-browser-tabs-are-shell-tabs.md)
 - **[2026-07-06]** [ADR: Harness transcript contract + ephemeral credentials (#366)](decisions/2026-07-06-harness-transcript-contract-ephemeral-credentials.md)
+- **[2026-07-06]** [ADR: The R2 revision loop — four laws for the gate's REVISING state (#339)](decisions/2026-07-06-r2-revision-loop.md)
 - **[2026-07-06]** [ADR: The semantic region grammar is the canonical placement path (#337)](decisions/2026-07-06-semantic-region-grammar.md)
 - **[2026-06-18]** [ADR: TS SDK canonical must match wire-roundtrip canonical (#359)](decisions/2026-06-18-ts-sdk-canonical-undefined.md)
 - **[2026-06-17]** [ADR: finance.chart fetches live upstream OHLC for the detail page — the "no upstream historical fetch" posture is scoped to the history series, not the node (#354)](decisions/2026-06-17-finance-chart-upstream-fetch-detail-page.md)

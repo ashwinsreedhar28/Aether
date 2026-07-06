@@ -18,3 +18,14 @@
   a deny the node will never send, proving the instrument can report FAIL
   (a gate tool that can only say PASS is not evidence). Transcript +
   credential law recorded in an ADR. Closes #366.
+
+### Fixed
+- Research node deny names survive to the wire (#366): the SDK builds a
+  `MeshDeny` error payload as `{ reason: <deny name>, ...details }`, so the
+  node's `reason:` key *inside* details ("query is empty", the S2 error
+  message, …) silently clobbered the deny name — `research_bad_query`,
+  `research_search_failed`, `research_synthesis_failed`, and
+  `research_no_papers` never actually reached the consumers that switch on
+  them (`ResearchApp.tsx` `friendlyError`, raven's `research_tool.py`, the
+  node README's documented contract). Caught by the new harness on its
+  first live run; the human-readable cause now rides under `detail`.

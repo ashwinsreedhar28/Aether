@@ -24,7 +24,7 @@ import { homedir } from 'node:os'
 // line (in Python); the shell appends *lifecycle* events here. Both agree on the
 // path because both resolve $userData/data (AETHER_DATA_DIR).
 //
-// Four line families share the log, folded oldest → newest:
+// Five line families share the log, folded oldest → newest:
 //   • a REQUEST line — draft kind:
 //       { id, ts, draft_path, draft_name, status:'requested' }
 //     or lane kind (#268, written by raven's work_on_issue tool):
@@ -39,10 +39,15 @@ import { homedir } from 'node:os'
 //     section below): every teardown line carries kind:'teardown' and folds
 //     separately; its OUTCOME on the spawn record rides the lifecycle family
 //     ('closed' on success, 'teardown_failed' on a failed step).
-// Discriminator: a line with kind === 'relay' or kind === 'teardown' belongs
-// to its own fold and never touches a spawn record; a line with a string
-// `draft_path` is a draft request; a line with kind === 'lane' and a numeric
-// `issue` is a lane request; any other line with `id` + `status` is a
+//   • a TELEMETRY line (#364, single-line — see the telemetry section below):
+//     one kind:'telemetry' line per closed lane, written when its teardown
+//     completes. Analytics only: it folds separately, has no lifecycle pair,
+//     and carries NO status field, so the Python tools' capacity folds (which
+//     key lifecycle on a string `status`) ignore it without edits.
+// Discriminator: a line with kind === 'relay', 'teardown', or 'telemetry'
+// belongs to its own fold and never touches a spawn record; a line with a
+// string `draft_path` is a draft request; a line with kind === 'lane' and a
+// numeric `issue` is a lane request; any other line with `id` + `status` is a
 // lifecycle event flipping that request's state. Folding forward lets a crash
 // leave a partial log that still reads correctly, and lets the human-gated
 // states (requested → spawned → closed, or → dismissed/failed) be
@@ -86,6 +91,10 @@ export interface SpawnRecord {
   // Present once the recipe has launched a worktree (status 'spawned').
   worktree?: string
   branch?: string
+  // The 'spawned' event's own timestamp, kept distinct from `ts` (which later
+  // events overwrite) — the telemetry family (#364) anchors its newer-than-
+  // spawn guards on it, exactly the laneGate fold's doctrine.
+  spawnedTs?: string
   // Present when the recipe failed at a step (status 'failed') or a guarded
   // teardown failed mid-destruction (status 'teardown_failed', #317).
   step?: string
@@ -192,6 +201,75 @@ export interface TeardownRecord {
   code?: TeardownGuardCode
   step?: string
   error?: string
+}
+
+// ---- telemetry line family (#364) ---------------------------------------------
+// The measurement substrate for the self-improvement loop: one line per CLOSED
+// lane, written by the teardown executor when every destruction step has
+// succeeded. Law (the #364 ADR): capture facts, classify later — no failure
+// taxonomy here; analytics never blocks teardown — every scraped field is
+// individually fallible and a scrape failure writes null plus an error note,
+// never a refused closeout; null-over-guess — an unrecoverable field is null,
+// not a plausible value.
+//
+// Single-line family: unlike relay/teardown there is no request/lifecycle
+// pair — the line is complete at write time. Every line carries
+// kind:'telemetry' so the spawn fold skips it; it deliberately carries NO
+// `status` field, so the Python tools' capacity folds (which key lifecycle
+// lines on a string `status`) ignore it with zero edits — no capacity impact.
+//   { id, ts, kind:'telemetry', issue, spawned_at, closed_at, wall_seconds,
+//     model, effort, tokens:{input,output,cache_read,cache_write},
+//     gate_reports, revises, proceeds,
+//     diff:{files_changed,insertions,deletions}, outcome, error? }
+// The ledger JSONL is the v1 read surface (jq); no renderer surface by spec.
+
+// Token totals summed from the lane's Claude Code session transcripts (the
+// JSONL under ~/.claude/projects/ keyed by the worktree cwd — the binding
+// lives in laneTelemetry.ts).
+export interface LaneTokenTotals {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+}
+
+// `git diff main...HEAD --shortstat` captured in the worktree BEFORE removal.
+// A zero-commit lane records zeros (an empty shortstat IS the fact).
+export interface LaneDiffStat {
+  filesChanged: number
+  insertions: number
+  deletions: number
+}
+
+// Derived from the same gh-CLI PR-by-head-branch surface the teardown's
+// pr-open refusal consults: a merged PR on the lane's branch ⇒ 'merged';
+// none ⇒ 'abandoned'. A failed probe records null (null-over-guess).
+export type LaneOutcome = 'merged' | 'abandoned'
+
+// What the teardown executor captured for one closing lane — writeTelemetry's
+// input. Every nullable field is null when its scrape failed or its source
+// was unrecoverable; `error` carries the semicolon-joined scrape notes.
+export interface TelemetryCapture {
+  issue: number
+  spawnedAt: string | null
+  model: string | null
+  effort: string | null
+  tokens: LaneTokenTotals | null
+  gateReports: number | null
+  revises: number | null
+  proceeds: number | null
+  diff: LaneDiffStat | null
+  outcome: LaneOutcome | null
+  error?: string
+}
+
+// One telemetry line, folded. `ts` doubles as `closedAt` (the line is written
+// at teardown completion); `wallSeconds` is spawn→close, computed at write.
+export interface TelemetryRecord extends TelemetryCapture {
+  id: string
+  ts: string
+  closedAt: string
+  wallSeconds: number | null
 }
 
 // kebab-case slug — MUST match the Python tool's _slugify so the branch/worktree
@@ -538,6 +616,92 @@ export class SpawnLedger {
     return this.foldTeardowns().get(id)
   }
 
+  // ---- telemetry family (#364) -------------------------------------------------
+
+  /** Append one telemetry line for a lane whose teardown just completed.
+   * Stamps the write moment as both `ts` and `closedAt` and computes
+   * `wallSeconds` from the capture's spawnedAt (null when either side is
+   * missing or unparseable — null-over-guess). The CALLER guards this:
+   * analytics never blocks teardown, so a throwing append is caught and
+   * logged, never surfaced as a teardown failure. */
+  writeTelemetry(t: TelemetryCapture): TelemetryRecord {
+    const closedAt = new Date().toISOString()
+    const spawned = t.spawnedAt === null ? NaN : Date.parse(t.spawnedAt)
+    const wallSeconds = Number.isFinite(spawned)
+      ? Math.round((Date.parse(closedAt) - spawned) / 1000)
+      : null
+    const rec: TelemetryRecord = {
+      ...t,
+      id: randomUUID(),
+      ts: closedAt,
+      closedAt,
+      wallSeconds,
+    }
+    const line: Record<string, unknown> = {
+      id: rec.id,
+      ts: rec.ts,
+      kind: 'telemetry',
+      issue: t.issue,
+      spawned_at: t.spawnedAt,
+      closed_at: closedAt,
+      wall_seconds: wallSeconds,
+      model: t.model,
+      effort: t.effort,
+      tokens: t.tokens
+        ? {
+            input: t.tokens.input,
+            output: t.tokens.output,
+            cache_read: t.tokens.cacheRead,
+            cache_write: t.tokens.cacheWrite,
+          }
+        : null,
+      gate_reports: t.gateReports,
+      revises: t.revises,
+      proceeds: t.proceeds,
+      diff: t.diff
+        ? {
+            files_changed: t.diff.filesChanged,
+            insertions: t.diff.insertions,
+            deletions: t.diff.deletions,
+          }
+        : null,
+      outcome: t.outcome,
+    }
+    if (t.error) line.error = t.error
+    this.append(line)
+    return rec
+  }
+
+  /** Folded telemetry lines, newest first (the jq-adjacent programmatic read). */
+  listTelemetry(): TelemetryRecord[] {
+    return [...this.foldTelemetry().values()].sort((a, b) => b.ts.localeCompare(a.ts))
+  }
+
+  /** The newest telemetry line for `issue` — respawns close more than once. */
+  findTelemetry(issue: number): TelemetryRecord | undefined {
+    return this.listTelemetry().find((t) => t.issue === issue)
+  }
+
+  /** Count the two allowlisted relay sentences DELIVERED to `issue`'s lane
+   * since `sinceIso` (the record's spawned event — the laneGate doctrine: a
+   * respawn on the same issue must never inherit the previous run's counts).
+   * Only status 'relayed' counts: a failed or boot-swept relay never reached
+   * the pane, so it drove no cycle. */
+  countRelayTexts(issue: number, sinceIso: string): { revises: number; proceeds: number } {
+    const since = Date.parse(sinceIso)
+    let revises = 0
+    let proceeds = 0
+    if (!Number.isFinite(since)) return { revises, proceeds }
+    for (const r of this.foldRelays().values()) {
+      if (r.issue !== issue || r.status !== 'relayed') continue
+      const at = Date.parse(r.requestedTs)
+      if (!Number.isFinite(at) || at <= since) continue
+      if (r.text === REVISE_TEXT) revises++
+      else if (r.text === RELAY_TEXT) proceeds++
+    }
+    return { revises, proceeds }
+  }
+
   /** Folded relay state, newest request first (for the snapshot/card). */
   listRelays(): RelayRecord[] {
     return [...this.foldRelays().values()].sort((a, b) =>
@@ -616,11 +780,12 @@ export class SpawnLedger {
       if (!id) continue
       const ts = typeof obj.ts === 'string' ? obj.ts : ''
 
-      // Relay (#310) and teardown (#317) lines fold separately (foldRelays /
-      // foldTeardowns); without this skip a relay or teardown request would
-      // seed a ghost 'requested' spawn stub and a failed outcome would raise
-      // a SPAWN FAILED card for a record that never existed.
-      if (obj.kind === 'relay' || obj.kind === 'teardown') continue
+      // Relay (#310), teardown (#317), and telemetry (#364) lines fold
+      // separately (foldRelays / foldTeardowns / foldTelemetry); without this
+      // skip a relay or teardown request would seed a ghost 'requested' spawn
+      // stub and a failed outcome would raise a SPAWN FAILED card for a
+      // record that never existed.
+      if (obj.kind === 'relay' || obj.kind === 'teardown' || obj.kind === 'telemetry') continue
 
       // Request line — carries the draft identity.
       if (typeof obj.draft_path === 'string') {
@@ -639,6 +804,7 @@ export class SpawnLedger {
                 status: existing.status,
                 worktree: existing.worktree,
                 branch: existing.branch,
+                spawnedTs: existing.spawnedTs,
                 step: existing.step,
                 error: existing.error,
               }
@@ -677,6 +843,7 @@ export class SpawnLedger {
                 status: existing.status,
                 worktree: existing.worktree,
                 branch: existing.branch,
+                spawnedTs: existing.spawnedTs,
                 step: existing.step,
                 error: existing.error,
                 tmuxSession: existing.tmuxSession,
@@ -701,6 +868,7 @@ export class SpawnLedger {
         } as SpawnRecord)
       existing.status = status
       existing.ts = ts
+      if (status === 'spawned') existing.spawnedTs = ts
       if (typeof obj.worktree === 'string') existing.worktree = obj.worktree
       if (typeof obj.branch === 'string') existing.branch = obj.branch
       if (typeof obj.step === 'string') existing.step = obj.step
@@ -838,6 +1006,90 @@ export class SpawnLedger {
       }
       if (typeof obj.step === 'string') existing.step = obj.step
       if (typeof obj.error === 'string') existing.error = obj.error
+    }
+
+    return byId
+  }
+
+  // Fold the telemetry family (#364), oldest → newest — single-line records,
+  // so "folding" is shape-validation plus last-write-wins on a duplicated id
+  // (a hand-edit hazard, not a live path). A malformed line is skipped; a
+  // line without a valid issue is dropped (nothing to key analytics on).
+  // Nullable fields stay null unless the line carries the right shape —
+  // reading is as null-over-guess as writing.
+  private foldTelemetry(): Map<string, TelemetryRecord> {
+    const byId = new Map<string, TelemetryRecord>()
+    if (!existsSync(this.path)) return byId
+
+    let raw: string
+    try {
+      raw = readFileSync(this.path, 'utf8')
+    } catch {
+      return byId
+    }
+
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      let obj: Record<string, unknown>
+      try {
+        obj = JSON.parse(trimmed) as Record<string, unknown>
+      } catch {
+        continue /* skip malformed line */
+      }
+      if (obj.kind !== 'telemetry') continue
+      const id = typeof obj.id === 'string' ? obj.id : null
+      if (!id) continue
+      if (typeof obj.issue !== 'number' || !Number.isInteger(obj.issue) || obj.issue < 1) continue
+      const ts = typeof obj.ts === 'string' ? obj.ts : ''
+
+      const tokensRaw = obj.tokens as Record<string, unknown> | null | undefined
+      const tokens =
+        tokensRaw &&
+        typeof tokensRaw === 'object' &&
+        typeof tokensRaw.input === 'number' &&
+        typeof tokensRaw.output === 'number' &&
+        typeof tokensRaw.cache_read === 'number' &&
+        typeof tokensRaw.cache_write === 'number'
+          ? {
+              input: tokensRaw.input,
+              output: tokensRaw.output,
+              cacheRead: tokensRaw.cache_read,
+              cacheWrite: tokensRaw.cache_write,
+            }
+          : null
+
+      const diffRaw = obj.diff as Record<string, unknown> | null | undefined
+      const diff =
+        diffRaw &&
+        typeof diffRaw === 'object' &&
+        typeof diffRaw.files_changed === 'number' &&
+        typeof diffRaw.insertions === 'number' &&
+        typeof diffRaw.deletions === 'number'
+          ? {
+              filesChanged: diffRaw.files_changed,
+              insertions: diffRaw.insertions,
+              deletions: diffRaw.deletions,
+            }
+          : null
+
+      byId.set(id, {
+        id,
+        ts,
+        issue: obj.issue,
+        spawnedAt: typeof obj.spawned_at === 'string' ? obj.spawned_at : null,
+        closedAt: typeof obj.closed_at === 'string' ? obj.closed_at : ts,
+        wallSeconds: typeof obj.wall_seconds === 'number' ? obj.wall_seconds : null,
+        model: typeof obj.model === 'string' ? obj.model : null,
+        effort: typeof obj.effort === 'string' ? obj.effort : null,
+        tokens,
+        gateReports: typeof obj.gate_reports === 'number' ? obj.gate_reports : null,
+        revises: typeof obj.revises === 'number' ? obj.revises : null,
+        proceeds: typeof obj.proceeds === 'number' ? obj.proceeds : null,
+        diff,
+        outcome: obj.outcome === 'merged' || obj.outcome === 'abandoned' ? obj.outcome : null,
+        ...(typeof obj.error === 'string' ? { error: obj.error } : {}),
+      })
     }
 
     return byId

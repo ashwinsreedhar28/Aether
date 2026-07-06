@@ -11,7 +11,7 @@ import {
   rmSync,
   mkdtempSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { tmpdir, homedir } from 'node:os'
 import { dirname, basename, join } from 'node:path'
 import {
   SpawnLedger,
@@ -27,9 +27,17 @@ import {
   type RelayRecord,
   type TeardownRecord,
   type TeardownGuardCode,
+  type TelemetryCapture,
+  type LaneOutcome,
   // .ts extension so `node --test` can load this module (same rule as the
   // test files; tsconfig sets allowImportingTsExtensions).
 } from './spawnLedger.ts'
+import {
+  scrapeTranscriptTokens,
+  parseShortstat,
+  countGateReports,
+  // .ts extension for `node --test` loadability, same rule as spawnLedger.
+} from './laneTelemetry.ts'
 import type { ControlDispatch } from './viewerControl'
 // .ts extension for `node --test` loadability, same rule as spawnLedger.
 import { pickBinaryLine } from './shellCapture.ts'
@@ -122,6 +130,10 @@ export interface SpawnServiceConfig {
   // Injected like viewerNode's — absent in tests; lane spawns then skip the
   // terminal/tiling steps but tmux still owns the process.
   dispatch?: ControlDispatch
+  // Where Claude Code keeps per-cwd session transcripts (#364 token scrape).
+  // Defaults to ~/.claude/projects; injectable so the fixture tests point it
+  // at a temp dir.
+  claudeProjectsDir?: string
 }
 
 /**
@@ -145,6 +157,8 @@ export class SpawnService extends EventEmitter {
   private readonly ledger: SpawnLedger
   private readonly maxLanes: number
   private readonly dispatch: ControlDispatch | null
+  // Claude Code's per-cwd transcript root (#364 token scrape).
+  private readonly claudeProjectsDir: string
   private watcher: FSWatcher | null = null
   private debounce: NodeJS.Timeout | null = null
   // In-process gate covering the window between approve() and the spawned/failed
@@ -195,6 +209,7 @@ export class SpawnService extends EventEmitter {
     this.ledgerPath = cfg.ledgerPath
     this.maxLanes = cfg.maxLanes && cfg.maxLanes >= 1 ? cfg.maxLanes : 3
     this.dispatch = cfg.dispatch ?? null
+    this.claudeProjectsDir = cfg.claudeProjectsDir ?? join(homedir(), '.claude', 'projects')
     // Ledger ctor mkdirs the spawns dir, so the watcher below can attach even
     // before the first request is written.
     this.ledger = new SpawnLedger(cfg.ledgerPath)
@@ -1013,6 +1028,32 @@ export class SpawnService extends EventEmitter {
         }
       }
 
+      // TELEMETRY CAPTURE (#364) — the lane's facts, scraped BEFORE any
+      // destruction step (the diff needs the worktree on disk, the outcome
+      // probe the branch). captureTelemetry guards every scraper into
+      // null-plus-note; this outer catch is the belt-and-braces total-failure
+      // path — analytics NEVER blocks teardown, so the worst capture outcome
+      // is an all-null line, never a refused closeout.
+      let telemetry: TelemetryCapture
+      try {
+        telemetry = await this.captureTelemetry(lane, td.issue, worktree, branch)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        telemetry = {
+          issue: td.issue,
+          spawnedAt: null,
+          model: null,
+          effort: null,
+          tokens: null,
+          gateReports: null,
+          revises: null,
+          proceeds: null,
+          diff: null,
+          outcome: null,
+          error: `telemetry capture failed whole — ${msg.slice(0, 300)}`,
+        }
+      }
+
       // EXECUTE — the canonical cleanup block's exact order (cleanupBlock in
       // spawnLedger.ts), each step precondition-guarded for retry idempotency.
       let step = 'tmux kill-session'
@@ -1075,6 +1116,14 @@ export class SpawnService extends EventEmitter {
 
       this.ledger.markClosed(lane.id)
       this.ledger.markTeardownDone(id)
+      // TELEMETRY WRITE (#364): exactly one line per closed lane, written
+      // when the teardown completes. Guarded — a failed append is logged and
+      // dropped; the closeout above already succeeded and stays succeeded.
+      try {
+        this.ledger.writeTelemetry(telemetry)
+      } catch (err) {
+        console.error(`[spawnService] telemetry write for lane #${td.issue} failed:`, err)
+      }
       // The session is gone — a stale orphan offer for it must not survive.
       if (lane.tmuxSession) {
         this.orphans = this.orphans.filter((o) => o.session !== lane.tmuxSession)
@@ -1186,6 +1235,167 @@ export class SpawnService extends EventEmitter {
     } catch {
       return false
     }
+  }
+
+  // ---- lane telemetry capture (#364) --------------------------------------------
+
+  // Assemble one closing lane's TelemetryCapture — every scraper individually
+  // guarded, so a single failure nulls ITS field, appends a note, and leaves
+  // the others standing (the resilience law: analytics never blocks
+  // teardown). Fields whose newer-than-spawn guard has no anchor (a record
+  // missing its spawned-event timestamp) are null under null-over-guess: an
+  // unscoped scrape could silently include a previous run on a respawned
+  // issue. `effort` is null by binding — the pinned CC version's transcripts
+  // carry no structured effort field (laneTelemetry.ts).
+  private async captureTelemetry(
+    lane: SpawnRecord,
+    issue: number,
+    worktree: string,
+    branch: string,
+  ): Promise<TelemetryCapture> {
+    const notes: string[] = []
+    const note = (field: string, err: unknown): void => {
+      const msg = err instanceof Error ? err.message : String(err)
+      notes.push(`${field}: ${msg.slice(0, 300)}`)
+    }
+
+    const spawnedAt = lane.spawnedTs ?? null
+    if (!spawnedAt) {
+      notes.push('spawnedAt: record has no spawned-event timestamp — time-scoped fields are null')
+    }
+
+    // Tokens + model ride one transcript scrape (laneTelemetry.ts binding).
+    let tokens: TelemetryCapture['tokens'] = null
+    let model: string | null = null
+    if (spawnedAt) {
+      try {
+        const scraped = this.scrapeTokens(worktree, spawnedAt)
+        tokens = scraped.tokens
+        model = scraped.model
+      } catch (err) {
+        note('tokens', err)
+      }
+    }
+
+    // One github read at teardown: the issue thread, counted with the
+    // laneGate fold's guard semantics (countGateReports).
+    let gateReports: number | null = null
+    if (spawnedAt) {
+      try {
+        gateReports = countGateReports(await this.fetchIssueComments(issue), spawnedAt)
+      } catch (err) {
+        note('gateReports', err)
+      }
+    }
+
+    // Cycle counts from the ledger's own relay lines (delivered orders only —
+    // countRelayTexts documents the reading).
+    let revises: number | null = null
+    let proceeds: number | null = null
+    if (spawnedAt) {
+      try {
+        const counts = this.ledger.countRelayTexts(issue, spawnedAt)
+        revises = counts.revises
+        proceeds = counts.proceeds
+      } catch (err) {
+        note('relays', err)
+      }
+    }
+
+    // The diff fact — worktree still on disk here (pre-destruction); an empty
+    // shortstat parses to zeros, the zero-commit lane's true record (AC5).
+    let diff: TelemetryCapture['diff'] = null
+    try {
+      diff = parseShortstat(await this.captureDiffShortstat(worktree))
+    } catch (err) {
+      note('diff', err)
+    }
+
+    // Outcome from the merged-PR probe — branch still exists here.
+    let outcome: LaneOutcome | null = null
+    try {
+      outcome = (await this.probeMergedPr(branch)) ? 'merged' : 'abandoned'
+    } catch (err) {
+      note('outcome', err)
+    }
+
+    return {
+      issue,
+      spawnedAt,
+      model,
+      effort: null,
+      tokens,
+      gateReports,
+      revises,
+      proceeds,
+      diff,
+      outcome,
+      ...(notes.length ? { error: notes.join('; ') } : {}),
+    }
+  }
+
+  // Stub point for the fixture tests; the pure path/usage bindings live in
+  // laneTelemetry.ts.
+  private scrapeTokens(
+    worktree: string,
+    sinceIso: string,
+  ): ReturnType<typeof scrapeTranscriptTokens> {
+    return scrapeTranscriptTokens(this.claudeProjectsDir, worktree, sinceIso)
+  }
+
+  // The diff capture, run in the worktree BEFORE any destruction step (AC5).
+  // Command per the #364 spec: `git diff main...HEAD --shortstat`. Throws on
+  // a missing worktree (the teardown_failed retry path — the dir may already
+  // be rm'd) or a git error; the caller records a null diff.
+  private async captureDiffShortstat(worktree: string): Promise<string> {
+    return this.runShellCapture('git diff main...HEAD --shortstat', worktree)
+  }
+
+  // The lane issue's comments, read through the same gh-CLI surface (and the
+  // same ADR-flagged main-side-GitHub exception) as probeOpenPr. Maps gh's
+  // camelCase createdAt into the {body, created_at} shape github.get_issue
+  // serves, so countGateReports shares the laneGate fold's input contract.
+  // THROWS on a probe failure — the caller records a null gateReports.
+  private async fetchIssueComments(
+    issue: number,
+  ): Promise<Array<{ body?: unknown; created_at?: unknown }>> {
+    const out = await this.runShellCapture(`gh issue view ${issue} --json comments`, this.repoRoot)
+    // -lic capture hygiene (probeOpenPr's lesson): scan for the line that
+    // parses as gh's compact JSON object instead of trusting the capture.
+    for (const line of out.split('\n').reverse()) {
+      const t = line.trim()
+      if (!t.startsWith('{')) continue
+      try {
+        const obj = JSON.parse(t) as { comments?: Array<{ body?: unknown; createdAt?: unknown }> }
+        if (!Array.isArray(obj.comments)) continue
+        return obj.comments.map((c) => ({ body: c?.body, created_at: c?.createdAt }))
+      } catch {
+        /* keep scanning */
+      }
+    }
+    throw new Error(`gh issue view returned no JSON (got ${JSON.stringify(out.slice(0, 200))})`)
+  }
+
+  // Was a PR with `branch` as head ever MERGED? probeOpenPr's merged-state
+  // sibling — same gh-CLI surface, same throw-with-a-name posture (the caller
+  // records a null outcome, never a guessed one). Runs during capture, while
+  // the branch still exists.
+  private async probeMergedPr(branch: string): Promise<boolean> {
+    const out = await this.runShellCapture(
+      `gh pr list --head ${sq(branch)} --state merged --json number --limit 1`,
+      this.repoRoot,
+    )
+    for (const line of out.split('\n').reverse()) {
+      const t = line.trim()
+      if (!t.startsWith('[')) continue
+      try {
+        const arr = JSON.parse(t) as unknown[]
+        return arr.length > 0
+      } catch {
+        /* keep scanning */
+      }
+    }
+    throw new Error(`gh pr list returned no JSON (got ${JSON.stringify(out.slice(0, 200))})`)
   }
 
   // ---- tmux ------------------------------------------------------------------

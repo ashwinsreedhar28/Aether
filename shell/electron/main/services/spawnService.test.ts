@@ -875,3 +875,191 @@ test('openLaneTerminal resolves false against a never-resolving dispatch', async
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+// ---- lane telemetry at teardown (#364): capture, resilience, one line per close --
+
+// teardownFixture, extended with the four telemetry stub points. The spawned
+// event is re-dated into the past (a later 'spawned' line re-anchors the fold)
+// so relays and comments seeded "now" are strictly newer than spawn. The
+// default stubs are the happy path — each test flips what it probes; the diff
+// stub records itself into `commands`, so capture-before-destruction is
+// assertable against the real step order.
+interface TelemetryOpen extends TeardownOpen {
+  scrapeTokens: (
+    worktree: string,
+    sinceIso: string,
+  ) => {
+    tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }
+    model: string | null
+  }
+  captureDiffShortstat: (worktree: string) => Promise<string>
+  fetchIssueComments: (issue: number) => Promise<Array<{ body?: unknown; created_at?: unknown }>>
+  probeMergedPr: (branch: string) => Promise<boolean>
+}
+
+const TELEMETRY_SPAWNED_TS = '2026-06-20T00:00:00.000Z'
+
+function telemetryFixture(): ReturnType<typeof teardownFixture> & { open: TelemetryOpen } {
+  const fx = teardownFixture()
+  // Re-anchor the spawn into the past: the fold takes the LAST spawned
+  // event's ts as spawnedTs, and absent fields keep their folded values.
+  appendFileSync(
+    join(fx.repoRoot, 'spawns', 'requests.jsonl'),
+    JSON.stringify({ id: 'lane-rec', ts: TELEMETRY_SPAWNED_TS, status: 'spawned' }) + '\n',
+  )
+  const open = fx.open as TelemetryOpen
+  open.scrapeTokens = () => ({
+    tokens: { input: 116, output: 77, cacheRead: 1033, cacheWrite: 244 },
+    model: 'claude-opus-4-8',
+  })
+  open.captureDiffShortstat = async (worktree: string) => {
+    fx.commands.push({ cmd: 'git diff main...HEAD --shortstat', cwd: worktree })
+    return ' 3 files changed, 120 insertions(+), 15 deletions(-)'
+  }
+  open.fetchIssueComments = async () => []
+  open.probeMergedPr = async () => true
+  return { ...fx, open }
+}
+
+test('closeLane writes exactly ONE telemetry line carrying the captured facts (#364 AC1/AC3)', async () => {
+  const { svc, ledger, worktree, commands, cleanup } = telemetryFixture()
+  const fx = { svc, ledger, worktree, commands }
+  try {
+    const open = svc as unknown as TelemetryOpen
+    // Seeded thread: one report from before spawn (a previous run — never
+    // counted), two gate arrivals after (initial + re-gate), plus feedback
+    // and chatter that never count.
+    open.fetchIssueComments = async () => [
+      { body: 'GATE REPORT — previous run', created_at: '2026-06-01T00:00:00.000Z' },
+      { body: 'GATE REPORT — verify clean', created_at: '2026-07-01T00:00:00.000Z' },
+      { body: 'DIRECTOR FEEDBACK — tighten it', created_at: '2026-07-02T00:00:00.000Z' },
+      { body: 'GATE REPORT — re-gated', created_at: '2026-07-03T00:00:00.000Z' },
+      { body: 'ship it when green', created_at: '2026-07-03T01:00:00.000Z' },
+    ]
+    // Seeded ledger cycles: one delivered revise, one delivered proceed
+    // (requestRelay stamps "now" — strictly newer than the re-dated spawn).
+    const r1 = fx.ledger.requestRelay(232, REVISE_TEXT)
+    fx.ledger.markRelayed(r1.id)
+    const p1 = fx.ledger.requestRelay(232, RELAY_TEXT)
+    fx.ledger.markRelayed(p1.id)
+
+    const res = await fx.svc.closeLane(232)
+    assert.equal(res.ok, true)
+    assert.equal(fx.ledger.find('lane-rec')?.status, 'closed')
+
+    const lines = fx.ledger.listTelemetry()
+    assert.equal(lines.length, 1)
+    const t = lines[0]!
+    assert.equal(t.issue, 232)
+    assert.equal(t.spawnedAt, TELEMETRY_SPAWNED_TS)
+    assert.ok((t.wallSeconds ?? 0) > 0)
+    assert.deepEqual(t.tokens, { input: 116, output: 77, cacheRead: 1033, cacheWrite: 244 })
+    assert.equal(t.model, 'claude-opus-4-8')
+    // No structured effort field on the pinned CC version: null by binding.
+    assert.equal(t.effort, null)
+    assert.equal(t.gateReports, 2)
+    assert.equal(t.revises, 1)
+    assert.equal(t.proceeds, 1)
+    assert.deepEqual(t.diff, { filesChanged: 3, insertions: 120, deletions: 15 })
+    assert.equal(t.outcome, 'merged')
+    assert.equal(t.error, undefined)
+
+    // AC5 ordering: the diff was captured BEFORE the worktree left the disk.
+    const cmds = fx.commands.map((c) => c.cmd)
+    const diffAt = cmds.indexOf('git diff main...HEAD --shortstat')
+    const removeAt = cmds.findIndex((c) => c.startsWith('git worktree remove'))
+    assert.ok(diffAt !== -1 && removeAt !== -1 && diffAt < removeAt)
+    // And it ran in the worktree, not the main checkout.
+    assert.equal(fx.commands[diffAt]?.cwd, fx.worktree)
+  } finally {
+    cleanup()
+  }
+})
+
+test('every scrape failing still closes the lane — null fields plus the note (#364 AC4)', async () => {
+  const { svc, ledger, cleanup, open } = telemetryFixture()
+  try {
+    open.scrapeTokens = () => {
+      throw new Error('no Claude Code project dir at /nope')
+    }
+    open.captureDiffShortstat = async () => {
+      throw new Error('git died')
+    }
+    open.fetchIssueComments = async () => {
+      throw new Error('gh unreachable')
+    }
+    open.probeMergedPr = async () => {
+      throw new Error('gh pr list timed out')
+    }
+
+    const res = await svc.closeLane(232)
+    // The resilience law: analytics NEVER blocks teardown.
+    assert.equal(res.ok, true)
+    assert.equal(ledger.find('lane-rec')?.status, 'closed')
+    assert.equal(ledger.listTeardowns()[0]?.status, 'done')
+    assert.equal(ledger.liveCount(), 0)
+
+    const t = ledger.findTelemetry(232)
+    assert.ok(t)
+    assert.equal(t.tokens, null)
+    assert.equal(t.model, null)
+    assert.equal(t.diff, null)
+    assert.equal(t.gateReports, null)
+    assert.equal(t.outcome, null)
+    // The ledger's own relay fold did not fail — counts are still facts.
+    assert.equal(t.revises, 0)
+    assert.equal(t.proceeds, 0)
+    // Every failed scrape left its name in the note.
+    for (const field of ['tokens:', 'gateReports:', 'diff:', 'outcome:']) {
+      assert.ok(t.error?.includes(field), `note missing ${field} (got: ${t.error})`)
+    }
+  } finally {
+    cleanup()
+  }
+})
+
+test('a zero-commit lane records diff zeros — empty shortstat is the fact, not a failure (#364 AC5)', async () => {
+  const { svc, ledger, cleanup, open } = telemetryFixture()
+  try {
+    open.captureDiffShortstat = async () => ''
+    open.probeMergedPr = async () => false
+
+    const res = await svc.closeLane(232)
+    assert.equal(res.ok, true)
+    const t = ledger.findTelemetry(232)
+    assert.ok(t)
+    assert.deepEqual(t.diff, { filesChanged: 0, insertions: 0, deletions: 0 })
+    // No merged PR on the branch ⇒ the lane was abandoned.
+    assert.equal(t.outcome, 'abandoned')
+    assert.equal(t.error, undefined)
+  } finally {
+    cleanup()
+  }
+})
+
+test('a failed teardown writes NO telemetry line; the successful retry writes exactly one (#364 AC1)', async () => {
+  const { svc, ledger, commands, cleanup, open } = telemetryFixture()
+  try {
+    const realRunShell = open.runShell
+    open.runShell = async (cmd: string, cwd: string) => {
+      if (cmd.startsWith('git branch -D')) throw new Error('branch delete died')
+      return realRunShell(cmd, cwd)
+    }
+    const first = await svc.closeLane(232)
+    assert.equal(first.ok, false)
+    assert.equal(ledger.find('lane-rec')?.status, 'teardown_failed')
+    // The lane did not close — no telemetry line (one line per CLOSED lane).
+    assert.equal(ledger.listTelemetry().length, 0)
+
+    // Retry resumes destruction; capture runs again and the line lands once.
+    open.runShell = realRunShell
+    commands.length = 0
+    const second = await svc.closeLane(232)
+    assert.equal(second.ok, true)
+    assert.equal(ledger.find('lane-rec')?.status, 'closed')
+    assert.equal(ledger.listTelemetry().length, 1)
+    assert.equal(ledger.findTelemetry(232)?.outcome, 'merged')
+  } finally {
+    cleanup()
+  }
+})

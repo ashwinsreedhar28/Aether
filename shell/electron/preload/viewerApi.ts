@@ -148,6 +148,14 @@ export interface JsonRpcNotification {
   params?: unknown;
 }
 
+export interface BrowserWindowOpenDetails {
+  url: string;
+  /** Electron's WindowOpenHandlerDetails.disposition, forwarded verbatim. */
+  disposition: string;
+  /** webContents.id of the guest that asked — consumers filter on it. */
+  sourceWebContentsId: number;
+}
+
 const electronAPI = {
   // File system operations
   fs: {
@@ -398,6 +406,20 @@ const electronAPI = {
   browser: {
     openExternal: (url: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('browser:openExternal', url),
+
+    // Window-open requests from a <webview> guest (target=_blank, cmd+click,
+    // window.open). Electron ≥22 removed the webview `new-window` DOM event;
+    // main denies the native popup (viewerHost's did-attach-webview hook) and
+    // forwards the request here. Consumers match sourceWebContentsId against
+    // their own webview before routing.
+    onWindowOpen: (callback: (details: BrowserWindowOpenDetails) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, details: BrowserWindowOpenDetails) =>
+        callback(details);
+      ipcRenderer.on('browser:window-open', handler);
+      return () => {
+        ipcRenderer.removeListener('browser:window-open', handler);
+      };
+    },
   },
 
   // MCP operations

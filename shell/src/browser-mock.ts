@@ -74,6 +74,7 @@ if (isBrowser) {
     },
     browser: {
       openExternal: () => Promise.resolve({ success: true }),
+      onWindowOpen: noopUnsubscribe,
     },
     mcp: {
       loadSettings: () => Promise.resolve({}),

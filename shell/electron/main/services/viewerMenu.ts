@@ -108,7 +108,9 @@ export function createApplicationMenu(
         { type: 'separator' },
         {
           label: 'Tile Windows',
-          accelerator: 'CmdOrCtrl+T',
+          // Was CmdOrCtrl+T, which shadowed the browser's cmd+t (new tab,
+          // #336) — menu accelerators fire before any renderer keydown.
+          accelerator: 'CmdOrCtrl+Shift+T',
           click: () => {
             mainWindow.webContents.send('menu:tile-windows');
           },

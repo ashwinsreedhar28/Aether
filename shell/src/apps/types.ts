@@ -42,6 +42,12 @@ export interface AppContextValue {
   openFile: (path: string) => void;
   /** Open a new window with an app */
   openWindow: (appId: string, filePath?: string) => void;
+  /**
+   * Open a new tab in the current window running an explicit app with an
+   * arbitrary payload (e.g. the browser at a URL — openFile can't target an
+   * app, openWindow can't target a tab). Background tabs don't take focus.
+   */
+  openTab: (appId: string, filePath?: string, opts?: { background?: boolean }) => void;
   /** Close the current tab */
   closeTab: () => void;
   /** Mark the current tab as dirty (unsaved changes) */

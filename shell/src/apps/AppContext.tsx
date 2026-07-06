@@ -64,6 +64,10 @@ export function AppProvider({ children, windowId, tabId }: AppProviderProps) {
       });
     },
 
+    openTab: (appId: string, filePath?: string, opts?: { background?: boolean }) => {
+      addTab(windowId, filePath ?? '', appId, undefined, { activate: !opts?.background });
+    },
+
     closeTab: () => {
       removeTab(windowId, tabId);
     },

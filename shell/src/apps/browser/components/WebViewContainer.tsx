@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useImperativeHandle, forwardRef, useState } from 'react';
 import type { BrowserState, WebViewRef } from '../types';
 import { HOME_PAGE, BLOCKED_PROTOCOLS } from '../constants';
+import { routeWindowOpen, type ForwardedWindowOpenDetails } from '../windowOpenRouter';
 
 interface WebViewContainerProps {
   initialUrl?: string;
   onStateChange: (updates: Partial<BrowserState>) => void;
   onTitleChange?: (title: string) => void;
+  /** Open a new shell tab running the Browser app at the URL (#336). */
+  onOpenInNewTab: (url: string, opts: { background: boolean }) => void;
 }
 
 export const WebViewContainer = forwardRef<WebViewRef, WebViewContainerProps>(
-  function WebViewContainer({ initialUrl, onStateChange, onTitleChange }, ref) {
+  function WebViewContainer({ initialUrl, onStateChange, onTitleChange, onOpenInNewTab }, ref) {
     const webviewRef = useRef<Electron.WebviewTag | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [src] = useState(() => initialUrl || HOME_PAGE);
@@ -100,15 +103,6 @@ export const WebViewContainer = forwardRef<WebViewRef, WebViewContainerProps>(
         }
       };
 
-      const handleNewWindow = (event: { preventDefault: () => void; url: string }) => {
-        event.preventDefault();
-        // Open in the same webview instead of new window
-        const protocol = new URL(event.url).protocol;
-        if (!BLOCKED_PROTOCOLS.includes(protocol)) {
-          webview.loadURL(event.url);
-        }
-      };
-
       const handleWillNavigate = (event: Electron.WillNavigateEvent) => {
         try {
           const protocol = new URL(event.url).protocol;
@@ -127,7 +121,6 @@ export const WebViewContainer = forwardRef<WebViewRef, WebViewContainerProps>(
       webview.addEventListener('did-navigate-in-page', handleDidNavigateInPage as EventListener);
       webview.addEventListener('page-title-updated', handlePageTitleUpdated as EventListener);
       webview.addEventListener('did-fail-load', handleDidFailLoad as EventListener);
-      webview.addEventListener('new-window', handleNewWindow as unknown as EventListener);
       webview.addEventListener('will-navigate', handleWillNavigate as EventListener);
 
       return () => {
@@ -143,19 +136,46 @@ export const WebViewContainer = forwardRef<WebViewRef, WebViewContainerProps>(
         webview.removeEventListener('did-navigate-in-page', handleDidNavigateInPage as EventListener);
         webview.removeEventListener('page-title-updated', handlePageTitleUpdated as EventListener);
         webview.removeEventListener('did-fail-load', handleDidFailLoad as EventListener);
-        webview.removeEventListener('new-window', handleNewWindow as unknown as EventListener);
         webview.removeEventListener('will-navigate', handleWillNavigate as EventListener);
       };
     }, [emitStateChange, onTitleChange]);
 
+    // Window-open requests (target=_blank, cmd+click, window.open). Electron
+    // ≥22 removed the webview `new-window` DOM event; main denies the native
+    // popup and forwards { url, disposition, sourceWebContentsId } over IPC
+    // (viewerHost's did-attach-webview hook). Every Browser instance hears the
+    // channel; only the one whose guest asked routes it.
+    useEffect(() => {
+      const unsubscribe = window.electron.browser.onWindowOpen((details: ForwardedWindowOpenDetails) => {
+        const webview = webviewRef.current;
+        if (!webview) return;
+        let ownId: number;
+        try {
+          ownId = webview.getWebContentsId();
+        } catch {
+          return; // guest not attached yet — it can't be the source
+        }
+        if (details.sourceWebContentsId !== ownId) return;
+        routeWindowOpen(details, {
+          openTab: onOpenInNewTab,
+          loadInPlace: (url) => webview.loadURL(url),
+        });
+      });
+      return unsubscribe;
+    }, [onOpenInNewTab]);
+
     return (
       <div ref={containerRef} className="flex-1 relative overflow-hidden">
+        {/* allowpopups is required for the guest to RAISE window-open
+            requests at all on Electron ≥22; main's deny-all
+            setWindowOpenHandler guarantees no native popup results. */}
         <webview
           ref={webviewRef}
           src={src}
           className="absolute inset-0 w-full h-full"
           webpreferences="contextIsolation=yes, nodeIntegration=no, sandbox=yes"
           partition="persist:browser"
+          allowpopups
         />
       </div>
     );

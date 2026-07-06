@@ -60,7 +60,7 @@ export interface WorkspaceStore {
   applyLayoutPreset: (preset: LayoutPreset) => void;
 
   // Tab actions
-  addTab: (windowId: string, filePath: string, appId: string, title?: string) => string;
+  addTab: (windowId: string, filePath: string, appId: string, title?: string, opts?: { activate?: boolean }) => string;
   removeTab: (windowId: string, tabId: string, skipTerminalKill?: boolean) => void;
   switchTab: (windowId: string, tabId: string) => void;
   moveTab: (fromWindowId: string, toWindowId: string, tabId: string, index?: number) => void;
@@ -836,7 +836,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   // Tab actions
-  addTab: (windowId: string, filePath: string, appId: string, title?: string) => {
+  addTab: (windowId: string, filePath: string, appId: string, title?: string, opts?: { activate?: boolean }) => {
     const { activeWorkspaceId } = get();
     if (!activeWorkspaceId) return '';
 
@@ -851,20 +851,27 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
             ...w,
             windows: w.windows.map(win => {
               if (win.id === windowId) {
-                const updatedTabs = (win.tabs || []).map(t => ({ ...t, isActive: false }));
+                // Background adds (activate: false, e.g. cmd+click in the
+                // browser) keep the current tab focused — but an add into an
+                // empty window always activates, or the window would render
+                // no tab at all.
+                const activate = opts?.activate !== false || (win.tabs || []).length === 0;
+                const updatedTabs = activate
+                  ? (win.tabs || []).map(t => ({ ...t, isActive: false }))
+                  : (win.tabs || []);
                 const newTab: TabState = {
                   id: tabId,
                   title: filename,
                   filePath,
                   appId,
                   isDirty: false,
-                  isActive: true,
+                  isActive: activate,
                   isSuspended: false,
                 };
                 return {
                   ...win,
                   tabs: [...updatedTabs, newTab],
-                  activeTabId: tabId,
+                  activeTabId: activate ? tabId : win.activeTabId,
                 };
               }
               return win;

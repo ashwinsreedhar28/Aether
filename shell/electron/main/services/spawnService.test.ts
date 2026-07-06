@@ -451,7 +451,7 @@ test('unpushed commits warn with the same dirty code', async () => {
 })
 
 test('a failing step writes teardown_failed naming it, holds capacity, and a retry resumes', async () => {
-  const { svc, ledger, commands, open, cleanup } = teardownFixture()
+  const { svc, ledger, worktree, commands, open, cleanup } = teardownFixture()
   try {
     open.runShell = async (cmd: string, cwd: string) => {
       commands.push({ cmd, cwd })
@@ -463,6 +463,9 @@ test('a failing step writes teardown_failed naming it, holds capacity, and a ret
     const rec = ledger.find('lane-rec')
     assert.equal(rec?.status, 'teardown_failed')
     assert.equal(rec?.step, 'git worktree remove')
+    // A non-submodule die does NOT engage the #363 fallback: the worktree
+    // dir survives for the retry — nothing was rm -rf'd.
+    assert.equal(existsSync(worktree), true)
     // Capacity freed only by closed (#317): the failed teardown still holds it.
     assert.equal(ledger.liveCount(), 1)
     assert.equal(ledger.listTeardowns()[0]?.status, 'failed')
@@ -477,6 +480,72 @@ test('a failing step writes teardown_failed naming it, holds capacity, and a ret
     assert.equal(retry.ok, true)
     assert.equal(ledger.find('lane-rec')?.status, 'closed')
     assert.equal(ledger.liveCount(), 0)
+  } finally {
+    cleanup()
+  }
+})
+
+test('the submodule die engages the #363 fallback: rm -rf → worktree prune → branch -D, in that order', async () => {
+  const { svc, ledger, repoRoot, worktree, open, cleanup } = teardownFixture()
+  try {
+    // Record every shell step with whether the worktree dir was still on
+    // disk when it ran — the ordering proof: prune must observe the rm -rf
+    // (the REAL rmSync, not a stub) already done, and branch -D follows it.
+    const calls: Array<{ cmd: string; cwd: string; wtGone: boolean }> = []
+    open.runShell = async (cmd: string, cwd: string) => {
+      calls.push({ cmd, cwd, wtGone: !existsSync(worktree) })
+      if (cmd.startsWith('git worktree remove')) {
+        throw new Error(
+          `${cmd} — fatal: working trees containing submodules cannot be moved or removed`,
+        )
+      }
+    }
+    const res = await svc.closeLane(232)
+    assert.equal(res.ok, true)
+    assert.equal(ledger.find('lane-rec')?.status, 'closed')
+    assert.equal(ledger.liveCount(), 0)
+    assert.equal(ledger.listTeardowns()[0]?.status, 'done')
+    assert.equal(existsSync(worktree), false)
+    assert.deepEqual(
+      calls.map((c) => c.cmd),
+      [
+        'git submodule deinit -f --all',
+        `git worktree remove --force '${worktree}'`,
+        'git worktree prune',
+        "git branch -D 'lane/issue-232'",
+        'git submodule update --init --recursive',
+      ],
+    )
+    // The load-bearing order (#363): rm -rf BEFORE prune (the worktree dir
+    // was already gone when prune ran), prune BEFORE branch -D (array
+    // order) — checked-out status reads from .git/worktrees/*/HEAD until
+    // the prune drops the stale admin dir.
+    assert.equal(calls[2]?.wtGone, true)
+    assert.equal(calls[2]?.cwd, repoRoot)
+    assert.equal(calls[3]?.cmd.startsWith('git branch -D'), true)
+  } finally {
+    cleanup()
+  }
+})
+
+test('a teardown whose worktree dir is already gone prunes before branch -D — the fallback resume path', async () => {
+  const { svc, ledger, worktree, commands, cleanup } = teardownFixture()
+  try {
+    // The state an interrupted fallback (or a half-applied hand-recovery)
+    // leaves: path rm -rf'd, admin dir still registered. Without the prune,
+    // branch -D reads the branch as checked out and the retry never resumes.
+    rmSync(worktree, { recursive: true, force: true })
+    const res = await svc.closeLane(232)
+    assert.equal(res.ok, true)
+    assert.equal(ledger.find('lane-rec')?.status, 'closed')
+    assert.deepEqual(
+      commands.map((c) => c.cmd),
+      [
+        'git worktree prune',
+        "git branch -D 'lane/issue-232'",
+        'git submodule update --init --recursive',
+      ],
+    )
   } finally {
     cleanup()
   }

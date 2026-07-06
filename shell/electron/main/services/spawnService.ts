@@ -815,7 +815,9 @@ export class SpawnService extends EventEmitter {
   // refuse, then the dirty/ahead warn unless forced (refusals run BEFORE the
   // warn so a CLOSE ANYWAY can never land on a subsequent hard refusal) —
   // then the canonical cleanup block's steps, shell-executed in its exact
-  // order. Every exit writes a teardown outcome line; the spawn RECORD gets
+  // order (worktree remove carries the #363 submodule-die fallback: rm -rf →
+  // prune → the branch -D that follows). Every exit writes a teardown outcome
+  // line; the spawn RECORD gets
   // 'closed' only after ALL steps succeed, or 'teardown_failed' naming the
   // failing step (capacity is freed only by 'closed'). Steps are
   // precondition-guarded so a retry after a partial failure resumes cleanly.
@@ -943,7 +945,33 @@ export class SpawnService extends EventEmitter {
         if (existsSync(worktree)) await this.runShell('git submodule deinit -f --all', worktree)
         step = 'git worktree remove'
         if (existsSync(worktree)) {
-          await this.runShell(`git worktree remove --force ${sq(worktree)}`, this.repoRoot)
+          try {
+            await this.runShell(`git worktree remove --force ${sq(worktree)}`, this.repoRoot)
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            // #363 fallback: git's teardown guard dies on any worktree whose
+            // admin dir carries submodule git dirs (.git/worktrees/<name>/
+            // modules — deinit deliberately keeps it), and the recipe's
+            // `submodule update --init` gives every lane worktree one. When
+            // the die fires, recover the manual sequence: rm -rf the path,
+            // prune the stale admin dir, and only then the branch -D below —
+            // checked-out status is read from .git/worktrees/*/HEAD until the
+            // prune, so this order is load-bearing. Any OTHER remove failure
+            // rethrows: the fallback destroys, so it engages on the one error
+            // it is the documented recovery for, never as a general catch.
+            if (!/working trees containing submodules/.test(msg)) throw err
+            step = 'rm -rf (submodule fallback)'
+            rmSync(worktree, { recursive: true, force: true })
+            step = 'git worktree prune (submodule fallback)'
+            await this.runShell('git worktree prune', this.repoRoot)
+          }
+        } else {
+          // Worktree dir already gone (an interrupted fallback, or the #363
+          // hand-recovery half-applied) can leave the admin dir registered —
+          // prune it, or the branch -D below reads the branch as checked out
+          // and the retry can never resume.
+          step = 'git worktree prune'
+          await this.runShell('git worktree prune', this.repoRoot)
         }
         step = 'git branch -D'
         if (await this.branchExists(branch)) {

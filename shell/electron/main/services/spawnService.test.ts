@@ -11,7 +11,15 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -22,8 +30,11 @@ import {
   parsePaneId,
   relaySendKeysArgs,
   withTimeout,
+  DIRECTOR_FEEDBACK_PREFIX,
+  feedbackCommentBody,
+  ghCommentArgs,
 } from './spawnService.ts'
-import { SpawnLedger, RELAY_TEXT } from './spawnLedger.ts'
+import { SpawnLedger, RELAY_TEXT, REVISE_TEXT } from './spawnLedger.ts'
 
 // ---- kickoff delivery is file-based: the send-keys argv is FIXED ------------
 
@@ -141,10 +152,20 @@ test('dismiss refuses a spawned record outright (#305 audit: blocked, not non-te
 
 // ---- gate relays (#310): fixed text, named refusals, no auto-proceed ---------
 
-test('relaySendKeysArgs varies the pane id and nothing else — the text is the allowlist literal', () => {
+test('relaySendKeysArgs builds argvs for the two allowlisted sentences and refuses anything else', () => {
   assert.deepEqual(relaySendKeysArgs('%4'), ['send-keys', '-t', '%4', 'clean, proceed', 'Enter'])
-  // The argv has no text parameter to vary: the literal IS the v1 scope fence.
   assert.equal(relaySendKeysArgs('%9')[3], RELAY_TEXT)
+  // The revise order (#339) is the second — and last — sentence with a path
+  // to a pane.
+  assert.deepEqual(relaySendKeysArgs('%4', REVISE_TEXT), [
+    'send-keys',
+    '-t',
+    '%4',
+    'revise per the latest DIRECTOR FEEDBACK, then re-gate',
+    'Enter',
+  ])
+  // Off-list text cannot even become an argv: the refusal IS the scope fence.
+  assert.throws(() => relaySendKeysArgs('%4', 'echo pwned'), /not allowlisted/)
 })
 
 test('laneKickoff dictates the machine-readable lane channel (#310 prefixes)', () => {
@@ -157,6 +178,41 @@ test('laneKickoff dictates the machine-readable lane channel (#310 prefixes)', (
   assert.ok(k.includes('Closes #310'))
 })
 
+test('laneKickoff dictates the revision loop (#339): the fixed trigger, the read-address-regate order, latest-comment-only', () => {
+  const k = laneKickoff(339)
+  // The trigger is the REVISE_TEXT allowlist literal verbatim — the lane
+  // reacts to exactly what the shell can type, nothing looser.
+  assert.ok(
+    k.includes(
+      'On receiving "revise per the latest DIRECTOR FEEDBACK, then re-gate": read the latest ' +
+        'DIRECTOR FEEDBACK comment on this issue, address it fully, post a fresh GATE REPORT, ' +
+        'and stop at the gate again.',
+    ),
+  )
+  // The feedback contract is latest-comment-only (#339 law ii).
+  assert.ok(
+    k.includes('Only the newest DIRECTOR FEEDBACK comment is in contract — earlier feedback is history.'),
+  )
+})
+
+test('the feedback comment shape (#339): prefix parity with the fold, body rides a --body-file argv', () => {
+  // DIRECTOR FEEDBACK is the third lane-channel literal — laneGate.test.ts
+  // pins the same string on the renderer side.
+  assert.equal(DIRECTOR_FEEDBACK_PREFIX, 'DIRECTOR FEEDBACK')
+  assert.equal(
+    feedbackCommentBody('the toast fires twice'),
+    'DIRECTOR FEEDBACK — the toast fires twice',
+  )
+  // argv straight into gh, the freeform body in a FILE — zero shell layers.
+  assert.deepEqual(ghCommentArgs(339, '/tmp/x/body.md'), [
+    'issue',
+    'comment',
+    '339',
+    '--body-file',
+    '/tmp/x/body.md',
+  ])
+})
+
 // A service over a ledger holding one live lane record (issue 232, tmux
 // session recorded), tmux fully stubbed: requireTmuxBin resolves to
 // /usr/bin/true, so the send-keys exec really runs — and exits 0 — without a
@@ -164,6 +220,8 @@ test('laneKickoff dictates the machine-readable lane channel (#310 prefixes)', (
 function liveLaneFixture(): {
   svc: SpawnService
   ledger: SpawnLedger
+  dir: string
+  ledgerPath: string
   cleanup: () => void
 } {
   const dir = mkdtempSync(join(tmpdir(), 'spawn-relay-'))
@@ -195,7 +253,13 @@ function liveLaneFixture(): {
   open.tmuxHasSession = async () => true
   open.resolveLanePaneId = async () => '%7'
   open.requireTmuxBin = () => '/usr/bin/true'
-  return { svc, ledger, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+  return {
+    svc,
+    ledger,
+    dir,
+    ledgerPath,
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  }
 }
 
 test('proceed relays to a live lane and records the relayed outcome', async () => {
@@ -231,15 +295,104 @@ test('proceed with no live lane fails by name and the failure is on the ledger',
 })
 
 test('executeRelay refuses non-allowlisted text — a hand-edited ledger line cannot type into a pane', async () => {
-  const { svc, ledger, cleanup } = liveLaneFixture()
+  const { svc, ledger, ledgerPath, cleanup } = liveLaneFixture()
   try {
-    const rogue = ledger.requestRelay(232, 'rm -rf / # not the literal')
+    // requestRelay itself now throws on off-list text (#339, pinned in
+    // spawnLedger.test.ts), so the hand-edited-JSONL case is simulated the
+    // only way it can still arise: a raw line appended behind the API.
+    appendFileSync(
+      ledgerPath,
+      JSON.stringify({
+        id: 'rogue-1',
+        ts: '2026-07-06T00:00:00.000Z',
+        kind: 'relay',
+        issue: 232,
+        text: 'rm -rf / # not a literal',
+        status: 'requested',
+      }) + '\n',
+    )
     const res = await (
       svc as unknown as { executeRelay: (id: string) => Promise<{ ok: boolean; error?: string }> }
-    ).executeRelay(rogue.id)
+    ).executeRelay('rogue-1')
     assert.equal(res.ok, false)
     assert.match(res.error ?? '', /not allowlisted/)
-    assert.equal(ledger.findRelay(rogue.id)?.status, 'failed')
+    assert.equal(ledger.findRelay('rogue-1')?.status, 'failed')
+  } finally {
+    cleanup()
+  }
+})
+
+// ---- the revision loop (#339): post-then-relay, failed post relays nothing ---
+
+// Open the private seams the revise tests stub: requireGhBin swaps the real
+// login-shell probe for a scripted gh.
+interface ReviseSeams {
+  requireGhBin: () => Promise<string>
+}
+
+// A stub gh "binary": records its argv AND the body file's content to a
+// capture file, so the test can assert the exact post that would have hit
+// the issue thread. Exit code rides the last line of the script.
+function stubGh(dir: string, exitCode: number): { bin: string; capture: string } {
+  const capture = join(dir, 'gh-capture.txt')
+  const bin = join(dir, 'gh-stub.sh')
+  writeFileSync(
+    bin,
+    `#!/bin/sh\nprintf '%s\\n' "$@" >> '${capture}'\ncat "$5" >> '${capture}'\nexit ${exitCode}\n`,
+    { mode: 0o755 },
+  )
+  return { bin, capture }
+}
+
+test('revise with typed feedback posts DIRECTOR FEEDBACK first, then relays REVISE_TEXT (#339)', async () => {
+  const { svc, ledger, dir, cleanup } = liveLaneFixture()
+  try {
+    const gh = stubGh(dir, 0)
+    ;(svc as unknown as ReviseSeams).requireGhBin = async () => gh.bin
+    const res = await svc.revise(232, '  the dedupe fires twice  ')
+    assert.deepEqual(res, { ok: true, posted: true })
+    // The post really carried the prefixed body through --body-file.
+    const captured = readFileSync(gh.capture, 'utf8')
+    assert.ok(captured.startsWith('issue\ncomment\n232\n--body-file\n'))
+    assert.ok(captured.includes('DIRECTOR FEEDBACK — the dedupe fires twice'))
+    // The relay is the ledgered Director act: the REVISE literal, relayed.
+    const relay = ledger.listRelays()[0]
+    assert.equal(relay?.issue, 232)
+    assert.equal(relay?.text, REVISE_TEXT)
+    assert.equal(relay?.status, 'relayed')
+  } finally {
+    cleanup()
+  }
+})
+
+test('a failed feedback post surfaces by name and relays NOTHING (#339)', async () => {
+  const { svc, ledger, dir, cleanup } = liveLaneFixture()
+  try {
+    const gh = stubGh(dir, 1)
+    ;(svc as unknown as ReviseSeams).requireGhBin = async () => gh.bin
+    const res = await svc.revise(232, 'feedback that will not land')
+    assert.equal(res.ok, false)
+    assert.equal(res.posted, false)
+    assert.match(res.error ?? '', /feedback post failed/)
+    // No relay line at all — the sentence must never point a lane at
+    // feedback that isn't on the thread.
+    assert.equal(ledger.listRelays().length, 0)
+  } finally {
+    cleanup()
+  }
+})
+
+test('revise with empty input relays REVISE_TEXT only — no gh call, nothing posted', async () => {
+  const { svc, ledger, dir, cleanup } = liveLaneFixture()
+  try {
+    const gh = stubGh(dir, 0)
+    ;(svc as unknown as ReviseSeams).requireGhBin = async () => gh.bin
+    const res = await svc.revise(232)
+    assert.deepEqual(res, { ok: true, posted: false })
+    assert.equal(existsSync(gh.capture), false)
+    const relay = ledger.listRelays()[0]
+    assert.equal(relay?.text, REVISE_TEXT)
+    assert.equal(relay?.status, 'relayed')
   } finally {
     cleanup()
   }

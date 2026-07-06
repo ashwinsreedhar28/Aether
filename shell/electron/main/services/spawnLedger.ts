@@ -111,11 +111,21 @@ export interface SpawnRecord {
 //     through SpawnService.proceed — one path, one audit trail)
 //   • lifecycle: { id, ts, kind:'relay', status:'relayed'|'failed', error? }
 
-// THE V1 RELAY ALLOWLIST: the one literal a relay may type into a lane pane.
-// Arbitrary relay text is out of scope by spec (#310); the Python tool offers
-// no text argument and the shell refuses any recorded text that is not this
-// exact string. Kept in sync with lane_proceed_tool.py's RELAY_TEXT.
+// THE RELAY ALLOWLIST: the only sentences a relay may type into a lane pane.
+// Arbitrary relay text is out of scope by spec (#310, reaffirmed #339 law
+// iii: freeform feedback travels the issue thread only — the allowlist is a
+// pane-input property). Two literals since the R2 revision loop (#339):
+//   • RELAY_TEXT  — the go-ahead; a lane stopped at its gate ships on it.
+//     Kept in sync with lane_proceed_tool.py's RELAY_TEXT.
+//   • REVISE_TEXT — the revise order; a gated lane reads the latest DIRECTOR
+//     FEEDBACK comment on its issue, addresses it, and re-gates. Kept in
+//     sync with lane_revise_tool.py's REVISE_TEXT.
+// The Python tools offer no text argument, requestRelay() below refuses
+// anything off-list, and the shell refuses again at execution time — a
+// hand-edited ledger line still has no code path to the pane.
 export const RELAY_TEXT = 'clean, proceed'
+export const REVISE_TEXT = 'revise per the latest DIRECTOR FEEDBACK, then re-gate'
+export const RELAY_ALLOWLIST: readonly string[] = [RELAY_TEXT, REVISE_TEXT]
 
 export type RelayStatus = 'requested' | 'relayed' | 'failed'
 
@@ -128,9 +138,11 @@ export interface RelayRecord {
   // The lane this relay targets, by issue number (how the voice path names
   // lanes); the executor resolves it to the newest live lane record.
   issue: number
-  // Recorded verbatim from the request line. The ALLOWLIST is enforced at
-  // execution time by the side that owns the pane (SpawnService), not here —
-  // the ledger is plain JSONL and a hand-edited line must still fold legibly.
+  // Recorded verbatim from the request line. requestRelay() refuses off-list
+  // text at write time, and the ALLOWLIST is enforced AGAIN at execution time
+  // by the side that owns the pane (SpawnService) — the ledger is plain JSONL
+  // and a hand-edited line must still fold legibly without ever reaching a
+  // pane.
   text: string
   status: RelayStatus
   // Present when the relay failed (status 'failed').
@@ -280,7 +292,10 @@ export function targetsForLane(
 // A lane's recorded tmux session is killed FIRST (#305 dismiss-semantics audit:
 // closing the record never stops the session, so the teardown must) — '=' pins
 // exact-name matching, and `|| true` keeps an already-dead session from
-// aborting the block.
+// aborting the block. The #363 submodule-die fallback (rm -rf → worktree
+// prune → the branch -D that follows) rides along as commented lines beside
+// the remove, exactly the recovery the executor automates — the manual
+// operator gets the same script the shell runs.
 export function cleanupBlock(
   repoRoot: string,
   worktree: string,
@@ -296,6 +311,10 @@ export function cleanupBlock(
     `rm -f ${shq(join(worktree, '.lane-kickoff.md'))}`,
     `git -C ${shq(worktree)} submodule deinit -f --all`,
     `git worktree remove --force ${shq(worktree)}`,
+    "# If the remove dies on 'working trees containing submodules' (#363),",
+    '# fall back — rm -rf, prune the stale admin dir, THEN the branch -D:',
+    `#   rm -rf ${shq(worktree)}`,
+    '#   git worktree prune',
     `git branch -D ${shq(branch)}`,
     'git submodule update --init --recursive',
   ].join('\n')
@@ -413,11 +432,18 @@ export class SpawnLedger {
 
   // ---- relay family (#310) ---------------------------------------------------
 
-  /** Append a relay request line — the card's PROCEED path. The live voice
-   * flow writes the identical shape from lane_proceed_tool.py; this method
-   * documents the on-disk contract. Text defaults to (and in v1 should always
-   * be) the RELAY_TEXT allowlist literal. */
+  /** Append a relay request line — the card's PROCEED path (RELAY_TEXT) and
+   * its REVISE path (REVISE_TEXT, #339). The live voice flows write the
+   * identical shapes from lane_proceed_tool.py / lane_revise_tool.py; this
+   * method documents the on-disk contract. The allowlist is enforced HERE as
+   * well as at execution time: this method throws on any off-list text, so no
+   * shell code path can even record a freeform relay. */
   requestRelay(issue: number, text: string = RELAY_TEXT): RelayRecord {
+    if (!RELAY_ALLOWLIST.includes(text)) {
+      throw new Error(
+        `relay text not allowlisted — relays carry only "${RELAY_TEXT}" or "${REVISE_TEXT}"`,
+      )
+    }
     const rec: RelayRecord = {
       id: randomUUID(),
       ts: new Date().toISOString(),

@@ -155,6 +155,10 @@ export interface SpawnActionResult {
   // 'pr-open' / 'dirty' / 'lane-busy' (#317): closeLane guard outcomes —
   // only 'dirty' is force-overridable (the warn card's CLOSE ANYWAY).
   code?: 'live-session' | TeardownGuardCode
+  // revise() only (#339): true when a DIRECTOR FEEDBACK comment was posted
+  // to the issue thread on this call (typed feedback) — the card names the
+  // post outcome separately from the relay's RELAY row.
+  posted?: boolean
 }
 
 type Unsub = () => void
@@ -191,6 +195,10 @@ export interface AetherBridge {
      * freshness on Lanes open / card open / explicit refresh. */
     refreshOrphans: () => Promise<SpawnSnapshot>
     proceed: (issue: number) => Promise<SpawnActionResult>
+    /** The revision loop (#339): post `feedbackText` (when non-empty) to the
+     * issue thread as a DIRECTOR FEEDBACK comment, then relay the fixed
+     * revise order into the lane's pane. A failed post relays nothing. */
+    revise: (issue: number, feedbackText?: string) => Promise<SpawnActionResult>
     closeLane: (issue: number, force?: boolean) => Promise<SpawnActionResult>
     onChanged: (cb: (snap: SpawnSnapshot) => void) => Unsub
   }

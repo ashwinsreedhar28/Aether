@@ -12,6 +12,11 @@
 
 export const GATE_REPORT_PREFIX = 'GATE REPORT'
 export const PR_OPENED_PREFIX = 'PR OPENED'
+// The third prefix (#339, the R2 revision loop): the Director's freeform
+// feedback on a gated lane, posted to the issue thread (by the card's REVISE
+// path, or by hand). Freeform content travels the THREAD only — the pane
+// never receives anything but allowlisted sentences (spawnLedger.ts).
+export const DIRECTOR_FEEDBACK_PREFIX = 'DIRECTOR FEEDBACK'
 
 // The comment shape github.get_issue serves (nodes/github, RawComment).
 // Fields land as unknown because the payload crosses the mesh as plain JSON.
@@ -33,6 +38,15 @@ export interface LaneGateState {
   // past AT GATE; `url` is the first link in the comment (the kickoff dictates
   // "PR OPENED — #<pr-number> <pr-url>").
   pr: { body: string; url: string | null } | null
+  // The latest DIRECTOR FEEDBACK comment posted after the spawn, verbatim
+  // (#339 — shown inline on the REVISING card). Latest-comment-only by
+  // doctrine: earlier feedback is history, never accumulated.
+  feedback: string | null
+  // The feedback comment's created_at — compared against reportAt to resolve
+  // the REVISING phase (feedback strictly newer than the report). A fresh
+  // post-revision GATE REPORT is newer again, so latest-wins flips the card
+  // back to AT GATE with zero clearing logic: supersession IS the clear.
+  feedbackAt: string | null
 }
 
 /**
@@ -43,7 +57,7 @@ export interface LaneGateState {
  * passes the guard. Latest matching comment wins per prefix.
  */
 export function foldGateComments(comments: unknown, spawnedAtIso: string): LaneGateState {
-  const state: LaneGateState = { report: null, reportAt: null, pr: null }
+  const state: LaneGateState = { report: null, reportAt: null, pr: null, feedback: null, feedbackAt: null }
   const spawnedAt = Date.parse(spawnedAtIso)
   if (!Array.isArray(comments) || !Number.isFinite(spawnedAt)) return state
   for (const c of comments as GateStateInput[]) {
@@ -56,9 +70,61 @@ export function foldGateComments(comments: unknown, spawnedAtIso: string): LaneG
       state.reportAt = c.created_at
     } else if (lead.startsWith(PR_OPENED_PREFIX)) {
       state.pr = { body: c.body, url: firstUrl(c.body) }
+    } else if (lead.startsWith(DIRECTOR_FEEDBACK_PREFIX)) {
+      state.feedback = c.body
+      state.feedbackAt = c.created_at
     }
   }
   return state
+}
+
+// ---- gate phase (#339) --------------------------------------------------------
+
+export type GatePhase = 'working' | 'at-gate' | 'revising' | 'pr-opened'
+
+/**
+ * Resolve a folded gate state to the card's phase. Pure precedence, no
+ * clearing logic anywhere: PR OPENED wins outright; a report with feedback
+ * STRICTLY newer than it is REVISING (the lane owes a revision); a report
+ * otherwise is AT GATE; anything else — including preemptive feedback posted
+ * before any report — is still working.
+ */
+export function gatePhase(gate: LaneGateState | null): GatePhase {
+  if (!gate) return 'working'
+  if (gate.pr) return 'pr-opened'
+  if (!gate.report) return 'working'
+  if (
+    gate.feedbackAt !== null &&
+    gate.reportAt !== null &&
+    Date.parse(gate.feedbackAt) > Date.parse(gate.reportAt)
+  ) {
+    return 'revising'
+  }
+  return 'at-gate'
+}
+
+// ---- the card's REVISE decision (#339) ----------------------------------------
+// Pure so the AC3 semantics are testable without React: typed feedback is
+// posted to the thread then relayed; an empty press against fresh thread
+// feedback (the REVISING phase) relays only; an empty press with nothing to
+// revise against is a NAMED refusal — the relay sentence points the lane at
+// "the latest DIRECTOR FEEDBACK", so firing it with no such comment would be
+// an order with no contract behind it.
+
+export type ReviseAction =
+  | { kind: 'post-and-relay'; text: string }
+  | { kind: 'relay-only' }
+  | { kind: 'refuse'; error: string }
+
+export function resolveReviseAction(gate: LaneGateState | null, input: string): ReviseAction {
+  const text = input.trim()
+  if (text) return { kind: 'post-and-relay', text }
+  if (gatePhase(gate) === 'revising') return { kind: 'relay-only' }
+  return {
+    kind: 'refuse',
+    error:
+      'nothing to revise against — type feedback above, or post a DIRECTOR FEEDBACK comment on the issue thread first',
+  }
 }
 
 // ---- READY TO TEST toast dedupe (#340) ---------------------------------------
@@ -73,11 +139,14 @@ const toastedReportAt = new Map<number, string>()
 /**
  * True exactly once per gate arrival — and claiming is the side effect:
  * a true return RECORDS the announce, so the caller must actually fire the
- * toast on it. False whenever the lane is not at its gate (no report, or a
- * PR OPENED already upgraded it past the gate) or this report was announced.
+ * toast on it. False whenever the lane is not at its gate (no report, a
+ * PR OPENED already upgraded it past the gate, or fresh DIRECTOR FEEDBACK
+ * holds it REVISING — a revising lane is not ready to test) or this report
+ * was announced. A post-revision GATE REPORT is a new comment with a new
+ * reportAt, so the re-gate claims a fresh toast (#339 keeps #340's key).
  */
 export function shouldToastGate(issue: number, gate: LaneGateState): boolean {
-  if (!gate.report || gate.reportAt === null || gate.pr) return false
+  if (gatePhase(gate) !== 'at-gate' || gate.reportAt === null) return false
   if (toastedReportAt.get(issue) === gate.reportAt) return false
   toastedReportAt.set(issue, gate.reportAt)
   return true

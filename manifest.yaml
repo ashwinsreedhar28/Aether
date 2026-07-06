@@ -594,6 +594,10 @@ nodes:
         type: tool
         invocation_mode: request_response
         schema: nodes/viewer_desktop/schemas/apply_layout.json
+      - name: place_window
+        type: tool
+        invocation_mode: request_response
+        schema: nodes/viewer_desktop/schemas/place_window.json
       - name: notify
         type: tool
         invocation_mode: request_response
@@ -627,6 +631,12 @@ relationships:
     to: viewer_desktop.close_window
   - from: raven
     to: viewer_desktop.apply_layout
+  # Semantic placement (#337): "put the browser in the left half" → raven's
+  # place_window tool → this surface → the renderer resolves the region via
+  # regionResolver and applies it as one atomic bounds update. Its own edge
+  # per the every-consumer/surface-pair law (#136).
+  - from: raven
+    to: viewer_desktop.place_window
   - from: raven
     to: viewer_desktop.notify
   # Spawn-card summon (#305): "show me lane 219's card" → raven's

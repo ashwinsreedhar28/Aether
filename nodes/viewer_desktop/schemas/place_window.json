@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "viewer_desktop.place_window",
+  "title": "viewer_desktop.place_window",
+  "description": "Place ONE window into a named screen region or explicit pixel bounds. Params: { target: windowId | appId, region?: <grammar enum>, bounds?: { x, y, width, height } } — exactly one of region | bounds. The region grammar (halves, quadrants, thirds, two-thirds, center, full) mirrors shell/src/utils/regionResolver.ts, the canonical resolver; explicit bounds are the escape hatch, never the default. Returns { ok, windowId, region?, bounds }.",
+  "type": "object",
+  "required": ["target"],
+  "additionalProperties": true,
+  "properties": {
+    "target": { "type": "string", "minLength": 1 },
+    "region": {
+      "type": "string",
+      "enum": [
+        "left",
+        "right",
+        "top",
+        "bottom",
+        "top-left",
+        "top-right",
+        "bottom-left",
+        "bottom-right",
+        "left-third",
+        "center-third",
+        "right-third",
+        "left-two-thirds",
+        "right-two-thirds",
+        "center",
+        "full"
+      ]
+    },
+    "bounds": {
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    }
+  },
+  "oneOf": [{ "required": ["region"] }, { "required": ["bounds"] }]
+}

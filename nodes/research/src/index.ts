@@ -34,14 +34,14 @@ function log(msg: string): void {
 // reason rather than an opaque downstream error.
 function requireQuery(raw: unknown): string {
   if (typeof raw !== 'string') {
-    throw new MeshDeny('research_bad_query', { reason: 'query must be a string' })
+    throw new MeshDeny('research_bad_query', { detail: 'query must be a string' })
   }
   const trimmed = raw.trim()
   if (trimmed.length === 0) {
-    throw new MeshDeny('research_bad_query', { reason: 'query is empty' })
+    throw new MeshDeny('research_bad_query', { detail: 'query is empty' })
   }
   if (trimmed.length > QUERY_MAX_LEN) {
-    throw new MeshDeny('research_bad_query', { reason: `query exceeds ${QUERY_MAX_LEN} chars` })
+    throw new MeshDeny('research_bad_query', { detail: `query exceeds ${QUERY_MAX_LEN} chars` })
   }
   return trimmed
 }
@@ -56,13 +56,15 @@ function clampLimit(value: unknown): number {
 
 // Map an S2 failure to a clean MeshDeny — never a half-result. Returns
 // `never` so it composes as a `.catch()` handler without TS definite-
-// assignment complaints.
+// assignment complaints. The human-readable cause rides under `detail`:
+// the SDK builds the error payload as { reason: deny.reason, ...details },
+// so a `reason` details key would clobber the deny name on the wire.
 function denyForS2(err: unknown): never {
   if (err instanceof S2Error) {
-    throw new MeshDeny('research_search_failed', { reason: err.message, code: err.code })
+    throw new MeshDeny('research_search_failed', { detail: err.message, code: err.code })
   }
   throw new MeshDeny('research_search_failed', {
-    reason: err instanceof Error ? err.message : 'semantic scholar error',
+    detail: err instanceof Error ? err.message : 'semantic scholar error',
   })
 }
 
@@ -71,10 +73,10 @@ function denyForS2(err: unknown): never {
 // / failed) for the caller to speak.
 function denyForSynthesis(err: unknown): never {
   if (err instanceof SynthesisError) {
-    throw new MeshDeny('research_synthesis_failed', { reason: err.message, code: err.code })
+    throw new MeshDeny('research_synthesis_failed', { detail: err.message, code: err.code })
   }
   throw new MeshDeny('research_synthesis_failed', {
-    reason: err instanceof Error ? err.message : 'synthesis error',
+    detail: err instanceof Error ? err.message : 'synthesis error',
   })
 }
 
@@ -91,7 +93,7 @@ function makeBriefHandler(store: BriefStore) {
     const query = requireQuery((env.payload as BriefArgs)?.query)
     const papers = await searchPapers(query).catch(denyForS2)
     if (papers.length === 0) {
-      throw new MeshDeny('research_no_papers', { reason: `no papers found for "${query}"` })
+      throw new MeshDeny('research_no_papers', { detail: `no papers found for "${query}"` })
     }
     const sections = await synthesizeBrief(query, papers).catch(denyForSynthesis)
     const brief: ResearchBrief = {

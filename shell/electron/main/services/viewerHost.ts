@@ -111,6 +111,25 @@ export function initViewerHost(getMainWindow: () => BrowserWindow | null): void 
 export function attachViewerWindow(win: BrowserWindow): void {
   const isMac = process.platform === 'darwin'
 
+  // Window-open requests from <webview> guests (the browser app). Electron
+  // ≥22 removed the webview `new-window` DOM event, so a guest's window.open /
+  // target=_blank / cmd+click surfaces ONLY here, on the guest webContents.
+  // Deny the native popup unconditionally and forward the request to the
+  // renderer, which routes tab dispositions into shell tabs and enforces
+  // BLOCKED_PROTOCOLS (windowOpenRouter, #336). The webview tag needs
+  // `allowpopups` for the guest to raise the request at all — with this
+  // deny-all handler no native window can result from it.
+  win.webContents.on('did-attach-webview', (_event, guest) => {
+    guest.setWindowOpenHandler(({ url, disposition }) => {
+      win.webContents.send('browser:window-open', {
+        url,
+        disposition,
+        sourceWebContentsId: guest.id,
+      })
+      return { action: 'deny' }
+    })
+  })
+
   // Intercept ⌘/ (palette) and ⌘+arrow (window nav) BEFORE the renderer, so the
   // shortcuts work even when an editor (Monaco) has focus.
   win.webContents.on('before-input-event', (event, input) => {

@@ -136,6 +136,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     scope: 'Browser',
     hint: 'Inside the embedded browser tab.',
     shortcuts: [
+      { description: 'New browser tab (home page)', keys: 'Mod+t' },
       { description: 'Focus address bar', keys: 'Mod+l' },
       { description: 'Reload page', keys: 'Mod+r' },
       { description: 'Hard reload', keys: 'Mod+Shift+r' },

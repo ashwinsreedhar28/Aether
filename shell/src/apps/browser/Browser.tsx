@@ -7,10 +7,11 @@ import { useBrowserState } from './hooks/useBrowserState';
 import { useBookmarks } from './hooks/useBookmarks';
 import type { WebViewRef } from './types';
 import { HOME_PAGE } from './constants';
+import { browserKeyAction } from './keyboard';
 import { useAppContext } from '../AppContext';
 
 export function Browser({ filePath, isActive, onTitleChange }: AppProps) {
-  const { updateTab, setSuspended } = useAppContext();
+  const { updateTab, setSuspended, openTab } = useAppContext();
   const webviewRef = useRef<WebViewRef>(null);
   const {
     state,
@@ -54,28 +55,41 @@ export function Browser({ filePath, isActive, onTitleChange }: AppProps) {
     updateTab({ title: state.title });
   }, [state.title, updateTab]);
 
-  // Keyboard shortcuts
+  // Browser tabs ARE shell tabs — a new browser tab is a new shell tab
+  // running this app in the same window (#336, the tabs-spine ADR).
+  const handleOpenInNewTab = useCallback((url: string, opts: { background: boolean }) => {
+    openTab('browser', url, opts);
+  }, [openTab]);
+
+  // Keyboard shortcuts. Key → action decisions live in keyboard.ts
+  // (browserKeyAction) so they're unit-testable; cmd+w is deliberately not
+  // bound there — the shell owns close-tab (viewerMenu CmdOrCtrl+W).
   useEffect(() => {
     if (!isActive) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isMod = e.metaKey || e.ctrlKey;
-
-      if (isMod && e.key === 'r') {
-        e.preventDefault();
-        refresh();
-      } else if (isMod && e.key === '[') {
-        e.preventDefault();
-        goBack();
-      } else if (isMod && e.key === ']') {
-        e.preventDefault();
-        goForward();
+      const action = browserKeyAction(e);
+      if (!action) return;
+      e.preventDefault();
+      switch (action) {
+        case 'refresh':
+          refresh();
+          break;
+        case 'back':
+          goBack();
+          break;
+        case 'forward':
+          goForward();
+          break;
+        case 'new-tab':
+          openTab('browser', HOME_PAGE);
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isActive, refresh, goBack, goForward]);
+  }, [isActive, refresh, goBack, goForward, openTab]);
 
   // Handle bookmark toggle
   const handleBookmarkToggle = useCallback(() => {
@@ -145,6 +159,7 @@ export function Browser({ filePath, isActive, onTitleChange }: AppProps) {
         initialUrl={initialUrl}
         onStateChange={updateFromWebview}
         onTitleChange={handleTitleChange}
+        onOpenInNewTab={handleOpenInNewTab}
       />
     </div>
   );

@@ -605,3 +605,242 @@ test('teardown_failed keeps holding capacity; only closed frees it (#317)', () =
     cleanup()
   }
 })
+
+// ---- telemetry family (#364) ---------------------------------------------------
+
+test('writeTelemetry appends one kind-tagged, status-less line; list/find fold it back', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    const rec = ledger.writeTelemetry({
+      issue: 364,
+      spawnedAt: '2026-07-06T00:00:00.000Z',
+      model: 'claude-opus-4-8',
+      effort: null,
+      tokens: { input: 4315, output: 6324, cacheRead: 466269, cacheWrite: 108810 },
+      gateReports: 2,
+      revises: 1,
+      proceeds: 1,
+      diff: { filesChanged: 3, insertions: 120, deletions: 15 },
+      outcome: 'merged',
+    })
+    // wallSeconds is spawn→close arithmetic on the two recorded facts.
+    assert.equal(typeof rec.wallSeconds, 'number')
+    assert.ok((rec.wallSeconds ?? 0) > 0)
+    assert.equal(rec.closedAt, rec.ts)
+
+    const listed = ledger.listTelemetry()
+    assert.equal(listed.length, 1)
+    assert.deepEqual(listed[0], rec)
+    assert.deepEqual(ledger.findTelemetry(364), rec)
+    assert.equal(ledger.findTelemetry(999), undefined)
+
+    // On-disk shape: kind-tagged, snake_case, and deliberately NO `status`
+    // field — the Python capacity folds key lifecycle lines on a string
+    // status, so a status-less line is invisible to them without edits.
+    const line = JSON.parse(readFileSync(path, 'utf8').trim()) as Record<string, unknown>
+    assert.equal(line.kind, 'telemetry')
+    assert.equal('status' in line, false)
+    assert.equal(line.issue, 364)
+    assert.equal(line.spawned_at, '2026-07-06T00:00:00.000Z')
+    assert.deepEqual(line.tokens, {
+      input: 4315,
+      output: 6324,
+      cache_read: 466269,
+      cache_write: 108810,
+    })
+    assert.deepEqual(line.diff, { files_changed: 3, insertions: 120, deletions: 15 })
+    assert.equal(line.gate_reports, 2)
+    assert.equal(line.outcome, 'merged')
+  } finally {
+    cleanup()
+  }
+})
+
+test('telemetry lines fold separately and never touch spawn records (#364 segregation)', () => {
+  const { ledger, cleanup } = freshLedger()
+  try {
+    const rec = ledger.request('demo', '/drafts/demo.md')
+    ledger.markSpawned(rec.id, '/Users/x/aether-lane-364', 'lane/issue-364')
+    assert.equal(ledger.liveCount(), 1)
+
+    ledger.writeTelemetry({
+      issue: 364,
+      spawnedAt: null,
+      model: null,
+      effort: null,
+      tokens: null,
+      gateReports: null,
+      revises: null,
+      proceeds: null,
+      diff: null,
+      outcome: null,
+    })
+
+    // No ghost spawn record, capacity untouched, sibling folds untouched.
+    assert.equal(ledger.list().length, 1)
+    assert.equal(ledger.list()[0]?.id, rec.id)
+    assert.equal(ledger.liveCount(), 1)
+    assert.equal(ledger.listRelays().length, 0)
+    assert.equal(ledger.listTeardowns().length, 0)
+    assert.equal(ledger.listTelemetry().length, 1)
+
+    // Conversely: spawn, relay, and teardown lines never leak into the
+    // telemetry fold.
+    ledger.requestRelay(364)
+    ledger.requestTeardown(364)
+    assert.equal(ledger.listTelemetry().length, 1)
+  } finally {
+    cleanup()
+  }
+})
+
+test('an all-null capture folds back null-for-null with the error note (resilience law)', () => {
+  const { ledger, cleanup } = freshLedger()
+  try {
+    ledger.writeTelemetry({
+      issue: 232,
+      spawnedAt: null,
+      model: null,
+      effort: null,
+      tokens: null,
+      gateReports: null,
+      revises: null,
+      proceeds: null,
+      diff: null,
+      outcome: null,
+      error: 'tokens: no Claude Code project dir; outcome: gh timed out',
+    })
+    const t = ledger.findTelemetry(232)
+    assert.ok(t)
+    assert.equal(t.spawnedAt, null)
+    assert.equal(t.wallSeconds, null)
+    assert.equal(t.model, null)
+    assert.equal(t.effort, null)
+    assert.equal(t.tokens, null)
+    assert.equal(t.gateReports, null)
+    assert.equal(t.revises, null)
+    assert.equal(t.proceeds, null)
+    assert.equal(t.diff, null)
+    assert.equal(t.outcome, null)
+    assert.equal(t.error, 'tokens: no Claude Code project dir; outcome: gh timed out')
+  } finally {
+    cleanup()
+  }
+})
+
+test('countRelayTexts counts DELIVERED sentences for the issue, strictly newer than spawn', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    const since = '2026-07-01T00:00:00.000Z'
+    const relay = (id: string, issue: number, text: string, ts: string): string =>
+      JSON.stringify({ id, ts, kind: 'relay', issue, text, status: 'requested' }) + '\n'
+    const outcome = (id: string, status: string, ts: string): string =>
+      JSON.stringify({ id, ts, kind: 'relay', status }) + '\n'
+    appendFileSync(
+      path,
+      // Two delivered revises + one delivered proceed, all after spawn: count.
+      relay('r1', 364, REVISE_TEXT, '2026-07-02T00:00:00.000Z') +
+        outcome('r1', 'relayed', '2026-07-02T00:00:01.000Z') +
+        relay('r2', 364, REVISE_TEXT, '2026-07-03T00:00:00.000Z') +
+        outcome('r2', 'relayed', '2026-07-03T00:00:01.000Z') +
+        relay('p1', 364, RELAY_TEXT, '2026-07-04T00:00:00.000Z') +
+        outcome('p1', 'relayed', '2026-07-04T00:00:01.000Z') +
+        // Failed: never reached the pane — no cycle, not counted.
+        relay('rf', 364, REVISE_TEXT, '2026-07-02T06:00:00.000Z') +
+        outcome('rf', 'failed', '2026-07-02T06:00:01.000Z') +
+        // Still 'requested': not delivered, not counted.
+        relay('pq', 364, RELAY_TEXT, '2026-07-04T06:00:00.000Z') +
+        // Delivered but BEFORE spawn (a previous run on a respawned issue):
+        // excluded by the strictly-newer guard.
+        relay('old', 364, RELAY_TEXT, '2026-06-20T00:00:00.000Z') +
+        outcome('old', 'relayed', '2026-06-20T00:00:01.000Z') +
+        // Another issue's relay: not this lane's cycle.
+        relay('ox', 999, REVISE_TEXT, '2026-07-02T00:00:00.000Z') +
+        outcome('ox', 'relayed', '2026-07-02T00:00:01.000Z'),
+    )
+    assert.deepEqual(ledger.countRelayTexts(364, since), { revises: 2, proceeds: 1 })
+    // An unparseable anchor counts nothing (the caller nulls the fields
+    // before ever getting here — this is the belt under that).
+    assert.deepEqual(ledger.countRelayTexts(364, 'not-a-time'), { revises: 0, proceeds: 0 })
+  } finally {
+    cleanup()
+  }
+})
+
+test("the spawned event's own timestamp survives later flips as spawnedTs (#364 anchor)", () => {
+  const { ledger, cleanup } = freshLedger()
+  try {
+    const rec = ledger.request('demo', '/drafts/demo.md')
+    assert.equal(ledger.find(rec.id)?.spawnedTs, undefined)
+    ledger.markSpawned(rec.id, '/Users/x/aether-demo', 'feat/demo')
+    const spawned = ledger.find(rec.id)
+    assert.ok(spawned)
+    assert.ok(spawned.spawnedTs)
+    assert.equal(spawned.spawnedTs, spawned.ts)
+
+    // A later lifecycle flip moves `ts` but never the spawn anchor.
+    ledger.markRecordTeardownFailed(rec.id, 'git worktree remove', 'boom')
+    const after = ledger.find(rec.id)
+    assert.equal(after?.spawnedTs, spawned.spawnedTs)
+    assert.notEqual(after?.ts, undefined)
+    assert.equal(after?.status, 'teardown_failed')
+  } finally {
+    cleanup()
+  }
+})
+
+test('listTelemetry is newest-first; findTelemetry takes the newest line for a respawned issue', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    const line = (id: string, issue: number, ts: string): string =>
+      JSON.stringify({
+        id,
+        ts,
+        kind: 'telemetry',
+        issue,
+        spawned_at: null,
+        closed_at: ts,
+        wall_seconds: null,
+        model: null,
+        effort: null,
+        tokens: null,
+        gate_reports: null,
+        revises: null,
+        proceeds: null,
+        diff: null,
+        outcome: null,
+      }) + '\n'
+    appendFileSync(
+      path,
+      line('t-old', 364, '2026-07-01T00:00:00.000Z') +
+        line('t-new', 364, '2026-07-05T00:00:00.000Z') +
+        line('t-mid', 200, '2026-07-03T00:00:00.000Z'),
+    )
+    assert.deepEqual(
+      ledger.listTelemetry().map((t) => t.id),
+      ['t-new', 't-mid', 't-old'],
+    )
+    assert.equal(ledger.findTelemetry(364)?.id, 't-new')
+  } finally {
+    cleanup()
+  }
+})
+
+test('malformed or issue-less telemetry lines are skipped by the fold', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    appendFileSync(
+      path,
+      'not json at all\n' +
+        JSON.stringify({ id: 'no-issue', ts: '2026-07-01T00:00:00.000Z', kind: 'telemetry' }) +
+        '\n' +
+        JSON.stringify({ ts: '2026-07-01T00:00:00.000Z', kind: 'telemetry', issue: 5 }) +
+        '\n',
+    )
+    assert.equal(ledger.listTelemetry().length, 0)
+    // And none of it seeded a spawn record either.
+    assert.equal(ledger.list().length, 0)
+  } finally {
+    cleanup()
+  }
+})

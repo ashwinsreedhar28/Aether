@@ -20,9 +20,14 @@ alike (music_tool precedent), so a miss is named ("No gate report on issue
 AT GATE here mirrors the shell's fold EXACTLY (shell/src/utils/laneGate.ts,
 the pull-based card fold): only comments STRICTLY NEWER than the lane
 record's spawned event count; the latest GATE REPORT comment wins; a newer
-PR OPENED comment upgrades the lane past the gate. The prefix literals are
-duplicated here as on the renderer side — Python and TS don't share imports;
-each side pins its copy in tests.
+PR OPENED comment upgrades the lane past the gate; DIRECTOR FEEDBACK
+strictly newer than the report holds the lane REVISING (#339 — the lane
+owes a revision, it is NOT ready to test), and the post-revision report
+supersedes back to at-gate with zero clearing logic. Phase resolution is
+``_gate_phase``, the exact Python mirror of laneGate.ts gatePhase(). The
+prefix literals are duplicated here as on the renderer side — Python and TS
+don't share imports; each side pins its copy in tests (#372, a #241
+sibling-drift specimen).
 """
 from __future__ import annotations
 
@@ -41,8 +46,11 @@ FUNCTIONS = ["whats_ready_to_test", "read_test_steps"]
 
 # The #310 lane-channel comment prefixes, kept in sync with the kickoff
 # template (spawnService.laneKickoff) and shell/src/utils/laneGate.ts.
+# DIRECTOR FEEDBACK is the third prefix (#339, the R2 revision loop) —
+# posted by the card's REVISE path, or by hand.
 GATE_REPORT_PREFIX = "GATE REPORT"
 PR_OPENED_PREFIX = "PR OPENED"
+DIRECTOR_FEEDBACK_PREFIX = "DIRECTOR FEEDBACK"
 
 # Same ledger work_on_issue appends to and lane_proceed folds.
 SPAWNS_SUBPATH = ("spawns",)
@@ -161,10 +169,19 @@ def _live_lanes() -> list[dict[str, Any]]:
 
 
 def _fold_gate(comments: Any, spawned_at: datetime | None) -> dict[str, Any]:
-    """The shell's foldGateComments, mirrored: latest GATE REPORT / PR OPENED
-    comment strictly newer than the spawn; unparseable timestamps (either
-    side) never pass."""
-    state: dict[str, Any] = {"report": None, "pr": False}
+    """The shell's foldGateComments, mirrored: latest GATE REPORT / PR OPENED /
+    DIRECTOR FEEDBACK comment strictly newer than the spawn (the guard covers
+    all three prefixes — a previous run's feedback is as inert as its report);
+    unparseable timestamps (either side) never pass. ``report_at`` /
+    ``feedback_at`` carry the winning comments' parsed timestamps, the inputs
+    to ``_gate_phase``'s REVISING comparison."""
+    state: dict[str, Any] = {
+        "report": None,
+        "report_at": None,
+        "pr": False,
+        "feedback": None,
+        "feedback_at": None,
+    }
     if not isinstance(comments, list) or spawned_at is None:
         return state
     for c in comments:
@@ -177,9 +194,36 @@ def _fold_gate(comments: Any, spawned_at: datetime | None) -> dict[str, Any]:
         lead = body.lstrip()
         if lead.startswith(GATE_REPORT_PREFIX):
             state["report"] = body
+            state["report_at"] = at
         elif lead.startswith(PR_OPENED_PREFIX):
             state["pr"] = True
+        elif lead.startswith(DIRECTOR_FEEDBACK_PREFIX):
+            state["feedback"] = body
+            state["feedback_at"] = at
     return state
+
+
+def _gate_phase(gate: dict[str, Any] | None) -> str:
+    """laneGate.ts gatePhase(), mirrored exactly: pure precedence, no clearing
+    logic anywhere. PR OPENED wins outright; a report with feedback STRICTLY
+    newer than it is 'revising' (the lane owes a revision); a report otherwise
+    is 'at-gate'; anything else — including preemptive feedback posted before
+    any report — is still 'working'. A post-revision report is newer than the
+    feedback, so latest-wins flips the phase back to 'at-gate' on its own:
+    supersession IS the clear."""
+    if gate is None:
+        return "working"
+    if gate["pr"]:
+        return "pr-opened"
+    if gate["report"] is None:
+        return "working"
+    if (
+        gate["feedback_at"] is not None
+        and gate["report_at"] is not None
+        and gate["feedback_at"] > gate["report_at"]
+    ):
+        return "revising"
+    return "at-gate"
 
 
 def _latest_gate_report(comments: Any) -> str | None:
@@ -301,7 +345,7 @@ async def _whats_ready_to_test() -> dict[str, Any]:
             unchecked.append(lane["issue"])
             continue
         gate = _fold_gate(issue.get("comments"), lane["spawned_at"])
-        if gate["report"] and not gate["pr"]:
+        if _gate_phase(gate) == "at-gate":
             title = issue.get("title")
             ready.append(
                 {
@@ -377,8 +421,10 @@ async def _read_test_steps(number: Any) -> dict[str, Any]:
 _READY_DESCRIPTION = (
     "List the lanes currently AT THEIR GATE — build done, gate report posted "
     "to the issue thread, waiting on the user's smoke test before 'clean, "
-    "proceed'. Use for 'what's ready to test', 'anything at the gate', "
-    "'what's waiting on me'. READ-ONLY, no confirmation: it touches nothing. "
+    "proceed'. A lane revising against newer DIRECTOR FEEDBACK is NOT ready "
+    "— it owes a revision and is counted as still working. Use for 'what's "
+    "ready to test', 'anything at the gate', 'what's waiting on me'. "
+    "READ-ONLY, no confirmation: it touches nothing. "
     "Returns { ok, count, lanes: [{ issue, title }], spoken } — read the "
     "`spoken` field verbatim and stop; never enumerate raw titles or JSON. "
     "Distinct from lane_proceed (RELAYS the go-ahead, confirm-gated), "

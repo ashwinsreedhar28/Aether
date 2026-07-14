@@ -212,6 +212,30 @@ while (true) {
 }
 ```
 
+#### MeshDeny payload convention — deny name wins; cause under `detail:`
+
+Both SDKs build a MeshDeny's `kind="error"` payload as
+`{ ...details, reason: denyName }` — the deny name **always** owns the wire
+`reason` key (TS: `denyPayload()` in `core/node_sdk_ts/src/types.ts`; Python:
+`deny_payload()` in `core/node_sdk/__init__.py`; parity-pinned by
+`test/deny-payload.test.ts` / `test_deny_payload.py`, #371). Consumers switch
+on `reason` (deny names like `research_bad_query`, `github_no_token`), so:
+
+- **Never put a `reason` key inside MeshDeny details.** It will be silently
+  overwritten by the deny name — the free-text cause vanishes from the wire.
+- **Put the human-readable cause under `detail:`** (singular), per the
+  research node's convention (#366):
+
+```typescript
+// WRONG — the inner reason is dropped on the wire
+throw new MeshDeny('example_bad_query', { reason: 'query is empty' })
+// RIGHT — deny name switches consumers; detail carries the cause
+throw new MeshDeny('example_bad_query', { detail: 'query is empty' })
+```
+
+(Python's `MeshDeny(reason, **details)` rejects a `reason` kwarg outright —
+the trap is TS-only in practice, but the SDK-level guarantee holds in both.)
+
 ### 5. `nodes/example/schemas/foo.json`
 
 ```json
@@ -722,6 +746,7 @@ From PR #46's codified entries:
 8. **Schemas describe REQUEST not response.** Mirror `nodes/news_feeds/schemas/breaking.json`.
 9. **CoreVideo lives in Quartz.** `from Quartz.CoreVideo import ...` not `from CoreVideo import ...`.
 10. **ESLint catch-param rule rejects underscore prefix in CI.** Omit catch param entirely: `} catch { ... }`.
+11. **No `reason` key inside MeshDeny details.** The deny name owns the wire `reason` key; the human-readable cause goes under `detail:`. See "MeshDeny payload convention" above (#371).
 
 ## Verification checklist (run before opening PR)
 

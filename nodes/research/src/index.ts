@@ -57,8 +57,9 @@ function clampLimit(value: unknown): number {
 // Map an S2 failure to a clean MeshDeny — never a half-result. Returns
 // `never` so it composes as a `.catch()` handler without TS definite-
 // assignment complaints. The human-readable cause rides under `detail`:
-// the SDK builds the error payload as { reason: deny.reason, ...details },
-// so a `reason` details key would clobber the deny name on the wire.
+// the SDK builds the error payload as { ...details, reason: deny.reason }
+// (#371 — the deny name always wins), so a `reason` details key would be
+// silently dropped from the wire.
 function denyForS2(err: unknown): never {
   if (err instanceof S2Error) {
     throw new MeshDeny('research_search_failed', { detail: err.message, code: err.code })

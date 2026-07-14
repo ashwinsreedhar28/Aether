@@ -8,6 +8,7 @@ import {
   type SurfaceInfo,
   MeshDeny,
   MeshError,
+  denyPayload,
 } from './types'
 
 export interface MeshNodeOptions {
@@ -230,7 +231,7 @@ export class MeshNode {
     } catch (e) {
       if (isFnf) return
       if (e instanceof MeshDeny) {
-        await this.tryRespond(env, { reason: e.reason, ...e.details }, 'error')
+        await this.tryRespond(env, denyPayload(e), 'error')
       } else {
         this.log('warn', `[${this.nodeId}] handler raised:`, e)
         await this.tryRespond(env, { reason: 'handler_exception', details: String((e as Error).message ?? e) }, 'error')

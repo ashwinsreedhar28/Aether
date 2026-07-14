@@ -99,14 +99,17 @@ function clampLimit(value: unknown): number {
 
 // API failures become denies the caller can read: status-bearing
 // `github_api_error` for a reachable-but-unhappy GitHub, `github_unreachable`
-// for network/timeout. MeshDeny passes through untouched.
+// for network/timeout. MeshDeny passes through untouched. The human-readable
+// cause rides under `detail:` — a `reason` details key would collide with the
+// deny name on the wire (docs/new-node-pattern.md, "MeshDeny payload
+// convention").
 function toMeshDeny(err: unknown): MeshDeny {
   if (err instanceof MeshDeny) return err
   if (err instanceof GithubApiError) {
-    return new MeshDeny('github_api_error', { status: err.status, reason: err.message })
+    return new MeshDeny('github_api_error', { status: err.status, detail: err.message })
   }
   return new MeshDeny('github_unreachable', {
-    reason: err instanceof Error ? err.message : String(err),
+    detail: err instanceof Error ? err.message : String(err),
   })
 }
 

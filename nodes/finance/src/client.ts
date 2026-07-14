@@ -301,7 +301,7 @@ function mapYahooQuote(raw: unknown, symbol: string): Quote {
   if (typeof r.regularMarketPrice !== 'number') {
     throw new QuoteClientError('malformed', {
       provider: 'yahoo',
-      reason: 'missing_regularMarketPrice',
+      detail: 'missing_regularMarketPrice',
     })
   }
   if (
@@ -313,7 +313,7 @@ function mapYahooQuote(raw: unknown, symbol: string): Quote {
     // than a "change: null" surface payload.
     throw new QuoteClientError('malformed', {
       provider: 'yahoo',
-      reason: 'change_fields_missing',
+      detail: 'change_fields_missing',
     })
   }
   const num = (v: unknown): number | undefined =>
@@ -368,7 +368,7 @@ function yahooTimeToTradingDay(t: Date | number | undefined): string {
 function parseStooqCsv(text: string): Quote[] {
   const lines = text.trim().split(/\r?\n/)
   if (lines.length < 2) {
-    throw new QuoteClientError('malformed', { provider: 'stooq', reason: 'empty_body' })
+    throw new QuoteClientError('malformed', { provider: 'stooq', detail: 'empty_body' })
   }
   const out: Quote[] = []
   // Skip the header row (index 0).

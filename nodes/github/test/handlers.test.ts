@@ -141,7 +141,9 @@ describe('create_issue', () => {
     const handler = makeCreateIssueHandler(deps(client))
     await expect(handler(envelope(gapArgs))).rejects.toMatchObject({
       reason: 'github_api_error',
-      details: { status: 403 },
+      // The cause rides under `detail:` — a `reason` details key would
+      // collide with the deny name on the wire (#371).
+      details: { status: 403, detail: 'rate limited' },
     })
   })
 
@@ -264,6 +266,7 @@ describe('list_issues', () => {
     const handler = makeListIssuesHandler(deps(client))
     await expect(handler(envelope({}))).rejects.toMatchObject({
       reason: 'github_unreachable',
+      details: { detail: 'ECONNREFUSED' },
     })
   })
 })
@@ -349,7 +352,7 @@ describe('get_issue (#268 — the work_on_issue spec-guard read)', () => {
     const handler = makeGetIssueHandler(deps(client))
     await expect(handler(envelope({ number: 9999 }))).rejects.toMatchObject({
       reason: 'github_api_error',
-      details: { status: 404 },
+      details: { status: 404, detail: 'Not Found' },
     })
   })
 })

@@ -78,7 +78,7 @@ Issue format (#255 item 3 — gap issues are **RECORDS, not contracts**):
   ARCHITECT SPEC comment lands on the issue.
 
 Denies: `github_no_token`, `github_bad_capability_key`, `github_bad_<field>`,
-`github_api_error { status, reason }`, `github_unreachable { reason }`.
+`github_api_error { status, detail }`, `github_unreachable { detail }`.
 
 ## `list_issues` — the open board
 

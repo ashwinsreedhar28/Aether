@@ -8,5 +8,6 @@ export {
   type SurfaceInfo,
   MeshDeny,
   MeshError,
+  denyPayload,
 } from './types'
 export { canonical, sign } from './canonical'

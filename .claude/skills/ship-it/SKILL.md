@@ -9,11 +9,17 @@ Canonical ship sequence for the Aether repo.
 
 ## Preconditions
 
-- **Order:** Run `pnpm install` BEFORE `git add -A`. The install may
+- **Order:** Run `pnpm install` BEFORE staging. The install may
   update `pnpm-lock.yaml`; that update must be staged in the same
   commit as the dependency changes that triggered it. Reversing this
   order leaves the lockfile change unstaged and CI fails with
   `ERR_PNPM_OUTDATED_LOCKFILE` (see governance-log entry 6).
+- **Staging is explicit (#375).** Stage the lane's files BY PATH — never
+  `git add -A` or `git add .`. Blanket staging is how worktree
+  scaffolding (`.lane-kickoff.md`) and stray local files end up in a
+  lane's diff; PR #379 stayed clean only because it staged explicitly.
+  `.lane-kickoff.md` is also gitignored (#375), but the skill does not
+  assume every checkout carries that entry.
 - Before committing, assert the lockfile is staged if any
   `package.json` files changed:
     `git diff --cached --name-only | grep -qE "package\.json$" && \`
@@ -31,7 +37,17 @@ If any precondition fails: stop. Do not stage. Do not commit.
 set -e
 cd "$(git rev-parse --show-toplevel)"
 
-git add -A
+# Stage EXPLICITLY, by path — every file the lane touched, nothing else.
+# Never `git add -A` / `git add .` (#375: blanket staging ships worktree
+# scaffolding; explicit paths are the fence).
+git add <path> [<path> ...]
+
+# Assert no kickoff scaffolding slipped in (if-form: grep's no-match exit
+# status must not trip `set -e`).
+if git diff --cached --name-only | grep -qx '.lane-kickoff.md'; then
+  echo "kickoff scaffolding staged — unstage it"; exit 1
+fi
+
 git status
 
 git commit -m "<type>(<scope>): <imperative summary>" \

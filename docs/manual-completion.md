@@ -46,7 +46,8 @@ the lane manually. This document describes the mechanics.
    verify fails, pastes the error to the Architect for a fix patch.
 
 5. **Director ships.** Standard ship-it sequence (`pnpm install` first,
-   `git add -A` second, then commit + push + PR). PR body's
+   explicit per-path `git add` second — never `git add -A` (#375) — then
+   commit + push + PR). PR body's
    "Risks / TODOs / Skipped" section notes the lane was completed
    manually due to CC unavailability, with an attribution like:
    "CC session stalled; lane completed via Director-Architect manual

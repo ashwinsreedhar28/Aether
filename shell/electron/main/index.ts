@@ -27,6 +27,7 @@ import { getRavenDaemonManager } from './services/ravenDaemonManager'
 import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
 import { SpawnService } from './services/spawnService'
+import { LaneMonitor } from './services/laneMonitor'
 import { REPO_ROOT, spawnsLedgerPath } from './services/paths'
 import { markQuitting } from './services/appLifecycle'
 import { registerPythonDaemonNode, waitForMeshReady } from './services/nodeRegistry'
@@ -620,6 +621,30 @@ const spawnService = new SpawnService({
 spawnService.on('changed', (snap) => broadcastToRenderers('spawn:changed', snap))
 spawnService.start()
 
+// Lane gate monitor (#378): the background observer that makes lane state
+// self-announcing — every 60s it reads each open lane's issue thread over the
+// shell → github.get_issue mesh edge, folds phase with the card's own
+// laneGate code, records transitions as ledger `gate` lines, and fires host
+// notifications (including the boot diff for transitions that happened while
+// the app was closed — the #372 blind spot). Notifications ride the shell →
+// host_notifications.notify edge, the same node the card's #340 toast uses:
+// gate transitions are lane/mesh events, unlike the native "Listening" cue
+// above, which is shell-internal state. Observation only — no autonomous
+// action; the ledger line is written before the (best-effort) notification.
+const ageRemindEnv = parseInt(process.env.AETHER_AGE_REMIND_MIN ?? '', 10)
+const stallEnv = parseInt(process.env.AETHER_STALL_MIN ?? '', 10)
+const laneMonitor = new LaneMonitor({
+  ledgerPath: spawnsLedgerPath(),
+  invoke: meshInvoke,
+  notify: (body) => {
+    void meshInvoke('host_notifications.notify', { title: 'Aether', body }).catch(() => {})
+  },
+  onGateUpdate: (update) => broadcastToRenderers('spawn:gate-update', update),
+  ageRemindMin: Number.isFinite(ageRemindEnv) && ageRemindEnv >= 1 ? ageRemindEnv : undefined,
+  stallMin: Number.isFinite(stallEnv) && stallEnv >= 1 ? stallEnv : undefined,
+})
+laneMonitor.start()
+
 // Spawn IPC. Renderer-facing surface is window.aether.spawn in preload. The
 // passphrase never crosses this boundary — it is verified inside raven-core
 // before a request ever reaches the ledger; the renderer only approves/dismisses
@@ -792,6 +817,7 @@ async function stopAllChildren(): Promise<void> {
     calendar.stop(),
     reminders.stop(),
     Promise.resolve(spawnService.stop()),
+    Promise.resolve(laneMonitor.stop()),
     Promise.resolve(stopViewerHost()),
     viewerNode?.stop() ?? Promise.resolve(),
   ])

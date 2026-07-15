@@ -844,3 +844,126 @@ test('malformed or issue-less telemetry lines are skipped by the fold', () => {
     cleanup()
   }
 })
+
+// ---- gate family (#378) --------------------------------------------------------
+
+test('gate transitions fold to last-known phase; reminders record their ts but never move it', () => {
+  const { ledger, cleanup } = freshLedger()
+  try {
+    assert.equal(ledger.lastGatePhases().size, 0)
+    ledger.writeGateTransition(372, 'at-gate', 'working')
+    let st = ledger.lastGatePhases().get(372)
+    assert.equal(st?.phase, 'at-gate')
+    assert.equal(typeof st?.transitionTs, 'string')
+    assert.equal(st?.reminderTs, null)
+    // A reminder arms the dedupe without touching the phase.
+    ledger.writeGateReminder(372, 'at-gate')
+    st = ledger.lastGatePhases().get(372)
+    assert.equal(st?.phase, 'at-gate')
+    assert.equal(typeof st?.reminderTs, 'string')
+    // The next transition starts a fresh sitting: the reminder slot re-arms.
+    ledger.writeGateTransition(372, 'revising', 'at-gate')
+    st = ledger.lastGatePhases().get(372)
+    assert.equal(st?.phase, 'revising')
+    assert.equal(st?.reminderTs, null)
+    const gates = ledger.listGates()
+    assert.deepEqual(
+      gates.map((g) => g.reminder),
+      [false, true, false],
+    )
+    assert.equal(gates[0]?.prev, 'working')
+    assert.equal(gates[1]?.prev, null)
+  } finally {
+    cleanup()
+  }
+})
+
+test('a stall reminder with no prior transition seeds the fold without inventing one', () => {
+  const { ledger, cleanup } = freshLedger()
+  try {
+    ledger.writeGateReminder(378, 'working')
+    const st = ledger.lastGatePhases().get(378)
+    assert.equal(st?.phase, 'working')
+    assert.equal(st?.transitionTs, null)
+    assert.equal(typeof st?.reminderTs, 'string')
+  } finally {
+    cleanup()
+  }
+})
+
+test('malformed gate lines never fabricate a transition', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    appendFileSync(
+      path,
+      JSON.stringify({ id: 'g1', ts: '2026-07-01T00:00:00.000Z', kind: 'gate', issue: 372, phase: 'shipped' }) +
+        '\n' + // off-list phase
+        JSON.stringify({ id: 'g2', ts: '2026-07-01T00:00:00.000Z', kind: 'gate', phase: 'at-gate' }) +
+        '\n' + // no issue
+        JSON.stringify({ ts: '2026-07-01T00:00:00.000Z', kind: 'gate', issue: 372, phase: 'at-gate' }) +
+        '\n', // no id
+    )
+    assert.equal(ledger.listGates().length, 0)
+    assert.equal(ledger.lastGatePhases().size, 0)
+    // And none of it seeded a spawn record either.
+    assert.equal(ledger.list().length, 0)
+  } finally {
+    cleanup()
+  }
+})
+
+test('mixed-family fixture: every fold sees only its own family, and gate lines hold no capacity (#378)', () => {
+  // One ledger holding all six families — the #310 discrimination law's pin,
+  // extended per #378 task 3: each fold below must count exactly its own.
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    // Lane request + spawned lifecycle (the Python work_on_issue shapes).
+    appendFileSync(
+      path,
+      JSON.stringify({
+        id: 'lane-1',
+        ts: '2026-07-01T00:00:00.000Z',
+        kind: 'lane',
+        issue: 372,
+        issue_title: 'feat(x): a thing',
+        branch: 'lane/issue-372',
+        worktree: '~/aether-lane-372',
+        status: 'requested',
+      }) +
+        '\n' +
+        JSON.stringify({ id: 'lane-1', ts: '2026-07-01T00:01:00.000Z', status: 'spawned' }) +
+        '\n',
+    )
+    ledger.request('draft-x', '/drafts/x.md')
+    ledger.requestRelay(372)
+    ledger.requestTeardown(372)
+    ledger.writeTelemetry({
+      issue: 372,
+      spawnedAt: '2026-07-01T00:01:00.000Z',
+      model: null,
+      effort: null,
+      tokens: null,
+      gateReports: null,
+      revises: null,
+      proceeds: null,
+      diff: null,
+      outcome: null,
+    })
+    ledger.writeGateTransition(372, 'at-gate', 'working')
+    ledger.writeGateReminder(372, 'at-gate')
+
+    // Spawn fold: the lane + the draft, nothing seeded by the other families.
+    assert.equal(ledger.list().length, 2)
+    assert.equal(ledger.find('lane-1')?.status, 'spawned')
+    // Gate lines hold no capacity: only the spawned lane is live.
+    assert.equal(ledger.liveCount(), 1)
+    // Each family's own fold sees exactly its own lines.
+    assert.equal(ledger.listRelays().length, 1)
+    assert.equal(ledger.listTeardowns().length, 1)
+    assert.equal(ledger.listTelemetry().length, 1)
+    assert.equal(ledger.listGates().length, 2)
+    assert.equal(ledger.lastGatePhases().get(372)?.phase, 'at-gate')
+  } finally {
+    cleanup()
+  }
+})

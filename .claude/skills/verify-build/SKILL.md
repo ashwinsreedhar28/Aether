@@ -43,7 +43,9 @@ pnpm lint
 cd "$REPO_ROOT"
 if git diff main --name-only | grep -qE '\.py$'; then
   echo "[verify] python compileall"
-  python -m compileall nodes/ core/ 2>&1 | grep -v "^Listing" || true
+  # -x excludes any vendored venv under the daemons trees (the main checkout
+  # carries daemons/*/.venv; worktrees don't).
+  python -m compileall -x '\.venv' nodes/ core/ daemons/raven-core/ 2>&1 | grep -v "^Listing" || true
 fi
 
 echo "=== verify-build: clean ==="

@@ -147,6 +147,16 @@ export interface SpawnSnapshot {
   teardowns: TeardownRecord[]
 }
 
+/** The lane monitor's push (#378): one background-observed gate transition,
+ * with the folded gate state riding along so the card merges without a
+ * re-fetch. Shapes imported from the fold's own module — one source. */
+export interface GateUpdate {
+  issue: number
+  phase: import('../utils/laneGate').GatePhase
+  prev: import('../utils/laneGate').GatePhase
+  gate: import('../utils/laneGate').LaneGateState
+}
+
 export interface SpawnActionResult {
   ok: boolean
   error?: string
@@ -201,6 +211,9 @@ export interface AetherBridge {
     revise: (issue: number, feedbackText?: string) => Promise<SpawnActionResult>
     closeLane: (issue: number, force?: boolean) => Promise<SpawnActionResult>
     onChanged: (cb: (snap: SpawnSnapshot) => void) => Unsub
+    /** Monitor push (#378): a background-observed gate transition for one
+     * lane. The card merges it live; REFRESH stays as the manual override. */
+    onGateUpdate: (cb: (update: GateUpdate) => void) => Unsub
   }
   shell: {
     /** Open an http(s) URL in the default browser — never throws. */

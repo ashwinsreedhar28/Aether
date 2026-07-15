@@ -147,9 +147,10 @@ export function parseShortstat(out: string): LaneDiffStat {
 
 // ---- gate report count ----------------------------------------------------------
 
-// Kept in sync with shell/src/utils/laneGate.ts (renderer and main share no
-// imports; both sides pin the literal in tests — the established prefix-
-// duplication pattern).
+// Kept in sync with shell/src/utils/laneGate.ts; both sides pin the literal
+// in tests — the established prefix-duplication pattern. (#378 ended the
+// no-shared-imports era for the FOLD itself — laneMonitor imports it — but
+// the pinned literal copies stay: they are the drift tripwire, not a fold.)
 export const GATE_REPORT_PREFIX = 'GATE REPORT'
 
 // Count GATE REPORT comments STRICTLY newer than the record's spawned event —

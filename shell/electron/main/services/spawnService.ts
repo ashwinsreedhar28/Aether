@@ -1360,7 +1360,9 @@ export class SpawnService extends EventEmitter {
   // First real dirty line of `git status --porcelain`, or null for a clean
   // (or already-removed) worktree. The recipe's own kickoff file is excluded:
   // .lane-kickoff.md sits untracked in EVERY lane worktree, so counting it
-  // would draw the warn card on every closeout.
+  // would draw the warn card on every closeout. (#375 gitignores it, so on
+  // branches carrying that entry porcelain never lists it — this skip stays
+  // for lanes cut from older baselines.)
   private async worktreeDirty(worktree: string): Promise<string | null> {
     if (!existsSync(worktree)) return null
     const out = await this.runShellCapture('git status --porcelain', worktree)
@@ -1951,12 +1953,21 @@ export class SpawnService extends EventEmitter {
 // pin them in tests). R2 (#339): the kickoff also dictates the revision loop —
 // on the fixed REVISE_TEXT relay, the lane reads the LATEST DIRECTOR FEEDBACK
 // comment (latest-comment-only by doctrine), addresses it, and re-gates.
+// #375 hardens the spec gate twice over: the spec binds only once a
+// Director-signed ratification comment sits on the thread (the 2026-07-06
+// §13.14 incident — self-filed issues share the Director's gh identity, so a
+// body spec proves authorship, not approval), and nodes/mesh lanes owe the
+// gate report an executable harness transcript (the #366 evidence contract).
 // Exported for the card preview and tests.
 export function laneKickoff(issue: number): string {
   return (
     `You are the Implementer for Aether issue #${issue}. ` +
     `FIRST ACTION: gh issue view ${issue} --comments — the issue's ARCHITECT SPEC ` +
     `(body plus any ADDENDUM comments) is the contract; do not start from a spec-less issue. ` +
+    `The spec binds only once ratified: verify the thread carries a Director-signed ` +
+    `ratification comment before building — a spec in the body alone is insufficient, since ` +
+    `self-filed issues share the Director's gh identity; missing ratification halts at the ` +
+    `spec gate exactly like a missing spec. ` +
     `CLAUDE.md §7/§11/§13 discipline. RECON before building: read the files the spec names ` +
     `before writing anything. Stop and report options on anything the spec doesn't cover. ` +
     `Changelog/ADR law (§8): record your entry as changelog/unreleased/${issue}-<slug>.md and ` +
@@ -1964,7 +1975,10 @@ export function laneKickoff(issue: number): string {
     `CHANGELOG.md or DECISIONS.md; both are generated. ` +
     `When done: run the verify suite, then post the FULL gate report as a comment on issue ` +
     `#${issue}, prefixed exactly "GATE REPORT — " (gh issue comment ${issue} --body-file <file>), ` +
-    `and stop at the gate. On receiving "${REVISE_TEXT}": read the latest DIRECTOR FEEDBACK ` +
+    `and stop at the gate. Executable evidence (#366): a lane that touched nodes/ or mesh ` +
+    `wiring MUST embed its harness transcript (at minimum the HARNESS RESULT line) in the ` +
+    `gate report — prose claims are insufficient. ` +
+    `On receiving "${REVISE_TEXT}": read the latest DIRECTOR FEEDBACK ` +
     `comment on this issue, address it fully, post a fresh GATE REPORT, and stop at the gate ` +
     `again. Only the newest DIRECTOR FEEDBACK comment is in contract — earlier feedback is ` +
     `history. Open the PR only on "clean, proceed," with the full §7 self-review ` +

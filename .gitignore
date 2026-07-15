@@ -59,3 +59,8 @@ logs/
 # Local session state files (Director planning notes, not committed)
 _session_state.md
 
+# Lane kickoff scaffolding (#375) — spawnService writes this into every lane
+# worktree; it is launch plumbing, never shippable. First fence; ship-it's
+# explicit staging is the second.
+.lane-kickoff.md
+

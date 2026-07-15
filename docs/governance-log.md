@@ -599,3 +599,35 @@ the mouse-mode trade (wheel scrolling for native drag-selection), not a
 defect — don't "fix" it by turning `mouse` off, which resurrects the #324
 history-walking scroll, and don't file the lost selection as a bug.
 Option-drag is the escape hatch.
+
+## 2026-07-14 — kickoff hardening: ratification gate, executable evidence, unshippable scaffolding (#375)
+
+The spec-gate and staging laws the kickoff template now dictates (the
+`.lane-kickoff.md` hardening the batch above deferred to #375's amended
+scope), banked as governance so they outlive the template's wording.
+
+### A body spec alone never clears the spec gate — ratification is a Director-signed comment
+Self-filed issues share the Director's gh identity (the 2026-07-06 §13.14
+incident): an ARCHITECT SPEC in the issue body proves authorship, not
+approval. The kickoff now instructs the implementer to verify the thread
+carries a Director-signed ratification comment before building. Rule:
+missing ratification halts at the spec gate exactly like a missing spec —
+report and stop, don't infer approval from the body.
+
+### Nodes/mesh lanes gate on executable evidence, not prose
+The #366 harness-transcript ADR's designated follow-on: a lane that touched
+`nodes/` or mesh wiring must embed its harness transcript (at minimum the
+`HARNESS RESULT` line) in the GATE REPORT. Prose claims ("the deny path
+works") are insufficient — an instrument never observed running is
+indistinguishable from one that was never run. Rule: transcript in the
+report, or the gate isn't passed.
+
+### `.lane-kickoff.md` is never shippable
+The kickoff file is launch plumbing spawnService writes into every lane
+worktree; PR #379's diff stayed clean of it only because that lane staged
+explicitly. Two fences now (#375): the root `.gitignore` carries
+`.lane-kickoff.md`, and ship-it stages BY PATH — `git add -A` / `git add .`
+are off the ship sequence, with a staged-kickoff assert behind the explicit
+add. Rule: lanes stage their files explicitly; blanket staging is not a
+ship move. (spawnService's closeout dirty-count skip for the file stays —
+lanes cut from pre-#375 baselines lack the gitignore entry.)

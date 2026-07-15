@@ -196,6 +196,29 @@ test('laneKickoff dictates the revision loop (#339): the fixed trigger, the read
   )
 })
 
+test('laneKickoff hardens the spec gate (#375): Director ratification required, executable evidence for nodes/mesh lanes', () => {
+  const k = laneKickoff(375)
+  // Ratification (the 2026-07-06 §13.14 incident): a body spec alone never
+  // clears the spec gate — self-filed issues share the Director's gh
+  // identity, so only a Director-signed ratification comment binds it.
+  assert.ok(
+    k.includes(
+      'The spec binds only once ratified: verify the thread carries a Director-signed ' +
+        'ratification comment before building',
+    ),
+  )
+  assert.ok(k.includes('missing ratification halts at the spec gate exactly like a missing spec'))
+  // Executable evidence (the #366 harness-transcript contract): nodes/mesh
+  // lanes owe the gate report a transcript, not prose.
+  assert.ok(
+    k.includes(
+      'a lane that touched nodes/ or mesh ' +
+        'wiring MUST embed its harness transcript (at minimum the HARNESS RESULT line) in the ' +
+        'gate report — prose claims are insufficient',
+    ),
+  )
+})
+
 test('the feedback comment shape (#339): prefix parity with the fold, body rides a --body-file argv', () => {
   // DIRECTOR FEEDBACK is the third lane-channel literal — laneGate.test.ts
   // pins the same string on the renderer side.

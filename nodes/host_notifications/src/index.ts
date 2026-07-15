@@ -32,7 +32,7 @@ async function handleNotify(env: Envelope): Promise<Record<string, unknown>> {
   if (process.platform !== 'darwin') {
     throw new MeshDeny('host_notifications_unsupported', {
       platform: process.platform,
-      reason: 'macOS-only in v0.1.0; Windows path is a follow-up PR',
+      detail: 'macOS-only in v0.1.0; Windows path is a follow-up PR',
     })
   }
   const payload = env.payload as Partial<NotifyPayload>

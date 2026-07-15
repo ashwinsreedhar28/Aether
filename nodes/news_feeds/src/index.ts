@@ -203,15 +203,15 @@ function makeSearchHandler(store: ArticleStore) {
     const payload = env.payload as SearchArgs
     const rawQuery = payload?.query
     if (typeof rawQuery !== 'string') {
-      throw new MeshDeny('news_feeds_bad_query', { reason: 'query must be a string' })
+      throw new MeshDeny('news_feeds_bad_query', { detail: 'query must be a string' })
     }
     const trimmed = rawQuery.trim()
     if (trimmed.length === 0) {
-      throw new MeshDeny('news_feeds_bad_query', { reason: 'query is empty' })
+      throw new MeshDeny('news_feeds_bad_query', { detail: 'query is empty' })
     }
     if (trimmed.length > QUERY_MAX_LEN) {
       throw new MeshDeny('news_feeds_bad_query', {
-        reason: `query exceeds ${QUERY_MAX_LEN} chars`,
+        detail: `query exceeds ${QUERY_MAX_LEN} chars`,
       })
     }
     const match = sanitiseFtsQuery(trimmed)
@@ -234,15 +234,15 @@ function makeSearchByEntityHandler(store: ArticleStore) {
     const payload = env.payload as SearchByEntityArgs
     const rawEntity = payload?.entity
     if (typeof rawEntity !== 'string') {
-      throw new MeshDeny('news_feeds_bad_entity', { reason: 'entity must be a string' })
+      throw new MeshDeny('news_feeds_bad_entity', { detail: 'entity must be a string' })
     }
     const trimmed = rawEntity.trim()
     if (trimmed.length === 0) {
-      throw new MeshDeny('news_feeds_bad_entity', { reason: 'entity is empty' })
+      throw new MeshDeny('news_feeds_bad_entity', { detail: 'entity is empty' })
     }
     if (trimmed.length > ENTITY_MAX_LEN) {
       throw new MeshDeny('news_feeds_bad_entity', {
-        reason: `entity exceeds ${ENTITY_MAX_LEN} chars`,
+        detail: `entity exceeds ${ENTITY_MAX_LEN} chars`,
       })
     }
     let kind: EntityKind | undefined

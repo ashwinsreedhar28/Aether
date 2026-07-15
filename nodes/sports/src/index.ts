@@ -94,7 +94,7 @@ function makeGameHandler(client: SportsClient) {
     const league = requireLeague(payload)
     const eventId = typeof payload?.event_id === 'string' ? payload.event_id.trim() : ''
     if (!eventId) {
-      throw new MeshDeny('sports_event_required', { reason: 'event_id_required' })
+      throw new MeshDeny('sports_event_required', { detail: 'event_id_required' })
     }
 
     let detail: GameDetail | null

@@ -29,6 +29,7 @@ import {
   laneKickoff,
   parsePaneId,
   relaySendKeysArgs,
+  relayUnsubmitted,
   withTimeout,
   DIRECTOR_FEEDBACK_PREFIX,
   feedbackCommentBody,
@@ -213,11 +214,28 @@ test('the feedback comment shape (#339): prefix parity with the fold, body rides
   ])
 })
 
+// Thread comments for the invoke stub (#380): a GATE REPORT with DIRECTOR
+// FEEDBACK strictly newer — the state the executor's feedback-presence guard
+// requires. Fixed far-future created_at so they always postdate the
+// fixture's markSpawned timestamp.
+function freshFeedbackComments(feedbackText: string): Array<Record<string, string>> {
+  return [
+    { body: 'GATE REPORT — done', created_at: '2030-01-01T00:01:00.000Z' },
+    {
+      body: feedbackCommentBody(feedbackText),
+      created_at: '2030-01-01T00:02:00.000Z',
+    },
+  ]
+}
+
 // A service over a ledger holding one live lane record (issue 232, tmux
 // session recorded), tmux fully stubbed: requireTmuxBin resolves to
 // /usr/bin/true, so the send-keys exec really runs — and exits 0 — without a
-// tmux server anywhere near the test.
-function liveLaneFixture(): {
+// tmux server anywhere near the test. Both #380 timing seams run at 0.
+// `comments` (optional) wires the github.get_issue invoke stub the revise
+// read-back and the executor guard re-fold; omitting it models an
+// unverifiable thread (no invoke), which the guard must treat as REFUSE.
+function liveLaneFixture(comments?: unknown[]): {
   svc: SpawnService
   ledger: SpawnLedger
   dir: string
@@ -242,7 +260,15 @@ function liveLaneFixture(): {
     }) + '\n',
   )
   ledger.markSpawned('lane-rec', join(dir, 'wt'), 'lane/issue-232', undefined, 'lane-232')
-  const svc = new SpawnService({ repoRoot: dir, ledgerPath })
+  const svc = new SpawnService({
+    repoRoot: dir,
+    ledgerPath,
+    relayVerifyDelayMs: 0,
+    readBackRetryMs: 0,
+    invoke: comments
+      ? async () => ({ ok: true, envelope: { payload: { comments } } })
+      : undefined,
+  })
   const open = svc as unknown as {
     tmuxOk: boolean
     tmuxHasSession: (session: string) => Promise<boolean>
@@ -344,8 +370,10 @@ function stubGh(dir: string, exitCode: number): { bin: string; capture: string }
   return { bin, capture }
 }
 
-test('revise with typed feedback posts DIRECTOR FEEDBACK first, then relays REVISE_TEXT (#339)', async () => {
-  const { svc, ledger, dir, cleanup } = liveLaneFixture()
+test('revise with typed feedback posts DIRECTOR FEEDBACK first, confirms by read-back, then relays REVISE_TEXT (#339/#380)', async () => {
+  const { svc, ledger, dir, cleanup } = liveLaneFixture(
+    freshFeedbackComments('the dedupe fires twice'),
+  )
   try {
     const gh = stubGh(dir, 0)
     ;(svc as unknown as ReviseSeams).requireGhBin = async () => gh.bin
@@ -365,25 +393,55 @@ test('revise with typed feedback posts DIRECTOR FEEDBACK first, then relays REVI
   }
 })
 
-test('a failed feedback post surfaces by name and relays NOTHING (#339)', async () => {
-  const { svc, ledger, dir, cleanup } = liveLaneFixture()
+test('a failed feedback post aborts by name — no send, and the refusal is on the ledger (#339/#380)', async () => {
+  const { svc, ledger, dir, cleanup } = liveLaneFixture(
+    freshFeedbackComments('feedback that will not land'),
+  )
   try {
     const gh = stubGh(dir, 1)
     ;(svc as unknown as ReviseSeams).requireGhBin = async () => gh.bin
     const res = await svc.revise(232, 'feedback that will not land')
     assert.equal(res.ok, false)
     assert.equal(res.posted, false)
-    assert.match(res.error ?? '', /feedback post failed/)
-    // No relay line at all — the sentence must never point a lane at
-    // feedback that isn't on the thread.
-    assert.equal(ledger.listRelays().length, 0)
+    assert.match(res.error ?? '', /^comment_post_failed/)
+    // The refusal is ledgered (#380 task 2): one failed relay pair, never a
+    // sent one — the sentence must never point a lane at feedback that isn't
+    // on the thread, and the abort must never be silent.
+    const relays = ledger.listRelays()
+    assert.equal(relays.length, 1)
+    assert.equal(relays[0]?.status, 'failed')
+    assert.match(relays[0]?.error ?? '', /^comment_post_failed/)
   } finally {
     cleanup()
   }
 })
 
-test('revise with empty input relays REVISE_TEXT only — no gh call, nothing posted', async () => {
-  const { svc, ledger, dir, cleanup } = liveLaneFixture()
+test('a post that cannot be read back aborts as comment_unconfirmed — comment landing is a PRECONDITION (#380)', async () => {
+  // gh exits 0 but the thread never serves the feedback back: the stub's
+  // comments carry a report only.
+  const { svc, ledger, dir, cleanup } = liveLaneFixture([
+    { body: 'GATE REPORT — done', created_at: '2030-01-01T00:01:00.000Z' },
+  ])
+  try {
+    const gh = stubGh(dir, 0)
+    ;(svc as unknown as ReviseSeams).requireGhBin = async () => gh.bin
+    const res = await svc.revise(232, 'feedback the thread swallows')
+    assert.equal(res.ok, false)
+    assert.equal(res.posted, true)
+    assert.match(res.error ?? '', /^comment_unconfirmed/)
+    const relays = ledger.listRelays()
+    assert.equal(relays.length, 1)
+    assert.equal(relays[0]?.status, 'failed')
+    assert.match(relays[0]?.error ?? '', /^comment_unconfirmed/)
+  } finally {
+    cleanup()
+  }
+})
+
+test('revise with empty input relays REVISE_TEXT only when the thread holds fresh feedback — no gh call (#339/#380)', async () => {
+  const { svc, ledger, dir, cleanup } = liveLaneFixture(
+    freshFeedbackComments('feedback already on the thread'),
+  )
   try {
     const gh = stubGh(dir, 0)
     ;(svc as unknown as ReviseSeams).requireGhBin = async () => gh.bin
@@ -396,6 +454,121 @@ test('revise with empty input relays REVISE_TEXT only — no gh call, nothing po
   } finally {
     cleanup()
   }
+})
+
+// ---- the feedback-presence guard at the EXECUTOR (#380 task 3) ---------------
+
+test('executeRelay refuses a revise when no DIRECTOR FEEDBACK is newer than the report — reason no_feedback', async () => {
+  // Feedback exists but PREDATES the report: the lane owes nothing.
+  const { svc, ledger, cleanup } = liveLaneFixture([
+    { body: 'DIRECTOR FEEDBACK — stale', created_at: '2030-01-01T00:00:30.000Z' },
+    { body: 'GATE REPORT — done', created_at: '2030-01-01T00:01:00.000Z' },
+  ])
+  try {
+    // Voice-shaped entry: the request line lands first (lane_revise_tool's
+    // append), the executor drains it — the guard must hold on THIS path
+    // too, not just the card's.
+    const rec = ledger.requestRelay(232, REVISE_TEXT)
+    const res = await (
+      svc as unknown as { executeRelay: (id: string) => Promise<{ ok: boolean; error?: string }> }
+    ).executeRelay(rec.id)
+    assert.equal(res.ok, false)
+    assert.match(res.error ?? '', /^no_feedback/)
+    assert.equal(ledger.findRelay(rec.id)?.status, 'failed')
+    assert.match(ledger.findRelay(rec.id)?.error ?? '', /^no_feedback/)
+  } finally {
+    cleanup()
+  }
+})
+
+test('an unverifiable thread refuses the revise too — the guard fails closed (#380)', async () => {
+  // No invoke wired at all (fixture without comments): the executor cannot
+  // re-fold the thread, so it must refuse rather than type on faith.
+  const { svc, ledger, cleanup } = liveLaneFixture()
+  try {
+    const rec = ledger.requestRelay(232, REVISE_TEXT)
+    const res = await (
+      svc as unknown as { executeRelay: (id: string) => Promise<{ ok: boolean; error?: string }> }
+    ).executeRelay(rec.id)
+    assert.equal(res.ok, false)
+    assert.match(res.error ?? '', /^no_feedback/)
+    assert.equal(ledger.findRelay(rec.id)?.status, 'failed')
+  } finally {
+    cleanup()
+  }
+})
+
+test('the guard never touches a clean-proceed — no invoke wired, proceed still relays', async () => {
+  const { svc, ledger, cleanup } = liveLaneFixture()
+  try {
+    const res = await svc.proceed(232)
+    assert.equal(res.ok, true)
+    assert.equal(ledger.listRelays()[0]?.status, 'relayed')
+  } finally {
+    cleanup()
+  }
+})
+
+// ---- delivery verification (#380 task 4): read-back behind the send seam -----
+
+// Open the #380 verification seams: scripted pane captures (shift one per
+// read-back) and a counted Enter retry.
+function verifySeams(
+  svc: SpawnService,
+  captures: string[],
+): { enters: () => number } {
+  let enters = 0
+  const open = svc as unknown as {
+    capturePane: (paneId: string) => Promise<string>
+    pressEnter: (paneId: string) => Promise<void>
+  }
+  open.capturePane = async () => captures.shift() ?? ''
+  open.pressEnter = async () => {
+    enters++
+  }
+  return { enters: () => enters }
+}
+
+test('a swallowed Enter is retried once; still unsubmitted fails as enter_not_registered — proceed shares the machinery (#380)', async () => {
+  const { svc, ledger, cleanup } = liveLaneFixture()
+  try {
+    // Both read-backs show the sentence sitting on the input line.
+    const seams = verifySeams(svc, [`❯ ${RELAY_TEXT}`, `❯ ${RELAY_TEXT}`])
+    const res = await svc.proceed(232)
+    assert.equal(res.ok, false)
+    assert.match(res.error ?? '', /^enter_not_registered/)
+    assert.equal(seams.enters(), 1)
+    const relay = ledger.listRelays()[0]
+    assert.equal(relay?.status, 'failed')
+    assert.match(relay?.error ?? '', /^enter_not_registered/)
+  } finally {
+    cleanup()
+  }
+})
+
+test('the Enter retry that lands records relayed — verified-submitted, not fire-and-forget (#380)', async () => {
+  const { svc, ledger, cleanup } = liveLaneFixture()
+  try {
+    // First read-back: unsubmitted. After the retry: the input box is empty.
+    const seams = verifySeams(svc, [`❯ ${RELAY_TEXT}`, '❯ '])
+    const res = await svc.proceed(232)
+    assert.equal(res.ok, true)
+    assert.equal(seams.enters(), 1)
+    assert.equal(ledger.listRelays()[0]?.status, 'relayed')
+  } finally {
+    cleanup()
+  }
+})
+
+test('relayUnsubmitted reads only the pane tail and only the input line', () => {
+  // The signature: sentence sharing a tail line with the ❯ input glyph.
+  assert.equal(relayUnsubmitted(`some output\n❯ ${REVISE_TEXT}\n`, REVISE_TEXT), true)
+  // A submitted sentence echoes without the glyph.
+  assert.equal(relayUnsubmitted(`> ${REVISE_TEXT}\nworking…\n❯ \n`, REVISE_TEXT), false)
+  // The kickoff quotes both literals in the scrollback — beyond the 12-line
+  // tail they must never read as unsubmitted.
+  const scrollback = `On receiving "${REVISE_TEXT}": …\n❯ quoted above\n${'\n'.repeat(14)}❯ \n`
+  assert.equal(relayUnsubmitted(scrollback, REVISE_TEXT), false)
 })
 
 test('armRelays fails boot-pending relays instead of sending them (no auto-proceed)', () => {

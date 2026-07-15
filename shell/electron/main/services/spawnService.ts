@@ -41,8 +41,18 @@ import {
 import type { ControlDispatch } from './viewerControl'
 // .ts extension for `node --test` loadability, same rule as spawnLedger.
 import { pickBinaryLine } from './shellCapture.ts'
+// The exported lane-channel fold (#310/#378 parity law: import, never
+// duplicate) — the relay executor re-folds the issue thread with the SAME
+// code the card and the gate monitor use (#380 feedback-presence guard).
+import { foldGateComments, type LaneGateState } from '../../../src/utils/laneGate.ts'
+// Structural invoke slice, shared with the gate monitor so the executor rides
+// the same shell → github.get_issue mesh edge (type-only, no runtime import).
+import type { MonitorInvokeResult } from './laneMonitor.ts'
 
 const execFileAsync = promisify(execFile)
+
+const sleep = (ms: number): Promise<void> =>
+  ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve()
 
 // Recipe step timeouts. pnpm install on a cold worktree (full dep tree) is the
 // long pole — minutes, not seconds — so it gets a generous ceiling; the whole
@@ -56,6 +66,12 @@ const KICKOFF_TIMEOUT_MS = 5 * 1000
 const KICKOFF_POLL_MS = 250
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 const WATCH_DEBOUNCE_MS = 120
+// Relay delivery verification (#380): how long the pane's TUI gets to consume
+// the sent keys before the capture-pane read-back, and how long a posted
+// DIRECTOR FEEDBACK gets before the one read-back retry. Injectable via
+// config so the tests run at 0.
+export const RELAY_VERIFY_DELAY_MS = 350
+export const READBACK_RETRY_MS = 1000
 
 // A record enriched for the renderer: the derived target branch/worktree (so the
 // approval card can show them before approval) and, for an actionable 'requested'
@@ -134,6 +150,15 @@ export interface SpawnServiceConfig {
   // Defaults to ~/.claude/projects; injectable so the fixture tests point it
   // at a temp dir.
   claudeProjectsDir?: string
+  // The shell → github.get_issue mesh edge (#380): the revise flow's
+  // comment read-back and the executor's feedback-presence guard both
+  // re-fold the issue thread through it. Absent (tests without a stub, a
+  // mis-wired boot) the guard fails CLOSED — a revise relay never types on
+  // an unverifiable thread.
+  invoke?: (target: string, payload: Record<string, unknown>) => Promise<MonitorInvokeResult>
+  // #380 timing seams — see RELAY_VERIFY_DELAY_MS / READBACK_RETRY_MS.
+  relayVerifyDelayMs?: number
+  readBackRetryMs?: number
 }
 
 /**
@@ -159,6 +184,10 @@ export class SpawnService extends EventEmitter {
   private readonly dispatch: ControlDispatch | null
   // Claude Code's per-cwd transcript root (#364 token scrape).
   private readonly claudeProjectsDir: string
+  // Mesh invoke for thread re-folds (#380) — null in tests without a stub.
+  private readonly invoke: SpawnServiceConfig['invoke'] | null
+  private readonly relayVerifyDelayMs: number
+  private readonly readBackRetryMs: number
   private watcher: FSWatcher | null = null
   private debounce: NodeJS.Timeout | null = null
   // In-process gate covering the window between approve() and the spawned/failed
@@ -210,6 +239,9 @@ export class SpawnService extends EventEmitter {
     this.maxLanes = cfg.maxLanes && cfg.maxLanes >= 1 ? cfg.maxLanes : 3
     this.dispatch = cfg.dispatch ?? null
     this.claudeProjectsDir = cfg.claudeProjectsDir ?? join(homedir(), '.claude', 'projects')
+    this.invoke = cfg.invoke ?? null
+    this.relayVerifyDelayMs = cfg.relayVerifyDelayMs ?? RELAY_VERIFY_DELAY_MS
+    this.readBackRetryMs = cfg.readBackRetryMs ?? READBACK_RETRY_MS
     // Ledger ctor mkdirs the spawns dir, so the watcher below can attach even
     // before the first request is written.
     this.ledger = new SpawnLedger(cfg.ledgerPath)
@@ -708,14 +740,17 @@ export class SpawnService extends EventEmitter {
     return this.executeRelay(rec.id)
   }
 
-  /** The card's REVISE path (#339): post the Director's typed feedback to the
-   * lane's issue thread as a DIRECTOR FEEDBACK comment, then relay the fixed
-   * REVISE_TEXT — post BEFORE relay, so the sentence never points a lane at
-   * feedback that isn't there; a failed post returns without relaying. An
-   * empty `feedbackText` skips the post (the card only offers it when the
-   * thread already holds feedback newer than the report — resolveReviseAction
-   * in laneGate.ts owns that refusal). The thread is the durable record of
-   * the post; the revise relay line is the ledgered Director act. */
+  /** The card's REVISE path (#339, wire order amended by #380): post the
+   * Director's typed feedback to the lane's issue thread as a DIRECTOR
+   * FEEDBACK comment, CONFIRM it on the thread by read-back, and only then
+   * request the relay — the comment landing is a PRECONDITION of the relay,
+   * not a parallel effect. A failed or unconfirmed post aborts with a named
+   * error, surfaced twice: on the return (card inline) and as a
+   * requested→failed relay pair on the ledger (the same refusal shape
+   * proceed-with-no-lane already writes). An empty `feedbackText` skips the
+   * post (the card only offers it when the thread already holds feedback
+   * newer than the report); the executor's own feedback-presence guard
+   * (#380 task 3) re-checks that server-side either way. */
   async revise(
     issue: number,
     feedbackText?: string,
@@ -724,17 +759,54 @@ export class SpawnService extends EventEmitter {
       return { ok: false, error: 'bad issue number' }
     }
     const text = (feedbackText ?? '').trim()
+    // Refuse before posting: a comment aimed at a lane that isn't live would
+    // strand feedback on a thread nothing is going to read.
+    const lane = this.liveLane(issue)
+    if (!lane) {
+      return this.refuseRelay(issue, false, `no live (spawned) lane record for issue #${issue}`)
+    }
     let posted = false
     if (text) {
       const post = await this.postFeedbackComment(issue, text)
       if (!post.ok) {
-        return { ok: false, posted: false, error: `feedback post failed — ${post.error}` }
+        return this.refuseRelay(issue, false, `comment_post_failed — ${post.error}`)
       }
       posted = true
+      const confirmed = await this.confirmFeedbackOnThread(issue, lane.spawnedTs ?? '', text)
+      if (!confirmed) {
+        return this.refuseRelay(
+          issue,
+          true,
+          `comment_unconfirmed — posted DIRECTOR FEEDBACK could not be read back from issue #${issue}'s thread`,
+        )
+      }
     }
     const rec = this.ledger.requestRelay(issue, REVISE_TEXT)
     const relayed = await this.executeRelay(rec.id)
     return { ...relayed, posted }
+  }
+
+  // A revise refusal that never reached the pane: ledgered as a
+  // requested→failed pair (both appends synchronous, so the drain can never
+  // see the transient requested state), broadcast so the card's relay row
+  // updates, returned so the card shows the error inline.
+  private refuseRelay(
+    issue: number,
+    posted: boolean,
+    error: string,
+  ): { ok: false; error: string; posted: boolean } {
+    const rec = this.ledger.requestRelay(issue, REVISE_TEXT)
+    this.ledger.markRelayFailed(rec.id, error)
+    this.broadcast()
+    return { ok: false, posted, error }
+  }
+
+  // The newest live lane record for `issue` — the executor's resolution rule,
+  // shared by the revise pre-flight.
+  private liveLane(issue: number): SpawnRecord | undefined {
+    return this.ledger
+      .list()
+      .find((r) => r.kind === 'lane' && r.issue === issue && r.status === 'spawned')
   }
 
   // Post one DIRECTOR FEEDBACK comment on the lane's issue. Shells NOTHING:
@@ -765,6 +837,38 @@ export class SpawnService extends EventEmitter {
     } finally {
       if (dir) rmSync(dir, { recursive: true, force: true })
     }
+  }
+
+  // One thread re-fold (#380): github.get_issue over the injected mesh
+  // invoke, folded with the exported laneGate fold. Null = unverifiable
+  // (invoke missing, mesh down, malformed payload) — callers fail CLOSED.
+  private async fetchGateState(issue: number, spawnedTs: string): Promise<LaneGateState | null> {
+    if (!this.invoke) return null
+    try {
+      const res = await this.invoke('github.get_issue', { number: issue })
+      if (!res.ok || !res.envelope) return null
+      const payload = res.envelope.payload as { comments?: unknown } | undefined
+      return foldGateComments(payload?.comments, spawnedTs)
+    } catch {
+      return null
+    }
+  }
+
+  // Read-back confirm (#380 task 2): the fold's latest DIRECTOR FEEDBACK must
+  // BE the comment we just posted (CRLF-normalized — GitHub serves \r\n).
+  // One retry after readBackRetryMs covers read-after-write lag.
+  private async confirmFeedbackOnThread(
+    issue: number,
+    spawnedTs: string,
+    text: string,
+  ): Promise<boolean> {
+    const want = feedbackCommentBody(text).replace(/\r\n/g, '\n')
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await sleep(this.readBackRetryMs)
+      const gate = await this.fetchGateState(issue, spawnedTs)
+      if (gate?.feedback?.replace(/\r\n/g, '\n') === want) return true
+    }
+    return false
   }
 
   // Resolve the gh BINARY once through the login shell (Homebrew shellenv
@@ -840,10 +944,32 @@ export class SpawnService extends EventEmitter {
           `relay text not allowlisted — relays carry only "${RELAY_TEXT}" or "${REVISE_TEXT}"`,
         )
       }
-      const lane = this.ledger
-        .list()
-        .find((r) => r.kind === 'lane' && r.issue === relay.issue && r.status === 'spawned')
+      const lane = this.liveLane(relay.issue)
       if (!lane) return fail(`no live (spawned) lane record for issue #${relay.issue}`)
+      // THE FEEDBACK-PRESENCE GUARD (#380 task 3), at the executor — not just
+      // the card UI — so EVERY entry path (card, voice tool, hand-edited
+      // ledger line) meets it before anything types: a revise order is a
+      // contract against "the latest DIRECTOR FEEDBACK", so the thread must
+      // hold one STRICTLY newer than the latest GATE REPORT. Re-folded fresh
+      // with the exported laneGate fold; unverifiable (mesh down, no invoke
+      // wired) refuses too — fail closed, never type on faith.
+      if (relay.text === REVISE_TEXT) {
+        const gate = await this.fetchGateState(relay.issue, lane.spawnedTs ?? '')
+        if (!gate) {
+          return fail(
+            `no_feedback — issue #${relay.issue}'s thread could not be re-folded (github.get_issue unavailable); refusing to relay unverified`,
+          )
+        }
+        const fresh =
+          gate.feedbackAt !== null &&
+          gate.reportAt !== null &&
+          Date.parse(gate.feedbackAt) > Date.parse(gate.reportAt)
+        if (!fresh) {
+          return fail(
+            `no_feedback — no DIRECTOR FEEDBACK newer than the latest GATE REPORT on issue #${relay.issue}'s thread`,
+          )
+        }
+      }
       if (!lane.tmuxSession) {
         return fail(
           `lane #${relay.issue} runs on the pty fallback (no tmux session) — type into its terminal window directly`,
@@ -857,6 +983,17 @@ export class SpawnService extends EventEmitter {
       await execFileAsync(this.requireTmuxBin(), relaySendKeysArgs(paneId, relay.text), {
         timeout: TERMINAL_TIMEOUT_MS,
       })
+      // Delivery verification (#380 task 4), BOTH sentences: a 0-exit
+      // send-keys proves tmux accepted the keys, not that the TUI submitted
+      // them — a busy Ink frame can swallow the Enter and leave the sentence
+      // sitting in the input box (the July-6/July-15 buffer state). Read the
+      // pane back; retry Enter once; only a confirmed submit records
+      // `relayed`.
+      if (!(await this.verifyRelaySubmitted(paneId, relay.text))) {
+        return fail(
+          `enter_not_registered — "${relay.text}" reached lane #${relay.issue}'s pane but sat unsubmitted after an Enter retry`,
+        )
+      }
       this.ledger.markRelayed(id)
       this.broadcast()
       console.log(`[spawnService] relayed "${relay.text}" to lane #${relay.issue} (${lane.tmuxSession})`)
@@ -867,6 +1004,37 @@ export class SpawnService extends EventEmitter {
     } finally {
       this.relayInFlight.delete(id)
     }
+  }
+
+  // Post-send read-back (#380 task 4): give the TUI relayVerifyDelayMs to
+  // consume the keys, capture the pane, and look for the sentence still
+  // sitting on the input line. Unsubmitted → press Enter once more and read
+  // again. True = confirmed submitted (or the sentence is simply gone —
+  // consumed is the only steady state that removes it from the input box).
+  private async verifyRelaySubmitted(paneId: string, text: string): Promise<boolean> {
+    await sleep(this.relayVerifyDelayMs)
+    if (!relayUnsubmitted(await this.capturePane(paneId), text)) return true
+    await this.pressEnter(paneId)
+    await sleep(this.relayVerifyDelayMs)
+    return !relayUnsubmitted(await this.capturePane(paneId), text)
+  }
+
+  // The visible pane text, one string — a private seam (like
+  // resolveLanePaneId) so the tests feed scripted pane states.
+  private async capturePane(paneId: string): Promise<string> {
+    const { stdout } = await execFileAsync(
+      this.requireTmuxBin(),
+      ['capture-pane', '-p', '-t', paneId],
+      { timeout: TERMINAL_TIMEOUT_MS },
+    )
+    return stdout
+  }
+
+  // The one-shot Enter retry — its own seam so tests can count it.
+  private async pressEnter(paneId: string): Promise<void> {
+    await execFileAsync(this.requireTmuxBin(), ['send-keys', '-t', paneId, 'Enter'], {
+      timeout: TERMINAL_TIMEOUT_MS,
+    })
   }
 
   // ---- guarded teardown (#317) -------------------------------------------------
@@ -1857,6 +2025,19 @@ export function feedbackCommentBody(text: string): string {
 // reason the kickoff travels .lane-kickoff.md). Exported for tests.
 export function ghCommentArgs(issue: number, bodyFile: string): string[] {
   return ['issue', 'comment', String(issue), '--body-file', bodyFile]
+}
+
+// The unsubmitted-buffer oracle (#380): Claude Code renders the PENDING input
+// buffer on a `❯` line at the pane tail; a SUBMITTED sentence echoes into the
+// conversation without that glyph. The sentence sharing a tail line with `❯`
+// is therefore the one observable signature of a swallowed Enter. Tail-only
+// (last 12 lines) so a sentence quoted in the scrollback — the kickoff cites
+// both literals — never reads as unsubmitted. Exported for tests.
+export function relayUnsubmitted(capture: string, text: string): boolean {
+  return capture
+    .split('\n')
+    .slice(-12)
+    .some((line) => line.includes('❯') && line.includes(text))
 }
 
 // First line of `list-panes -F '#{pane_id}'` output, validated against the

@@ -542,3 +542,60 @@ Symptom: HTTPS calls under a python.org interpreter die with `SSL: CERTIFICATE_V
 
 ### Pulling a merge into a running dev server's checkout hot-swaps code under a live renderer
 Symptom: the running Electron app goes black-screen the moment a merge lands in the checkout it was launched from (field, 2026-06-11 — no PR; hit pulling an organ-building-arc merge into the primary checkout while the dev server was up). Cause: the dev server runs from the working tree, so `git pull` rewrites main-process and preload code on disk under the live app — the renderer ends up paired with main-process code it never booted against, a split-brain hot-swap rather than a clean reload. Rule: quit the app first — or run it from a dedicated worktree so merges land elsewhere — before pulling into its checkout (now one line in CLAUDE.md §13.12). Kin to the stale family (2026-06-04): there the process predates the build; here the tree mutates under the process. Same law from the other side — a process and the tree it runs from must move together.
+
+---
+
+## 2026-07-14 — spawn & browser field gotchas
+
+Four §10-class gotchas from the spawn, browser, and lane-terminal field work
+(#365, #336, lane-372, #324's mouse-mode trade), banked before they fade.
+Adjacent but NOT restated here: `.lane-kickoff.md` staging hardening lives in
+#375's amended scope.
+
+### Manual worktree teardown must pass `--force` — the submodule guard fires only without it
+Symptom: a hand-run `git worktree remove <path>` at a terminal dies with
+`working trees containing submodules cannot be moved or removed` — on ANY
+lane worktree, since the spawn recipe initializes the four `_ingest`
+submodules. Empirical, on this machine's git (2.37.1 Apple, the same
+`/usr/bin/git` the service resolves): the guard fires only WITHOUT `--force`.
+The July-6 class of teardown dies were manual no-force removes at a terminal;
+the app's teardown service always passes `--force` and already carries the
+rm → prune → branch-D fallback for stricter gits (#365), so the service path
+never hit them. Rule: manual teardowns pass `--force`. Kin to the 2026-06-03
+worktree notes (deinit's global reach) and the #363/#365 fallback lore — this
+entry pins the missing empirical fact: on this git, the guard is a
+no-force-only guard.
+
+### Electron ≥22: the webview `new-window` event is dead code — window-open goes through setWindowOpenHandler dispositions
+Electron ≥22 removed the webview `new-window` DOM event, so a guest's
+`window.open` / target=_blank / cmd+click surfaces ONLY in the main process,
+via `setWindowOpenHandler` on the guest webContents — the #336 discovery,
+landed as the tabs spine (#368): main denies the native popup and forwards
+`{ url, disposition }` to the renderer's disposition router. A renderer- or
+webview-side `new-window` listener still compiles, lints, and typechecks — it
+just silently never fires. Rule: never reintroduce the old event path;
+window-open interception lives in main, as setWindowOpenHandler dispositions.
+Pairs with the §10 "GitHub Actions silently accept unknown inputs" law — a
+listener that attaches without error is not a listener that fires.
+
+### App-spawned lanes close out THROUGH the app
+A lane the app spawned has a spawn-ledger record, and the ledger is the
+source of truth for `whats_ready_to_test` and the lane counts. Manual
+teardown — tmux kill, `git worktree remove`, `git branch -D` — destroys the
+workspace but leaves that record active, so voice keeps counting a lane that
+no longer exists (observed 2026-07-14, lane-372). Rule: close out through the
+app — the card's CLOSE OUT or `lane-done` — so the ledger settles with the
+teardown. Manual teardown is a recovery move, not a close-out; if it was
+used, the ledger record still has to be settled through the app afterwards.
+
+### tmux mouse mode breaks drag text-selection — Option-drag is the workaround
+Symptom: in a lane terminal, click-drag no longer selects text (field,
+2026-06-12). Cause: lane sessions set tmux `mouse on` (#324/#328, so the
+wheel scrolls the pane's buffer instead of walking command history) — with
+mouse reporting on, tmux consumes the drag itself and the terminal emulator
+never sees it. Workaround: Option-drag, which bypasses mouse reporting and
+hands the drag back to the emulator for a native selection. Rule: this is
+the mouse-mode trade (wheel scrolling for native drag-selection), not a
+defect — don't "fix" it by turning `mouse` off, which resurrects the #324
+history-walking scroll, and don't file the lost selection as a bug.
+Option-drag is the escape hatch.

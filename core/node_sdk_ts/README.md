@@ -29,7 +29,7 @@ const node = new MeshNode('host_notifications', process.env.MESH_HOST_NOTIFICATI
 node.on('notify', async (env) => {
   const { title, body } = env.payload as { title: string; body: string }
   if (process.platform !== 'darwin') {
-    throw new MeshDeny('host_notifications_unsupported', { reason: 'macOS only in v0.1.0' })
+    throw new MeshDeny('host_notifications_unsupported', { detail: 'macOS only in v0.1.0' })
   }
   // fire the notification, return ack
   return { delivered: true, at: new Date().toISOString() }

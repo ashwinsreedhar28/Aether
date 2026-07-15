@@ -73,7 +73,7 @@ function makeQuoteHandler(store: QuoteStore, poller: QuotePoller) {
     const payload = env.payload as QuoteArgs
     const symbol = typeof payload?.symbol === 'string' ? payload.symbol.toUpperCase() : ''
     if (!symbol) {
-      throw new MeshDeny('finance_bad_symbol', { reason: 'symbol_required' })
+      throw new MeshDeny('finance_bad_symbol', { detail: 'symbol_required' })
     }
     if (!isTracked(symbol)) {
       // Enforced here, not just at the schema layer, so the tracked list
@@ -150,7 +150,7 @@ function makeHistoryHandler(history: QuoteHistory) {
     const symbol =
       typeof payload?.symbol === 'string' ? payload.symbol.toUpperCase() : ''
     if (!symbol) {
-      throw new MeshDeny('finance_bad_symbol', { reason: 'symbol_required' })
+      throw new MeshDeny('finance_bad_symbol', { detail: 'symbol_required' })
     }
     if (!isTracked(symbol)) {
       // Same belt-and-braces check as finance.quote: the JSON Schema
@@ -191,7 +191,7 @@ function makeChartHandler(client: QuoteClient) {
     const symbol =
       typeof payload?.symbol === 'string' ? payload.symbol.toUpperCase() : ''
     if (!symbol) {
-      throw new MeshDeny('finance_bad_symbol', { reason: 'symbol_required' })
+      throw new MeshDeny('finance_bad_symbol', { detail: 'symbol_required' })
     }
     if (!isTracked(symbol)) {
       throw new MeshDeny('finance_untracked_symbol', {
@@ -239,7 +239,7 @@ function makeSearchHandler() {
     const payload = env.payload as SearchArgs
     const query = typeof payload?.query === 'string' ? payload.query : ''
     if (!query.trim()) {
-      throw new MeshDeny('finance_bad_query', { reason: 'query_required' })
+      throw new MeshDeny('finance_bad_query', { detail: 'query_required' })
     }
     const limit =
       typeof payload?.limit === 'number' && payload.limit > 0

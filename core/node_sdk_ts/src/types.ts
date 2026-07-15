@@ -55,3 +55,14 @@ export class MeshDeny extends Error {
     this.name = 'MeshDeny'
   }
 }
+
+// Build the kind="error" payload for a MeshDeny. Details spread FIRST so the
+// deny name always wins the `reason` key — a `reason` inside details must
+// never clobber the deny name on the wire (#371; research hit it live in
+// #366's harness). Node authors put the human-readable cause under `detail:`
+// instead (docs/new-node-pattern.md, "MeshDeny payload convention"). Mirrors
+// deny_payload() in the Python SDK (core/node_sdk/__init__.py); the parity
+// test pins both to the same canonical string.
+export function denyPayload(deny: MeshDeny): Record<string, unknown> {
+  return { ...deny.details, reason: deny.reason }
+}

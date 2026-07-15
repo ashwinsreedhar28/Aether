@@ -78,6 +78,19 @@ class MeshDeny(Exception):
         super().__init__(reason)
 
 
+def deny_payload(deny: MeshDeny) -> dict:
+    """Build the ``kind="error"`` payload for a MeshDeny.
+
+    Details first so the deny name always wins the ``reason`` key — a
+    ``reason`` inside details must never clobber the deny name on the wire
+    (#371). Node authors put the human-readable cause under ``detail``
+    instead (docs/new-node-pattern.md, "MeshDeny payload convention").
+    Mirrors denyPayload() in the TS SDK (core/node_sdk_ts/src/types.ts);
+    the parity test pins both to the same canonical string.
+    """
+    return {**deny.details, "reason": deny.reason}
+
+
 class MeshNode:
     """Mesh client: registers with Core, streams deliveries, dispatches handlers."""
 
@@ -287,7 +300,7 @@ class MeshNode:
         except MeshDeny as d:
             if mode != "fire_and_forget":
                 try:
-                    await self.respond(env, {"reason": d.reason, **d.details}, kind="error")
+                    await self.respond(env, deny_payload(d), kind="error")
                 except Exception as e:
                     log.warning("[%s] respond(error) failed: %s", self.node_id, e)
             return

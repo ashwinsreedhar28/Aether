@@ -69,7 +69,7 @@ async function handleOpenMessage(env: Envelope): Promise<Record<string, unknown>
   if (process.platform !== 'darwin') {
     throw new MeshDeny('macos_mail_unsupported', {
       platform: process.platform,
-      reason: 'macOS-only; message:// open is a LaunchServices/Mail.app path',
+      detail: 'macOS-only; message:// open is a LaunchServices/Mail.app path',
     })
   }
   const payload = env.payload as OpenMessageArgs

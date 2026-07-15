@@ -1,14 +1,18 @@
-// The machine-readable lane channel, renderer side (#310). A spawned lane
-// posts to ITS OWN issue thread with fixed comment prefixes — the kickoff
+// The machine-readable lane channel fold (#310). A spawned lane posts to ITS
+// OWN issue thread with fixed comment prefixes — the kickoff
 // (spawnService.laneKickoff) dictates them, this file folds them into the
-// card's gate state. Prefix convention ONLY: nothing inside the report body
-// is parsed (out of scope in v1 by spec). The prefix literals are duplicated
-// here and in the kickoff template — main-process and renderer code don't
-// share imports — and each side pins its copy in tests.
+// lane's gate state. Prefix convention ONLY: nothing inside the report body
+// is parsed (out of scope in v1 by spec). The prefix literals are still
+// duplicated in the kickoff template (spawnService.ts) and pinned on both
+// sides in tests; the FOLD itself is single-source: since #378 the main
+// process (laneMonitor, spawnLedger) imports this module directly — export,
+// never duplicate (the parity law).
 //
-// Pull-based by spec: the card runs one github.get_issue read on open plus an
-// explicit refresh (the `shell → github.get_issue` manifest edge); there is
-// no background poller.
+// Two consumers, two cadences: the card's pull-based read (one
+// github.get_issue on open plus explicit REFRESH, #310) and the main-process
+// lane gate monitor's 60s background poll (#378 — the poller #310 explicitly
+// deferred). Both ride the same `shell → github.get_issue` manifest edge and
+// this same fold.
 
 export const GATE_REPORT_PREFIX = 'GATE REPORT'
 export const PR_OPENED_PREFIX = 'PR OPENED'
@@ -80,7 +84,11 @@ export function foldGateComments(comments: unknown, spawnedAtIso: string): LaneG
 
 // ---- gate phase (#339) --------------------------------------------------------
 
-export type GatePhase = 'working' | 'at-gate' | 'revising' | 'pr-opened'
+// The closed phase set, exported as a value so the ledger's gate family
+// (#378) can validate hand-editable JSONL lines against the same source the
+// type derives from — no second literal list to drift.
+export const GATE_PHASES = ['working', 'at-gate', 'revising', 'pr-opened'] as const
+export type GatePhase = (typeof GATE_PHASES)[number]
 
 /**
  * Resolve a folded gate state to the card's phase. Pure precedence, no

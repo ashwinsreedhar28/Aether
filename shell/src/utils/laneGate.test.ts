@@ -13,6 +13,7 @@ import {
   _resetGateToasts,
   DIRECTOR_FEEDBACK_PREFIX,
   foldGateComments,
+  GATE_PHASES,
   GATE_REPORT_PREFIX,
   gatePhase,
   PR_OPENED_PREFIX,
@@ -38,6 +39,10 @@ test('prefix literals match the kickoff contract', () => {
   assert.equal(GATE_REPORT_PREFIX, 'GATE REPORT')
   assert.equal(PR_OPENED_PREFIX, 'PR OPENED')
   assert.equal(DIRECTOR_FEEDBACK_PREFIX, 'DIRECTOR FEEDBACK')
+})
+
+test('the phase set is pinned — the ledger gate family (#378) validates its lines against it', () => {
+  assert.deepEqual([...GATE_PHASES], ['working', 'at-gate', 'revising', 'pr-opened'])
 })
 
 test('a gate report newer than the spawn flips AT GATE; older comments are inert', () => {

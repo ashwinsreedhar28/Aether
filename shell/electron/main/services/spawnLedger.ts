@@ -11,6 +11,12 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
+// The gate family (#378) validates its `phase` against the SAME closed set
+// the card's fold derives — imported, never duplicated (the parity law; this
+// module stays pure: laneGate.ts has no React or Electron imports either).
+// .ts extension so `node --test` can load this module (same rule as the test
+// files; tsconfig sets allowImportingTsExtensions).
+import { GATE_PHASES, type GatePhase } from '../../../src/utils/laneGate.ts'
 
 // Append-only, event-sourced ledger for the spawn actor — the shell-side reader
 // of the same $AETHER_DATA_DIR/spawns/requests.jsonl the raven request_spawn tool
@@ -24,7 +30,7 @@ import { homedir } from 'node:os'
 // line (in Python); the shell appends *lifecycle* events here. Both agree on the
 // path because both resolve $userData/data (AETHER_DATA_DIR).
 //
-// Five line families share the log, folded oldest → newest:
+// Six line families share the log, folded oldest → newest:
 //   • a REQUEST line — draft kind:
 //       { id, ts, draft_path, draft_name, status:'requested' }
 //     or lane kind (#268, written by raven's work_on_issue tool):
@@ -44,8 +50,13 @@ import { homedir } from 'node:os'
 //     completes. Analytics only: it folds separately, has no lifecycle pair,
 //     and carries NO status field, so the Python tools' capacity folds (which
 //     key lifecycle on a string `status`) ignore it without edits.
-// Discriminator: a line with kind === 'relay', 'teardown', or 'telemetry'
-// belongs to its own fold and never touches a spawn record; a line with a
+//   • a GATE line (#378, single-line — see the gate section below): one
+//     kind:'gate' line per phase transition the lane monitor observes on a
+//     lane's issue thread (plus reminder:true alarm lines). Telemetry's
+//     posture exactly: separate fold, no lifecycle pair, NO status field —
+//     inert in every other fold, TS and Python, and never holding capacity.
+// Discriminator: a line with kind === 'relay', 'teardown', 'telemetry', or
+// 'gate' belongs to its own fold and never touches a spawn record; a line with a
 // string `draft_path` is a draft request; a line with kind === 'lane' and a
 // numeric `issue` is a lane request; any other line with `id` + `status` is a
 // lifecycle event flipping that request's state. Folding forward lets a crash
@@ -270,6 +281,47 @@ export interface TelemetryRecord extends TelemetryCapture {
   ts: string
   closedAt: string
   wallSeconds: number | null
+}
+
+// ---- gate line family (#378) ---------------------------------------------------
+// The lane monitor's observation record: one line per OBSERVED phase change
+// on a lane's issue thread, appended when the freshly folded phase differs
+// from the last gate line for that issue (the dedupe rule — laneMonitor owns
+// it). Last-known phase per lane is DERIVED from this fold — no side state
+// file — so a boot's first successful poll naturally emits the transitions
+// that happened while the shell was down (the #372 blind spot).
+// Telemetry's posture exactly: single-line (no request/lifecycle pair), every
+// line carries kind:'gate' so the other folds skip it, and deliberately NO
+// `status` field, so the Python capacity folds (which key lifecycle on a
+// string `status`) ignore it with zero edits — a gate line never holds lane
+// capacity.
+//   • transition: { id, ts, kind:'gate', issue, phase, prev }
+//   • reminder:   { id, ts, kind:'gate', issue, phase, reminder:true }
+//     (the single-shot age/stall alarms — the reminder line IS the dedupe
+//     record, so an app restart never re-fires one)
+
+// One gate line, folded. `phase` is laneGate.gatePhase over the issue thread
+// at observation time; `prev` is the phase the transition left (null on
+// reminder lines — they restate the sitting phase, never move it).
+export interface GateRecord {
+  id: string
+  ts: string
+  issue: number
+  phase: GatePhase
+  prev: GatePhase | null
+  reminder: boolean
+}
+
+// Per-issue derivation for the monitor: the last-known phase plus the anchors
+// the single-shot alarms dedupe against. `transitionTs` is the last
+// transition line's ts — when the monitor first OBSERVED the sitting (null
+// when only reminder lines exist: a stall alarm can precede any transition);
+// `reminderTs` is the last reminder line at/after that transition — a fresh
+// transition resets it, so each new sitting may remind once.
+export interface GateLedgerState {
+  phase: GatePhase
+  transitionTs: string | null
+  reminderTs: string | null
 }
 
 // kebab-case slug — MUST match the Python tool's _slugify so the branch/worktree
@@ -682,6 +734,71 @@ export class SpawnLedger {
     return this.listTelemetry().find((t) => t.issue === issue)
   }
 
+  // ---- gate family (#378) ------------------------------------------------------
+
+  /** Append one observed phase transition. The dedupe rule lives with the
+   * caller (laneMonitor): append only when the freshly folded phase differs
+   * from lastGatePhases() — this method just records the on-disk contract
+   * (see the family note above). */
+  writeGateTransition(issue: number, phase: GatePhase, prev: GatePhase): GateRecord {
+    const rec: GateRecord = {
+      id: randomUUID(),
+      ts: new Date().toISOString(),
+      issue,
+      phase,
+      prev,
+      reminder: false,
+    }
+    this.append({ id: rec.id, ts: rec.ts, kind: 'gate', issue, phase, prev })
+    return rec
+  }
+
+  /** Append one single-shot alarm line (`reminder:true`) — the durable record
+   * that this sitting (age alarm) or this spawn's stall window (stall alarm)
+   * already reminded, so a restart never re-fires it. */
+  writeGateReminder(issue: number, phase: GatePhase): GateRecord {
+    const rec: GateRecord = {
+      id: randomUUID(),
+      ts: new Date().toISOString(),
+      issue,
+      phase,
+      prev: null,
+      reminder: true,
+    }
+    this.append({ id: rec.id, ts: rec.ts, kind: 'gate', issue, phase, reminder: true })
+    return rec
+  }
+
+  /** Gate lines, oldest → newest (tests + the jq-adjacent programmatic read). */
+  listGates(): GateRecord[] {
+    return this.foldGates()
+  }
+
+  /** Last-known gate state per issue — the monitor's whole memory. Derived
+   * from the fold on every call (no cache, no side state), which is what
+   * makes the boot diff automatic: whatever the ledger last recorded is
+   * "known", and the first fresh fetch diffs against it. */
+  lastGatePhases(): Map<number, GateLedgerState> {
+    const byIssue = new Map<number, GateLedgerState>()
+    for (const g of this.foldGates()) {
+      const prior = byIssue.get(g.issue)
+      if (g.reminder) {
+        // A reminder records its ts but never moves the phase (a stall
+        // reminder with no prior transition seeds the entry — phase
+        // 'working' — without inventing a transition anchor).
+        byIssue.set(g.issue, {
+          phase: prior?.phase ?? g.phase,
+          transitionTs: prior?.transitionTs ?? null,
+          reminderTs: g.ts,
+        })
+      } else {
+        // A transition starts a fresh sitting: the reminder slot re-arms.
+        byIssue.set(g.issue, { phase: g.phase, transitionTs: g.ts, reminderTs: null })
+      }
+    }
+    return byIssue
+  }
+
   /** Count the two allowlisted relay sentences DELIVERED to `issue`'s lane
    * since `sinceIso` (the record's spawned event — the laneGate doctrine: a
    * respawn on the same issue must never inherit the previous run's counts).
@@ -780,12 +897,19 @@ export class SpawnLedger {
       if (!id) continue
       const ts = typeof obj.ts === 'string' ? obj.ts : ''
 
-      // Relay (#310), teardown (#317), and telemetry (#364) lines fold
-      // separately (foldRelays / foldTeardowns / foldTelemetry); without this
-      // skip a relay or teardown request would seed a ghost 'requested' spawn
-      // stub and a failed outcome would raise a SPAWN FAILED card for a
-      // record that never existed.
-      if (obj.kind === 'relay' || obj.kind === 'teardown' || obj.kind === 'telemetry') continue
+      // Relay (#310), teardown (#317), telemetry (#364), and gate (#378)
+      // lines fold separately (foldRelays / foldTeardowns / foldTelemetry /
+      // foldGates); without this skip a relay or teardown request would seed
+      // a ghost 'requested' spawn stub and a failed outcome would raise a
+      // SPAWN FAILED card for a record that never existed.
+      if (
+        obj.kind === 'relay' ||
+        obj.kind === 'teardown' ||
+        obj.kind === 'telemetry' ||
+        obj.kind === 'gate'
+      ) {
+        continue
+      }
 
       // Request line — carries the draft identity.
       if (typeof obj.draft_path === 'string') {
@@ -1095,6 +1219,49 @@ export class SpawnLedger {
     return byId
   }
 
+  // Fold the gate family (#378), oldest → newest — single-line records like
+  // telemetry, so "folding" is shape validation in append order. A malformed
+  // line, an invalid issue, or an off-list phase is skipped (the ledger is
+  // plain JSONL on disk; a hand-edited line must not fabricate a transition
+  // or blind the monitor's dedupe).
+  private foldGates(): GateRecord[] {
+    const out: GateRecord[] = []
+    if (!existsSync(this.path)) return out
+
+    let raw: string
+    try {
+      raw = readFileSync(this.path, 'utf8')
+    } catch {
+      return out
+    }
+
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      let obj: Record<string, unknown>
+      try {
+        obj = JSON.parse(trimmed) as Record<string, unknown>
+      } catch {
+        continue /* skip malformed line */
+      }
+      if (obj.kind !== 'gate') continue
+      const id = typeof obj.id === 'string' ? obj.id : null
+      if (!id) continue
+      if (typeof obj.issue !== 'number' || !Number.isInteger(obj.issue) || obj.issue < 1) continue
+      if (!isGatePhase(obj.phase)) continue
+      out.push({
+        id,
+        ts: typeof obj.ts === 'string' ? obj.ts : '',
+        issue: obj.issue,
+        phase: obj.phase,
+        prev: isGatePhase(obj.prev) ? obj.prev : null,
+        reminder: obj.reminder === true,
+      })
+    }
+
+    return out
+  }
+
   // One append + fsync — the durability path lives in exactly one place (the
   // retired intents store's pattern). Per-call open/close is fine: spawns fire
   // minutes apart.
@@ -1107,6 +1274,10 @@ export class SpawnLedger {
       closeSync(fd)
     }
   }
+}
+
+function isGatePhase(p: unknown): p is GatePhase {
+  return typeof p === 'string' && (GATE_PHASES as readonly string[]).includes(p)
 }
 
 function isSpawnStatus(s: string): s is SpawnStatus {

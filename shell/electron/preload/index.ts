@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 // Side-effect import: exposes the absorbed Viewer surface as window.electron
 // (fs/app/config/terminal/browser/control/...) alongside window.aether below.
 import './viewerApi'
+// Gate fold shapes for the monitor push (#378) — type-only, erased at bundle
+// time: the fold's shapes have ONE source (the #378 parity law), unlike the
+// ledger-record copies below, which mirror main-process types that live
+// behind the IPC boundary.
+import type { GatePhase, LaneGateState } from '../../src/utils/laneGate'
 
 // The single bridge surface for the renderer. Every channel here is part of
 // the renderer/main contract and should be considered API. Pattern lifted
@@ -217,6 +222,15 @@ export interface SpawnActionResult {
   posted?: boolean
 }
 
+// The lane monitor's push (#378) — one observed gate transition, with the
+// folded gate state riding along so the card merges without a re-fetch.
+export interface GateUpdate {
+  issue: number
+  phase: GatePhase
+  prev: GatePhase
+  gate: LaneGateState
+}
+
 // ---- Files types ----------------------------------------------------------
 
 interface FileFilter {
@@ -345,6 +359,10 @@ const spawn = {
     ipcRenderer.invoke('spawn:close-lane', issue, force === true),
   // Push on every ledger change (request landed, approved, spawned, failed, …).
   onChanged: (cb: (snap: SpawnSnapshot) => void): Unsubscribe => subscribe('spawn:changed', cb),
+  // The lane monitor's push (#378): a background-observed gate transition for
+  // one lane. The card merges it live; REFRESH stays as the manual override.
+  onGateUpdate: (cb: (update: GateUpdate) => void): Unsubscribe =>
+    subscribe('spawn:gate-update', cb),
 }
 
 const api = {

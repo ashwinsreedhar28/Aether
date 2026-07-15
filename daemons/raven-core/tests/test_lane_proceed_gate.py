@@ -120,3 +120,40 @@ def test_relay_lines_are_invisible_to_lane_status_and_capacity(tmp_path, monkeyp
     assert lpt._lane_status(310) == "spawned"
     # ...nor holds a capacity slot (#310: work_on_issue skips kind == relay).
     assert wot._committed_count() == 1
+
+
+def test_gate_lines_are_invisible_to_lane_status_and_capacity(tmp_path, monkeypatch):
+    """#378's mixed-family fixture pin: the monitor's gate lines (kind:'gate',
+    NO status field — telemetry's posture) share the ledger but never describe
+    a lane, shadow its status, or hold a capacity slot."""
+    monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
+    lines = _lane_lines(310)
+    lines.extend(
+        [
+            {
+                "id": "gate-1",
+                "ts": "2026-06-11T00:10:00+00:00",
+                "kind": "gate",
+                "issue": 310,
+                "phase": "at-gate",
+                "prev": "working",
+            },
+            {
+                "id": "gate-2",
+                "ts": "2026-06-11T02:10:00+00:00",
+                "kind": "gate",
+                "issue": 310,
+                "phase": "at-gate",
+                "reminder": True,
+            },
+            {
+                "id": "tel-1",
+                "ts": "2026-06-11T03:00:00+00:00",
+                "kind": "telemetry",
+                "issue": 310,
+            },
+        ]
+    )
+    _seed_ledger(tmp_path, lines)
+    assert lpt._lane_status(310) == "spawned"
+    assert wot._committed_count() == 1

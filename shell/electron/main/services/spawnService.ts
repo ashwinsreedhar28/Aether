@@ -1838,9 +1838,10 @@ export function relaySendKeysArgs(paneId: string, text: string = RELAY_TEXT): st
 // ---- DIRECTOR FEEDBACK posts (#339) -------------------------------------------
 
 // The feedback comment's prefix — the third lane-channel literal, kept in
-// sync with shell/src/utils/laneGate.ts (renderer and main share no imports;
-// both sides pin it in tests). The card's REVISE path posts this comment;
-// the fold resolves it to the REVISING phase.
+// sync with shell/src/utils/laneGate.ts (both sides pin it in tests; the
+// pinned copies survive #378's shared fold import as the drift tripwire).
+// The card's REVISE path posts this comment; the fold resolves it to the
+// REVISING phase.
 export const DIRECTOR_FEEDBACK_PREFIX = 'DIRECTOR FEEDBACK'
 
 // The comment body: prefix, em-dash, the Director's text verbatim — the same

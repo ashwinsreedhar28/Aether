@@ -280,11 +280,13 @@ function OrphanStrip({ orphans }: { orphans: OrphanLane[] }): React.ReactElement
 
 // ---- the spawned card (#310: gate-aware) -------------------------------------
 
-// Pull-based gate state for a spawned lane (#310): ONE github.get_issue read
-// when the card opens, plus the explicit REFRESH — no background poller in v1
-// by spec. The issue thread is the machine-readable lane channel; the fold
-// matches the fixed comment prefixes the kickoff dictates and only counts
-// comments newer than this record's spawned event.
+// Gate state for a spawned lane: the pull-based read (#310 — ONE
+// github.get_issue on card open, plus the explicit REFRESH) merged with the
+// lane monitor's background pushes (#378 — the poller #310 deferred lives in
+// the main process and pushes observed transitions here). The issue thread is
+// the machine-readable lane channel; the fold matches the fixed comment
+// prefixes the kickoff dictates and only counts comments newer than this
+// record's spawned event.
 function useLaneGate(
   issue: number | null,
   spawnedAtIso: string,
@@ -332,6 +334,16 @@ function useLaneGate(
   useEffect(() => {
     void check()
   }, [check])
+  // The monitor push (#378): a background-observed transition for THIS lane
+  // merges straight into the card's gate state — the monitor already folded
+  // the thread, so no re-fetch. REFRESH stays as the manual override, and the
+  // monitor owns the transition notification, so this path never toasts.
+  useEffect(() => {
+    if (issue == null) return
+    return window.aether.spawn.onGateUpdate((update) => {
+      if (update.issue === issue) setGate(update.gate)
+    })
+  }, [issue])
   return { gate, checking, gateError, refresh: () => void check() }
 }
 

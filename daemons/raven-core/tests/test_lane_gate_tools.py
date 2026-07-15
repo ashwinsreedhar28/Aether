@@ -120,6 +120,44 @@ def test_live_lanes_empty_without_a_ledger(tmp_path, monkeypatch):
     assert lgt._live_lanes() == []
 
 
+def test_live_lanes_skip_gate_and_telemetry_lines(tmp_path, monkeypatch):
+    """#378's mixed-family fixture pin for THIS fold: gate lines (kind:'gate',
+    NO status field — telemetry's posture) never describe a lane, so a ledger
+    carrying the monitor's transitions and reminders folds identically."""
+    monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
+    lines = _lane_lines(310)
+    lines.extend(
+        [
+            {
+                "id": "gate-1",
+                "ts": "2026-06-11T00:10:00+00:00",
+                "kind": "gate",
+                "issue": 310,
+                "phase": "at-gate",
+                "prev": "working",
+            },
+            {
+                "id": "gate-2",
+                "ts": "2026-06-11T02:10:00+00:00",
+                "kind": "gate",
+                "issue": 310,
+                "phase": "at-gate",
+                "reminder": True,
+            },
+            {
+                "id": "tel-1",
+                "ts": "2026-06-11T03:00:00+00:00",
+                "kind": "telemetry",
+                "issue": 310,
+            },
+        ]
+    )
+    _seed_ledger(tmp_path, lines)
+    live = lgt._live_lanes()
+    assert [lane["issue"] for lane in live] == [310]
+    assert live[0]["spawned_at"] is not None
+
+
 def test_unparseable_spawned_ts_never_passes_the_gate_guard(tmp_path, monkeypatch):
     monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
     lines = _lane_lines(310, spawned=False)

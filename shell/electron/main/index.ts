@@ -617,6 +617,10 @@ const spawnService = new SpawnService({
   ledgerPath: spawnsLedgerPath(),
   maxLanes: Number.isFinite(maxLanesEnv) && maxLanesEnv >= 1 ? maxLanesEnv : undefined,
   dispatch: (action, params) => executeViewerControl(mainWindow, action, params),
+  // The shell → github.get_issue edge (#380): the revise flow's comment
+  // read-back and the relay executor's feedback-presence guard re-fold the
+  // issue thread through the same invoke the gate monitor uses.
+  invoke: meshInvoke,
 })
 spawnService.on('changed', (snap) => broadcastToRenderers('spawn:changed', snap))
 spawnService.start()

@@ -214,12 +214,10 @@ nodes:
     identity_secret: env:MESH_SPORTS_SECRET
     metadata:
       description: |
-        Sports scores + box scores via ESPN's public (unofficial) site
-        API. No API key. Request-driven (no poller): each surface fetches
-        on demand with a short in-memory TTL cache (scoreboard ~15s, box
-        score ~60s, teams ~24h). Lifts Pulse's ESPN integration + league
-        catalog / season-window logic. Substrate only — voice tools + the
-        Sports app and their consumer edges land in Lane B.
+        Sports scores + box scores via ESPN's public site API, no key.
+        Request-driven with short in-memory TTL caches — no poller.
+        Surfaces: leagues, scores, game, teams. Full contract:
+        nodes/sports/README.md.
     surfaces:
       - name: leagues
         type: tool
@@ -265,14 +263,10 @@ nodes:
     identity_secret: env:MESH_RESEARCH_SECRET
     metadata:
       description: |
-        Research Mixer. Searches the Semantic Scholar Graph API (no key)
-        and synthesizes a multi-paper, cited brief with Claude — the first
-        Aether node that calls an LLM directly (Sensors only read). brief
-        runs ONE synthesis call per query and persists the result to local
-        SQLite so recent can recall it without re-calling Claude. search is
-        papers-only (no LLM). Needs ANTHROPIC_API_KEY for brief; without it
-        boots degraded — search works, brief denies by name. Model is config
-        (AETHER_RESEARCH_MODEL; defaults to claude-opus-4-8).
+        Research Mixer: searches the Semantic Scholar Graph API and
+        synthesizes a cited multi-paper brief with Claude; briefs persist
+        to SQLite for recall. Without ANTHROPIC_API_KEY, search works and
+        brief denies by name. Full contract: nodes/research/README.md.
     surfaces:
       - name: search
         type: tool
@@ -310,12 +304,10 @@ nodes:
     identity_secret: env:MESH_CALENDAR_SECRET
     metadata:
       description: |
-        macOS Calendar.app integration via EventKit. Reads events
-        from all calendars visible to the app. First invocation
-        prompts for access; if denied, surfaces return {available:
-        false, reason: 'permission_denied'}. Four surfaces: today,
-        upcoming (default 5, max 20), next_event, get_week (the
-        7-day window from a given date; date omitted = next 7 days).
+        macOS Calendar.app reader via EventKit. First invocation prompts
+        for access; denial returns {available: false}. Surfaces: today,
+        upcoming, next_event, get_week. Full contract:
+        nodes/calendar/README.md.
     surfaces:
       - name: today
         type: tool
@@ -434,14 +426,10 @@ nodes:
     identity_secret: env:MESH_VISUALIZER_SECRET
     metadata:
       description: |
-        Mixer bridging mesh state to the local RAVEN_AVP scene server
-        — the only mesh component aware of both layers. One render
-        surface, intent-routed: 'dashboard' seeds + refreshes the
-        dashboard.* backdrop (~5s), 'mesh' summons a topology overlay,
-        'lanes' the dev-lane panel, 'gaps' the capability-gap log, and
-        'agenda' the today/tomorrow calendar overlay (reads
-        calendar.today + calendar.upcoming). Script-free markdown
-        panels in v1.
+        Mixer bridging mesh state to the local RAVEN_AVP scene server —
+        the only mesh component aware of both layers. One intent-routed
+        render surface: dashboard, mesh, lanes, gaps, and agenda
+        overlays. Full contract: nodes/visualizer/README.md.
     surfaces:
       - name: render
         type: tool
@@ -471,20 +459,11 @@ nodes:
     identity_secret: env:MESH_GITHUB_SECRET
     metadata:
       description: |
-        GitHub Actor (the one-rail arc, #255/#256): gaps file as GitHub
-        issues on the configured repo (env AETHER_GITHUB_REPO; auth via
-        AETHER_GITHUB_TOKEN — fine-grained PAT, Issues RW, never logged).
-        create_issue dedups INSIDE the surface: a repeat ask (matching
-        normalized capability key) comments the existing gap issue and
-        returns { deduped: true } instead of filing a duplicate.
-        list_issues serves the open board cache-then-serve (30s TTL,
-        `stale` on last-good-fetch fallback). get_issue reads ONE issue
-        in full (body + first comment page, uncached) — the spec-guard
-        read behind work_on_issue (#268). Token absent = degraded:
-        list_issues serves a clean no-token payload, writes deny with
-        github_no_token, nothing crashes. No close_issue surface by
-        ruling — gaps close through the merge rail ('Closes #n').
-        Supersedes the intents gap ledger (retired in Lane C, #258).
+        GitHub Actor: files capability gaps as issues on the configured
+        repo and reads the gap board. create_issue dedups repeat asks;
+        list_issues is cache-then-serve; get_issue reads one issue in
+        full. Degrades cleanly without a token. Full contract:
+        nodes/github/README.md.
     surfaces:
       - name: create_issue
         type: tool
@@ -509,12 +488,11 @@ nodes:
     identity_secret: env:MESH_MUSIC_SECRET
     metadata:
       description: |
-        Spotify playback Actor (#332): play/pause/skip/queue/search drive
-        the active Spotify Connect device; playlists/recently_played are
-        the library + memory reads (#334); now_playing polls at 3s only
-        while playback is recent. PKCE auth — SPOTIFY_CLIENT_ID only, no
-        client secret, refresh token cached owner-only. Denies loudly by
-        name.
+        Spotify playback Actor: play/pause/skip/queue/search drive the
+        active Spotify Connect device; playlists + recently_played read
+        the library; now_playing polls only while playback is recent.
+        PKCE auth; denies loudly by name. Full contract:
+        nodes/music/README.md.
     surfaces:
       - name: play
         type: tool
@@ -555,12 +533,10 @@ nodes:
     identity_secret: env:MESH_VIEWER_DESKTOP_SECRET
     metadata:
       description: |
-        The agent->renderer control node, hosted inside the shell main
-        process. Translates mesh invocations into renderer control actions
-        (executeViewerControl -> window.__viewerControl) so an agent — raven,
-        the self-build loop, another node — can open/close/focus apps and
-        content views in the Viewer surface. Outbound view_event (human
-        interaction) flows back to the opening agent via fire-and-forget.
+        Agent->renderer control node, hosted in the shell main process:
+        translates mesh invocations into Viewer control actions so agents
+        can open, place, and focus apps and views; view_event flows back
+        to the opening agent. Full contract: nodes/viewer_desktop/README.md.
     surfaces:
       - name: open_app
         type: tool

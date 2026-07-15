@@ -10,3 +10,5 @@
   three `malformed` QuoteClientError sites; github: `github_api_error` /
   `github_unreachable` causes), and the convention is documented in
   docs/new-node-pattern.md ("MeshDeny payload convention" + gotcha 11).
+  The invariant is ADR-ranked: decisions/2026-07-14-deny-wire-reason-
+  invariant.md, kin of the 2026-06-18 canonical class.

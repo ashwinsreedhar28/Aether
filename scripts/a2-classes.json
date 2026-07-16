@@ -1,0 +1,14 @@
+{
+  "$comment": "A2 merge classes (#392). Class membership is enforced by path match ONLY — never judgment. Pattern grammar (scripts/a2-shadow-check.mjs globToRegExp): ** spans path segments, * stays within one segment. class-1 is the only class defined; class-2+ is out of scope until its own ADR-gated lane.",
+  "class-1": {
+    "description": "Docs-only lanes: retros, governance log, changelog fragments, ADRs plus the generated DECISIONS.md index, and any markdown under docs/.",
+    "allow": [
+      "docs/retros/**",
+      "docs/governance-log.md",
+      "docs/**.md",
+      "changelog/unreleased/**",
+      "decisions/**",
+      "DECISIONS.md"
+    ]
+  }
+}

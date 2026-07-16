@@ -35,7 +35,7 @@ import { GATE_PHASES, type GatePhase } from '../../../src/utils/laneGate.ts'
 //       { id, ts, draft_path, draft_name, status:'requested' }
 //     or lane kind (#268, written by raven's work_on_issue tool):
 //       { id, ts, kind:'lane', batch_id, issue, issue_title, branch, worktree,
-//         status:'requested' }
+//         submodules?, status:'requested' }
 //   • a LIFECYCLE event — { id, ts, status:'spawned'|'closed'|'dismissed'|
 //                           'failed'|'teardown_failed',
 //                           worktree?, branch?, step?, error?, tmux_session? }
@@ -95,6 +95,12 @@ export interface SpawnRecord {
   // records the request line itself is the source of truth.
   laneBranch?: string
   laneWorktree?: string
+  // Lane kind only (#376): the request line's submodule opt-in. `Submodules:
+  // on` in the ARCHITECT SPEC makes work_on_issue_tool record `submodules:
+  // true`, and the spawn recipe runs `git submodule update --init --recursive`
+  // in the fresh worktree. Absent = default OFF (ordinary lanes never read
+  // `_ingest/` from the worktree — see the #376 audit).
+  submodules?: boolean
   // The tmux session owning a spawned lane's process (recorded on 'spawned';
   // absent on pty-fallback spawns where the terminal pane owns the process).
   tmuxSession?: string
@@ -959,6 +965,7 @@ export class SpawnLedger {
           batchId: typeof obj.batch_id === 'string' ? obj.batch_id : undefined,
           laneBranch: targets.branch,
           laneWorktree: targets.worktree,
+          submodules: obj.submodules === true ? true : undefined,
           status: 'requested',
           // Preserve any lifecycle already folded if a request line arrives late.
           ...(existing

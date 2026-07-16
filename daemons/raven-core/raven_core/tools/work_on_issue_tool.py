@@ -133,6 +133,11 @@ def _committed_count() -> int:
 # both tokens are the first whitespace-delimited run after the colon.
 _BRANCH_RE = re.compile(r"^[ \t]*Branch:[ \t]*(\S+)", re.MULTILINE)
 _WORKTREE_RE = re.compile(r"(?:^|\s)Worktree:[ \t]*(\S+)")
+# Submodule opt-in (#376): a `Submodules: on` line in the spec opts the lane's
+# worktree cut into `git submodule update --init --recursive` (default OFF —
+# ordinary lanes never read _ingest/ from the worktree). Regex parity with the
+# shell's SUBMODULES_RE (spawnService.ts), same shape as _WORKTREE_RE above.
+_SUBMODULES_RE = re.compile(r"(?:^|\s)Submodules:[ \t]*on\b")
 
 
 def _targets_for_issue(number: int, spec_text: str | None) -> tuple[str, str]:
@@ -283,20 +288,24 @@ async def _work_on_issue(number: Any, numbers: Any, confirmed: bool) -> dict[str
     for issue in issues:
         n = int(issue.get("number", 0))
         title = str(issue.get("title", ""))
-        branch, worktree = _targets_for_issue(n, _spec_text_of(issue))
-        records.append(
-            {
-                "id": os.urandom(8).hex(),
-                "ts": ts,
-                "kind": "lane",
-                "batch_id": batch_id,
-                "issue": n,
-                "issue_title": title,
-                "branch": branch,
-                "worktree": worktree,
-                "status": "requested",
-            }
-        )
+        spec_text = _spec_text_of(issue)
+        branch, worktree = _targets_for_issue(n, spec_text)
+        record: dict[str, Any] = {
+            "id": os.urandom(8).hex(),
+            "ts": ts,
+            "kind": "lane",
+            "batch_id": batch_id,
+            "issue": n,
+            "issue_title": title,
+            "branch": branch,
+            "worktree": worktree,
+            "status": "requested",
+        }
+        # Sparse (#376): the key appears only when the spec opts in — an
+        # absent key IS the default-off record, so old lines fold unchanged.
+        if spec_text and _SUBMODULES_RE.search(spec_text):
+            record["submodules"] = True
+        records.append(record)
         lanes.append({"issue": n, "title": title})
 
     try:

@@ -20,10 +20,11 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { tmpdir, homedir } from 'node:os'
 import { join } from 'node:path'
 import {
   SpawnService,
+  wantsSubmodules,
   LANE_CLAUDE_CMD,
   laneSendKeysArgs,
   laneKickoff,
@@ -35,7 +36,7 @@ import {
   feedbackCommentBody,
   ghCommentArgs,
 } from './spawnService.ts'
-import { SpawnLedger, RELAY_TEXT, REVISE_TEXT } from './spawnLedger.ts'
+import { SpawnLedger, RELAY_TEXT, REVISE_TEXT, type SpawnRecord } from './spawnLedger.ts'
 
 // ---- kickoff delivery is file-based: the send-keys argv is FIXED ------------
 
@@ -1258,4 +1259,196 @@ test('a failed teardown writes NO telemetry line; the successful retry writes ex
   } finally {
     cleanup()
   }
+})
+
+// ---- spawn recipes: submodule init is opt-in (#376) --------------------------
+
+// The recipes' shell-step order, pinned hermetically: runShell records instead
+// of executing, so `git worktree add` never creates the directory and the
+// recipe dies deterministically at its first real filesystem write ('write
+// kickoff' for lanes, 'write LANE.md' for drafts) — AFTER every shell step
+// this section asserts on has been recorded. Nothing under $HOME is ever
+// touched (sanitizeWorktree constrains targets to $HOME, so executing would).
+interface RecipeOpen {
+  tmuxOk: boolean
+  runShell: (cmd: string, cwd: string) => Promise<void>
+  runLaneRecipe: (rec: SpawnRecord, tag: string) => Promise<boolean>
+  runRecipe: (rec: SpawnRecord) => Promise<void>
+}
+
+function recipeFixture(lineExtra: Record<string, unknown> = {}): {
+  ledger: SpawnLedger
+  dir: string
+  commands: Array<{ cmd: string; cwd: string }>
+  open: RecipeOpen
+  cleanup: () => void
+} {
+  const dir = mkdtempSync(join(tmpdir(), 'spawn-recipe-'))
+  const ledgerPath = join(dir, 'spawns', 'requests.jsonl')
+  const ledger = new SpawnLedger(ledgerPath)
+  appendFileSync(
+    ledgerPath,
+    JSON.stringify({
+      id: 'lane-rec',
+      ts: '2026-07-16T00:00:00.000Z',
+      kind: 'lane',
+      batch_id: 'b1',
+      issue: 990376,
+      issue_title: 'submodule opt-in demo',
+      branch: 'lane/issue-990376',
+      worktree: '~/aether-lane-990376',
+      status: 'requested',
+      ...lineExtra,
+    }) + '\n',
+  )
+  const svc = new SpawnService({ repoRoot: dir, ledgerPath })
+  const commands: Array<{ cmd: string; cwd: string }> = []
+  const open = svc as unknown as RecipeOpen
+  open.tmuxOk = false
+  open.runShell = async (cmd: string, cwd: string) => {
+    commands.push({ cmd, cwd })
+  }
+  return {
+    ledger,
+    dir,
+    commands,
+    open,
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  }
+}
+
+test('lane recipe default: NO submodule init step (#376)', async () => {
+  const { ledger, commands, open, cleanup } = recipeFixture()
+  try {
+    const rec = ledger.find('lane-rec')
+    assert.ok(rec)
+    assert.equal(rec.submodules, undefined)
+    const ok = await open.runLaneRecipe(rec, '')
+    assert.equal(ok, false)
+    const wt = join(homedir(), 'aether-lane-990376')
+    assert.deepEqual(
+      commands.map((c) => c.cmd),
+      [
+        'git fetch origin',
+        `git worktree add '${wt}' -b 'lane/issue-990376' origin/main`,
+        'pnpm install',
+      ],
+    )
+    // Died at the hermetic wall, past every shell step — the skipped init
+    // never short-circuited the recipe upstream of the kickoff write.
+    assert.equal(ledger.find('lane-rec')?.status, 'failed')
+    assert.equal(ledger.find('lane-rec')?.step, 'write kickoff')
+  } finally {
+    cleanup()
+  }
+})
+
+test('lane recipe with submodules:true on the request line: init runs, in the worktree', async () => {
+  const { ledger, commands, open, cleanup } = recipeFixture({ submodules: true })
+  try {
+    const rec = ledger.find('lane-rec')
+    assert.ok(rec)
+    // The fold carried the request line's opt-in onto the record.
+    assert.equal(rec.submodules, true)
+    await open.runLaneRecipe(rec, '')
+    const wt = join(homedir(), 'aether-lane-990376')
+    assert.deepEqual(
+      commands.map((c) => c.cmd),
+      [
+        'git fetch origin',
+        `git worktree add '${wt}' -b 'lane/issue-990376' origin/main`,
+        'git submodule update --init --recursive',
+        'pnpm install',
+      ],
+    )
+    assert.equal(commands[2]?.cwd, wt)
+  } finally {
+    cleanup()
+  }
+})
+
+function draftRecipeFixture(draftText: string): {
+  ledger: SpawnLedger
+  rec: SpawnRecord
+  commands: Array<{ cmd: string; cwd: string }>
+  open: RecipeOpen
+  cleanup: () => void
+} {
+  const dir = mkdtempSync(join(tmpdir(), 'spawn-recipe-'))
+  const ledgerPath = join(dir, 'spawns', 'requests.jsonl')
+  const ledger = new SpawnLedger(ledgerPath)
+  const draftPath = join(dir, 'draft.md')
+  writeFileSync(draftPath, draftText)
+  const rec = ledger.request('sub demo', draftPath)
+  const svc = new SpawnService({ repoRoot: dir, ledgerPath })
+  const commands: Array<{ cmd: string; cwd: string }> = []
+  const open = svc as unknown as RecipeOpen
+  open.tmuxOk = false
+  open.runShell = async (cmd: string, cwd: string) => {
+    commands.push({ cmd, cwd })
+  }
+  return {
+    ledger,
+    rec,
+    commands,
+    open,
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  }
+}
+
+test('draft recipe default: NO submodule init step (#376)', async () => {
+  const { ledger, rec, commands, open, cleanup } = draftRecipeFixture(
+    'Branch: feat/sub-demo Worktree: ~/aether-sub-demo\ndo the thing\n',
+  )
+  try {
+    await open.runRecipe(rec)
+    const wt = join(homedir(), 'aether-sub-demo')
+    assert.deepEqual(
+      commands.map((c) => c.cmd),
+      [
+        'git fetch origin',
+        `git worktree add '${wt}' -b 'feat/sub-demo' origin/main`,
+        'pnpm install',
+      ],
+    )
+    assert.equal(ledger.find(rec.id)?.status, 'failed')
+    assert.equal(ledger.find(rec.id)?.step, 'write LANE.md')
+  } finally {
+    cleanup()
+  }
+})
+
+test('draft recipe with a `Submodules: on` line: init runs, in the worktree', async () => {
+  const { commands, open, rec, cleanup } = draftRecipeFixture(
+    'Branch: feat/sub-demo Worktree: ~/aether-sub-demo\nSubmodules: on\ndo the thing\n',
+  )
+  try {
+    await open.runRecipe(rec)
+    const wt = join(homedir(), 'aether-sub-demo')
+    assert.deepEqual(
+      commands.map((c) => c.cmd),
+      [
+        'git fetch origin',
+        `git worktree add '${wt}' -b 'feat/sub-demo' origin/main`,
+        'git submodule update --init --recursive',
+        'pnpm install',
+      ],
+    )
+    assert.equal(commands[2]?.cwd, wt)
+  } finally {
+    cleanup()
+  }
+})
+
+test('wantsSubmodules: only a `Submodules: on` token opts in', () => {
+  assert.equal(wantsSubmodules('Submodules: on'), true)
+  // Inline with the Branch:/Worktree: header line — the Worktree:-regex shape.
+  assert.equal(wantsSubmodules('Branch: feat/x Worktree: ~/w Submodules: on'), true)
+  assert.equal(wantsSubmodules('Submodules: off'), false)
+  // Case-sensitive, like Branch:/Worktree:.
+  assert.equal(wantsSubmodules('submodules: on'), false)
+  assert.equal(wantsSubmodules('no header at all'), false)
+  assert.equal(wantsSubmodules(''), false)
+  assert.equal(wantsSubmodules(null), false)
+  assert.equal(wantsSubmodules(undefined), false)
 })

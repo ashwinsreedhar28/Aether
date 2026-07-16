@@ -11,6 +11,7 @@ edit a past ADR file — supersede with a new file and flip the old file's
 change. Entries dated before the rename PR refer to the project by its
 working name; they are preserved verbatim as historical record.
 
+- **[2026-07-16]** [A2 shadow mode — agreement record before arming as the self-merge doctrine (#392)](decisions/2026-07-16-a2-shadow-mode.md)
 - **[2026-07-14]** [ADR: Deny wire `reason` is always the deny name; causes ride under `detail:` (#371)](decisions/2026-07-14-deny-wire-reason-invariant.md)
 - **[2026-07-14]** [ADR: R2 revise wire order — the feedback comment is a read-back-confirmed PRECONDITION of the relay (#380)](decisions/2026-07-14-r2-comment-first-relay-order.md)
 - **[2026-07-06]** [ADR: Browser tabs are shell tabs — one tab system, no in-app strip (#336)](decisions/2026-07-06-browser-tabs-are-shell-tabs.md)

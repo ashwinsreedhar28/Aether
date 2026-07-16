@@ -71,6 +71,11 @@ jobs:
           diff /tmp/roll-a.md /tmp/roll-b.md
           node scripts/gen-decisions-index.mjs --check
 
+      # #392: the A2 shadow checker's verdict core, against fixture payloads
+      # (pure functions, no network).
+      - name: scripts — a2 shadow checker tests
+        run: node --test scripts/*.test.mjs
+
       # The SDK's round-trip vitest spawns Python Core. CI installs the
       # three Core deps; the test self-skips if any are missing, but on
       # the runner we want it to actually run.

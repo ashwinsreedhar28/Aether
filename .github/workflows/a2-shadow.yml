@@ -1,0 +1,39 @@
+name: A2 Shadow
+
+# Shadow checker for the A2 autonomy rung (#392): scores every PR merged to
+# main against the class-1 self-merge conditions (scripts/a2-classes.json)
+# and posts one advisory A2-SHADOW verdict comment. Takes NO merge action —
+# it builds the agreement record a future, separate ADR-gated lane would
+# read to arm A2. Sibling to (not part of) the reviewer cell's workflows.
+# ADR: decisions/2026-07-16-a2-shadow-mode.md.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  shadow:
+    # Merged PRs only — a closed-unmerged PR is not a merge to score. Trunk-
+    # repo branches only, same rationale as ci.yml (fork PRs lack the token
+    # permissions to comment).
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Setup Node 20.10
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.10'
+
+      - name: score merge against class-1 conditions
+        run: node scripts/a2-shadow-check.mjs "${{ github.event.pull_request.number }}"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

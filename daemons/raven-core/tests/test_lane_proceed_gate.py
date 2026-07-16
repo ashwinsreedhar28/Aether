@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import raven_core.tools.lane_proceed_tool as lpt
 import raven_core.tools.work_on_issue_tool as wot
+from tests.lane_fixtures import CLOSED_374_TAIL, DUPLICATE_LANE_LINES
 
 
 def _seed_ledger(tmp_path: Path, lines: list[dict]) -> Path:
@@ -100,6 +101,38 @@ def test_newest_arm_wins_over_a_dismissed_older_one(tmp_path, monkeypatch):
     _seed_ledger(tmp_path, old + _lane_lines(310))
     res = lpt._lane_proceed(310, confirmed=False)
     assert res["pending"] is True
+
+
+def test_live_record_wins_over_a_dead_newer_duplicate(tmp_path, monkeypatch):
+    """#383's parity fixture (tests/lane_fixtures.py; TS twin in
+    spawnLedger.test.ts): the other duplicate direction — the July-14 374
+    shape. The newest LIVE record resolves; proceed must not refuse a live
+    lane because its dead duplicate is newer."""
+    monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
+    _seed_ledger(tmp_path, DUPLICATE_LANE_LINES)
+    assert lpt._lane_status(374) == "spawned"
+    res = lpt._lane_proceed(374, confirmed=False)
+    assert res["pending"] is True
+
+
+def test_lane_status_falls_back_to_the_newest_record_when_none_live(tmp_path, monkeypatch):
+    monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
+    _seed_ledger(tmp_path, DUPLICATE_LANE_LINES + CLOSED_374_TAIL)
+    # arm-374-a closed, arm-374-b dismissed → the NEWEST record's status
+    # shapes the spoken refusal.
+    assert lpt._lane_status(374) == "dismissed"
+    res = lpt._lane_proceed(374, confirmed=False)
+    assert res["ok"] is False
+    assert "not live" in res["error"]
+
+
+def test_committed_count_on_the_duplicate_shape(tmp_path, monkeypatch):
+    """The capacity law, unchanged by #383 (per-record, no per-issue
+    collapse): the dead duplicate holds nothing; the shell's liveCount()
+    pins the same 2 on the TS side of the fixture."""
+    monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
+    _seed_ledger(tmp_path, DUPLICATE_LANE_LINES)
+    assert wot._committed_count() == 2
 
 
 def test_relay_lines_are_invisible_to_lane_status_and_capacity(tmp_path, monkeypatch):

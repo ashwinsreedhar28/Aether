@@ -107,12 +107,13 @@ def _parse_ts(value: Any) -> datetime | None:
 
 
 def _live_lanes() -> list[dict[str, Any]]:
-    """Fold the ledger for every lane whose NEWEST record is live, returning
+    """Fold the ledger for every lane with a LIVE record, returning
     ``{ issue, title, spawned_at }`` per lane (spawned_at None when the
     spawned event carried no parseable ts — that lane folds to 'working',
     mirroring the renderer's never-passes guard). Relay/teardown lines are
-    skipped wholesale by kind; newest-arm-wins per issue, as in
-    lane_proceed_tool."""
+    skipped wholesale by kind. Per-issue resolution is status FIRST, newest
+    among the live — spawnService.liveLane's rule, as in lane_proceed_tool
+    (#383): liveness is a property of records, not issues."""
     ledger = _ledger_path()
     if not ledger.is_file():
         return []
@@ -152,14 +153,18 @@ def _live_lanes() -> list[dict[str, Any]]:
                 spawned_ts_by_id[rec_id] = obj["ts"]
     lanes: list[dict[str, Any]] = []
     for issue, ids in sorted(lane_ids_by_issue.items()):
-        newest = ids[-1]
-        if status_by_id.get(newest) != "spawned":
+        # The newest LIVE record wins (#383): a dead newer duplicate — the
+        # July-14 374 shape, a second arm that failed preflight and was
+        # dismissed — must never mask the live lane beside it. Only an issue
+        # with NO spawned record folds out.
+        live = next((i for i in reversed(ids) if status_by_id.get(i) == "spawned"), None)
+        if live is None:
             continue
         lanes.append(
             {
                 "issue": issue,
-                "title": title_by_id.get(newest, ""),
-                "spawned_at": _parse_ts(spawned_ts_by_id.get(newest)),
+                "title": title_by_id.get(live, ""),
+                "spawned_at": _parse_ts(spawned_ts_by_id.get(live)),
             }
         )
     return lanes

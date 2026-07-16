@@ -73,6 +73,21 @@ const WATCH_DEBOUNCE_MS = 120
 export const RELAY_VERIFY_DELAY_MS = 350
 export const READBACK_RETRY_MS = 1000
 
+// Submodule init opt-in (#376). Ordinary lanes never read `_ingest/` from
+// their own worktree (CI builds with submodules:false; nothing imports it),
+// and populated submodule state is exactly what arms git's teardown die
+// (#363) — so the recipes' `git submodule update --init --recursive` runs
+// only when a spawn opts in. A draft opts in with a `Submodules: on` line in
+// its text (same contract style as Branch:/Worktree:, and the same
+// `(?:^|\s)` shape as the Worktree: regex); a lane opts in with the same line
+// in its ARCHITECT SPEC, which work_on_issue_tool.py records as
+// `submodules: true` on the request line (regex parity: _SUBMODULES_RE).
+// Lift lanes without the flag read the MAIN checkout's populated `_ingest/`.
+const SUBMODULES_RE = /(?:^|\s)Submodules:[ \t]*on\b/
+export function wantsSubmodules(text: string | null | undefined): boolean {
+  return typeof text === 'string' && SUBMODULES_RE.test(text)
+}
+
 // A record enriched for the renderer: the derived target branch/worktree (so the
 // approval card can show them before approval) and, for an actionable 'requested'
 // record, the full prompt for preview — the draft text (draft kind) or the
@@ -481,8 +496,11 @@ export class SpawnService extends EventEmitter {
         this.repoRoot,
       )
 
-      setStep('git submodule update')
-      await this.runShell('git submodule update --init --recursive', worktree)
+      // Opt-in only (#376): default is no submodule init — see SUBMODULES_RE.
+      if (wantsSubmodules(draftText)) {
+        setStep('git submodule update')
+        await this.runShell('git submodule update --init --recursive', worktree)
+      }
 
       setStep('cp .env.local')
       const envSrc = join(this.repoRoot, '.env.local')
@@ -561,8 +579,12 @@ export class SpawnService extends EventEmitter {
         this.repoRoot,
       )
 
-      setStep('git submodule update')
-      await this.runShell('git submodule update --init --recursive', worktree)
+      // Opt-in only (#376): rec.submodules rides the lane request line (a
+      // `Submodules: on` line in the spec) — see SUBMODULES_RE.
+      if (rec.submodules) {
+        setStep('git submodule update')
+        await this.runShell('git submodule update --init --recursive', worktree)
+      }
 
       setStep('cp .env.local')
       const envSrc = join(this.repoRoot, '.env.local')

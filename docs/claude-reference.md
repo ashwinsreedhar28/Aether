@@ -364,14 +364,32 @@ The original worked example, verbatim:
 ## §13.12 — Full-Stack Worktree Setup: the recipe and teardown gotcha
 
 `CLAUDE.md` §13.12 keeps the rule (a fresh worktree initializes nothing — any
-full-stack lane needs submodules, gitignored config, and workspace
-`node_modules`). The canonical recipe and teardown, verbatim:
+full-stack lane needs gitignored config and workspace `node_modules`;
+submodule init is opt-in per spawn since #376). The canonical recipe and
+teardown, verbatim:
 
 > Canonical recipe:
 >
 > ```
-> git worktree add <dir> -b <branch> && cd <dir> && git submodule update --init --recursive && cp ~/aether/.env.local . && pnpm install
+> git worktree add <dir> -b <branch> && cd <dir> && cp ~/aether/.env.local . && pnpm install
 > ```
+>
+> Submodule init is OPT-IN (#376, default off). The #376 audit: nothing in a
+> lane's build, runtime, or RAG-bootstrap path reads `_ingest/` from the lane
+> worktree — CI checks out with `submodules: false`, `pnpm-workspace.yaml`
+> lists no `_ingest` package, and runtime uses the re-copied trees under
+> `core/`. Pattern-lift lanes read the MAIN checkout's populated `_ingest/`
+> (`~/aether/_ingest/…`; first row of `git worktree list`) — expect one
+> out-of-worktree read approval per session. Opt in only when the lane needs
+> worktree-local submodule state (a vendor-pin bump, a wholesale `cp -R` lift
+> at the lane's own pinned SHA, a machine without a co-resident main
+> checkout): put a `Submodules: on` line in the lane's ARCHITECT SPEC, or in
+> a draft's text — same contract style as `Branch:`/`Worktree:`.
+> work_on_issue_tool records it as `submodules: true` on the lane request
+> line; both spawn recipes then run `git submodule update --init --recursive`
+> in the fresh worktree. Un-inited lanes never populate the teardown guard's
+> trigger (#363), so plain `git worktree remove` stays clean on every git
+> version.
 >
 > RAG bootstrap (so the worktree's `/mcp` is green and `/doctor` stays quiet). A fresh worktree has no `daemons/aether-rag/.venv` or index, so the corpus the lane prompt tells you to query is dead until you build it. Match what the spawn actor does — but pick the interpreter EXPLICITLY: macOS system `python3`'s `sqlite3` cannot load extensions, so `sqlite-vec` won't load and `reindex.sh` dies; a venv inherits its creator interpreter's sqlite build, so never trust a bare `python3` in a spawned/sparse-PATH environment. Use an extension-capable interpreter (the one behind main's working `daemons/aether-rag/.venv/bin/python`, fully symlink-resolved, is ground truth on this machine; else Homebrew's `python3`):
 >

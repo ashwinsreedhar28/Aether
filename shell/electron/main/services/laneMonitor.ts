@@ -132,20 +132,24 @@ export class LaneMonitor {
     }
   }
 
-  // Open lanes = lane records whose NEWEST arm per issue is 'spawned' (an old
-  // dismissed arm must not shadow the live respawn — lane_gate_tool.py's
-  // _live_lanes doctrine). Records without a parseable spawnedTs never poll:
-  // the fold's newer-than-spawn guard would reject every comment anyway.
+  // Open lanes = the newest 'spawned' record per issue — status FIRST, newest
+  // among the live (spawnService.liveLane's rule, #383): an old dismissed arm
+  // never shadows the live respawn, and a dead newer duplicate (a second arm
+  // that failed preflight and was dismissed) never masks the live lane beside
+  // it. Records without a parseable spawnedTs never poll: the fold's
+  // newer-than-spawn guard would reject every comment anyway.
   private openLanes(): Array<SpawnRecord & { issue: number; spawnedTs: string }> {
-    const newestByIssue = new Map<number, SpawnRecord>()
-    // list() is newest-request-first; first-seen per issue is the newest arm.
+    const liveByIssue = new Map<number, SpawnRecord>()
+    // list() is newest-request-first; first-seen LIVE per issue is the
+    // newest live arm.
     for (const rec of this.ledger.list()) {
       if (rec.kind !== 'lane' || typeof rec.issue !== 'number') continue
-      if (!newestByIssue.has(rec.issue)) newestByIssue.set(rec.issue, rec)
+      if (rec.status !== 'spawned') continue
+      if (!liveByIssue.has(rec.issue)) liveByIssue.set(rec.issue, rec)
     }
     const open: Array<SpawnRecord & { issue: number; spawnedTs: string }> = []
-    for (const rec of newestByIssue.values()) {
-      if (rec.status !== 'spawned' || typeof rec.spawnedTs !== 'string') continue
+    for (const rec of liveByIssue.values()) {
+      if (typeof rec.spawnedTs !== 'string') continue
       open.push(rec as SpawnRecord & { issue: number; spawnedTs: string })
     }
     return open

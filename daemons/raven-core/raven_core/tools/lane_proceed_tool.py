@@ -68,8 +68,9 @@ def _normalize_number(value: Any) -> int | None:
 
 
 def _lane_status(issue: int) -> str | None:
-    """Fold the ledger for the NEWEST lane record bound to `issue` and return
-    its current status, or None when no lane record names that issue. Relay
+    """Fold the ledger for the newest LIVE lane record bound to `issue`
+    (falling back to the newest record when none is live) and return its
+    current status, or None when no lane record names that issue. Relay
     (#310) and teardown (#317) lines are skipped wholesale by their kind tag —
     they share the log but never describe a lane. The shell re-validates
     against live state at execution time; this fold only shapes the spoken
@@ -103,8 +104,15 @@ def _lane_status(issue: int) -> str | None:
             status_by_id[rec_id] = status
     if not lane_ids:
         return None
-    # Newest arm wins: an old dismissed request for the same issue must not
-    # shadow the live lane that replaced it.
+    # The executor's resolution rule, mirrored (spawnService.liveLane — status
+    # FIRST, newest among the matches): the newest LIVE record wins, so
+    # neither duplicate direction shadows the other — an old dismissed arm
+    # never hides its live replacement, and a dead newer duplicate never
+    # hides the live lane beside it (#383, the July-14 374 shape). With no
+    # live record, the newest record's status shapes the spoken refusal.
+    for rec_id in reversed(lane_ids):
+        if status_by_id.get(rec_id) == "spawned":
+            return "spawned"
     return status_by_id.get(lane_ids[-1])
 
 

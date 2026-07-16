@@ -441,6 +441,53 @@ test('targetsForLane sanitizes and defaults like the draft path does', () => {
   })
 })
 
+// The July-14 duplicate-request shape (#383) — the parity fixture's TS copy.
+// raven-core's tests/lane_fixtures.py carries the Python twin (same ids,
+// timestamps, statuses; laneMonitor.test.ts seeds the lane-family subset).
+// Editing either side alone is the #241 sibling-drift bug. Lane 371: one
+// record, live. Lane 374: an older record that SPAWNED and a newer record
+// that failed preflight and was dismissed (the second voice arm, 32s after
+// the first). Relay / gate / teardown / telemetry lines interleaved to prove
+// family inertness.
+const DUPLICATE_LANE_LINES: Array<Record<string, unknown>> = [
+  { id: 'arm-371', ts: '2026-07-14T23:44:10+00:00', kind: 'lane', batch_id: 'batch-371', issue: 371, issue_title: 'fix(sdk): deny payload spread order', branch: 'lane/issue-371', worktree: '~/aether-lane-371', status: 'requested' },
+  { id: 'arm-371', ts: '2026-07-14T23:46:24+00:00', status: 'spawned', worktree: '/Users/x/aether-lane-371', branch: 'lane/issue-371', tmux_session: 'lane-371' },
+  { id: 'arm-374-a', ts: '2026-07-14T23:46:52+00:00', kind: 'lane', batch_id: 'batch-374-a', issue: 374, issue_title: 'chore(docs): §10 gotchas', branch: 'lane/issue-374', worktree: '~/aether-lane-374', status: 'requested' },
+  { id: 'arm-374-b', ts: '2026-07-14T23:47:24+00:00', kind: 'lane', batch_id: 'batch-374-b', issue: 374, issue_title: 'chore(docs): §10 gotchas', branch: 'lane/issue-374', worktree: '~/aether-lane-374', status: 'requested' },
+  { id: 'arm-374-a', ts: '2026-07-14T23:49:19+00:00', status: 'spawned', worktree: '/Users/x/aether-lane-374', branch: 'lane/issue-374', tmux_session: 'lane-374' },
+  { id: 'arm-374-b', ts: '2026-07-14T23:56:15+00:00', status: 'failed', step: 'preflight', error: 'worktree path already exists: /Users/x/aether-lane-374' },
+  { id: 'arm-374-b', ts: '2026-07-14T23:56:17+00:00', status: 'dismissed' },
+  { id: 'relay-374', ts: '2026-07-14T23:56:28+00:00', kind: 'relay', issue: 374, text: REVISE_TEXT, status: 'requested' },
+  { id: 'relay-374', ts: '2026-07-14T23:56:29+00:00', kind: 'relay', status: 'relayed' },
+  { id: 'gate-374', ts: '2026-07-15T00:10:00+00:00', kind: 'gate', issue: 374, phase: 'at-gate', prev: 'working' },
+  { id: 'td-372', ts: '2026-07-15T00:11:00+00:00', kind: 'teardown', issue: 372, status: 'requested' },
+  { id: 'tel-372', ts: '2026-07-15T00:12:00+00:00', kind: 'telemetry', issue: 372 },
+]
+
+test('duplicate lane arms fold per record — a dead newer arm never masks the live older one (#383)', () => {
+  const { ledger, path, cleanup } = freshLedger()
+  try {
+    for (const line of DUPLICATE_LANE_LINES) appendFileSync(path, JSON.stringify(line) + '\n')
+    const lanes = ledger.list().filter((r) => r.kind === 'lane')
+    assert.equal(lanes.length, 3)
+    const byId = new Map(lanes.map((r) => [r.id, r]))
+    assert.equal(byId.get('arm-371')?.status, 'spawned')
+    assert.equal(byId.get('arm-374-a')?.status, 'spawned')
+    assert.equal(byId.get('arm-374-b')?.status, 'dismissed')
+    // Capacity is per-record: the dead duplicate holds nothing (raven's
+    // _committed_count pins the same 2 on the Python side of the fixture).
+    assert.equal(ledger.liveCount(), 2)
+    // The live record closes → its slot frees; the dead duplicate stays inert.
+    appendFileSync(
+      path,
+      JSON.stringify({ id: 'arm-374-a', ts: '2026-07-15T00:28:09+00:00', status: 'closed' }) + '\n',
+    )
+    assert.equal(ledger.liveCount(), 1)
+  } finally {
+    cleanup()
+  }
+})
+
 // ---- relay family (#310): kind-tagged lines, segregated folds ----------------
 
 test('the relay allowlist literals (Python tool parity)', () => {

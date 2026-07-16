@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import raven_core.tools.close_lane_tool as clt
 import raven_core.tools.lane_proceed_tool as lpt
 import raven_core.tools.work_on_issue_tool as wot
+from tests.lane_fixtures import DUPLICATE_LANE_LINES
 
 
 def _seed_ledger(tmp_path: Path, lines: list[dict]) -> Path:
@@ -121,6 +122,33 @@ def test_teardown_failed_lane_is_closeable_again(tmp_path, monkeypatch):
     _seed_ledger(tmp_path, lines)
     res = clt._close_lane(317, confirmed=False)
     assert res["pending"] is True
+
+
+def test_closeable_record_wins_over_a_dead_newer_duplicate(tmp_path, monkeypatch):
+    """#383's parity fixture (tests/lane_fixtures.py; TS twin in
+    spawnLedger.test.ts): close_lane's copy resolves the newest CLOSEABLE
+    record — a dead newer duplicate must not make a live lane un-closeable."""
+    monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
+    _seed_ledger(tmp_path, DUPLICATE_LANE_LINES)
+    assert clt._lane_status(374) == "spawned"
+    res = clt._close_lane(374, confirmed=False)
+    assert res["pending"] is True
+
+
+def test_teardown_failed_record_wins_over_a_dead_newer_duplicate(tmp_path, monkeypatch):
+    """Same law, the retry half of the closeable set ('teardown_failed' —
+    the teardown executor's 'spawned' | 'teardown_failed' pick)."""
+    monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
+    lines = _lane_lines(317)
+    lines.append(
+        {"id": "lane-317-id", "ts": "2026-06-11T01:00:00+00:00", "status": "teardown_failed"}
+    )
+    dup = _lane_lines(317, spawned=False)
+    dup[0]["id"] = "lane-317-dup"
+    dup[0]["ts"] = "2026-06-11T02:00:00+00:00"
+    dup.append({"id": "lane-317-dup", "ts": "2026-06-11T02:01:00+00:00", "status": "dismissed"})
+    _seed_ledger(tmp_path, lines + dup)
+    assert clt._lane_status(317) == "teardown_failed"
 
 
 def test_teardown_lines_are_invisible_to_lane_status_and_capacity(tmp_path, monkeypatch):

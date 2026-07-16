@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import raven_core.tools.lane_revise_tool as lrt
 import raven_core.tools.work_on_issue_tool as wot
+from tests.lane_fixtures import DUPLICATE_LANE_LINES
 
 
 def _seed_ledger(tmp_path: Path, lines: list[dict]) -> Path:
@@ -71,6 +72,15 @@ def test_not_live_lane_is_refused(tmp_path, monkeypatch):
     res = lrt._lane_revise(339, confirmed=False)
     assert res["ok"] is False
     assert "not live" in res["error"]
+
+
+def test_revise_reaches_the_live_record_behind_a_dead_newer_duplicate(tmp_path, monkeypatch):
+    """#383: revise inherits lane_proceed's _lane_status — the duplicate
+    shape (tests/lane_fixtures.py) must not refuse the live lane."""
+    monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
+    _seed_ledger(tmp_path, DUPLICATE_LANE_LINES)
+    res = lrt._lane_revise(374, confirmed=False)
+    assert res["pending"] is True
 
 
 def test_first_call_is_pending_never_an_append(tmp_path, monkeypatch):

@@ -25,6 +25,7 @@ if "raven_core.session_context" not in sys.modules:
 
 import raven_core.tools.lane_gate_tool as lgt
 from raven_core.mesh_client import MeshUnavailable
+from tests.lane_fixtures import CLOSED_374_TAIL, DUPLICATE_LANE_LINES
 
 
 def run(coro):
@@ -156,6 +157,30 @@ def test_live_lanes_skip_gate_and_telemetry_lines(tmp_path, monkeypatch):
     live = lgt._live_lanes()
     assert [lane["issue"] for lane in live] == [310]
     assert live[0]["spawned_at"] is not None
+
+
+def test_live_lanes_duplicate_request_shape_parity(tmp_path, monkeypatch):
+    """#383's mixed-family parity fixture (tests/lane_fixtures.py; TS twin in
+    spawnLedger.test.ts — editing either side alone is the #241 sibling-drift
+    bug): a dead NEWER duplicate (second arm, failed preflight, dismissed)
+    must never mask the live older record. The July-14 incident: _live_lanes
+    saw only 371 while 374 sat live at its gate."""
+    monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
+    _seed_ledger(tmp_path, DUPLICATE_LANE_LINES)
+    live = lgt._live_lanes()
+    assert [lane["issue"] for lane in live] == [371, 374]
+    by_issue = {lane["issue"]: lane for lane in live}
+    # Title + spawned_at resolve from the LIVE record (arm-374-a), never the
+    # dead duplicate.
+    assert by_issue[374]["title"] == "chore(docs): §10 gotchas"
+    assert by_issue[374]["spawned_at"] == lgt._parse_ts("2026-07-14T23:49:19+00:00")
+
+
+def test_live_lanes_drop_the_issue_once_its_live_record_closes(tmp_path, monkeypatch):
+    monkeypatch.setenv("AETHER_DATA_DIR", str(tmp_path))
+    _seed_ledger(tmp_path, DUPLICATE_LANE_LINES + CLOSED_374_TAIL)
+    # arm-374-a closed, arm-374-b dismissed → no live record, 374 folds out.
+    assert [lane["issue"] for lane in lgt._live_lanes()] == [371]
 
 
 def test_unparseable_spawned_ts_never_passes_the_gate_guard(tmp_path, monkeypatch):

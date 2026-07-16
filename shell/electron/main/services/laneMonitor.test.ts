@@ -205,6 +205,37 @@ test('DIRECTOR FEEDBACK newer than the report announces REVISING', async () => {
   }
 })
 
+test('a dead newer duplicate never hides the live lane from the monitor (#383)', async () => {
+  // The July-14 374 shape — the lane-family subset of the parity fixture
+  // (spawnLedger.test.ts and raven-core's tests/lane_fixtures.py carry the
+  // full table): an older arm that spawned, a newer arm that failed
+  // preflight and was dismissed. The monitor must poll the LIVE record —
+  // under the old newest-record-first law this lane was invisible: no poll,
+  // no at-gate alarm, no gate line.
+  const h = freshHarness({
+    seed: [
+      { id: 'arm-374-a', ts: '2026-07-14T23:46:52+00:00', kind: 'lane', issue: 374, issue_title: 'chore(docs): §10 gotchas', batch_id: 'batch-374-a', branch: 'lane/issue-374', worktree: '~/aether-lane-374', status: 'requested' },
+      { id: 'arm-374-b', ts: '2026-07-14T23:47:24+00:00', kind: 'lane', issue: 374, issue_title: 'chore(docs): §10 gotchas', batch_id: 'batch-374-b', branch: 'lane/issue-374', worktree: '~/aether-lane-374', status: 'requested' },
+      { id: 'arm-374-a', ts: '2026-07-14T23:49:19+00:00', status: 'spawned', worktree: '/x/aether-lane-374', branch: 'lane/issue-374' },
+      { id: 'arm-374-b', ts: '2026-07-14T23:56:15+00:00', status: 'failed', step: 'preflight', error: 'worktree path already exists' },
+      { id: 'arm-374-b', ts: '2026-07-14T23:56:17+00:00', status: 'dismissed' },
+    ],
+  })
+  try {
+    h.state.comments = [comment('GATE REPORT — verify clean', '2026-07-15T00:10:00.000Z')]
+    await h.monitor.tick()
+    // Exactly one poll, addressed to the lane the LIVE record names.
+    assert.deepEqual(h.state.calls, [{ number: 374 }])
+    assert.deepEqual(h.state.notifications, ['Lane #374 at gate'])
+    const gates = h.ledger.listGates()
+    assert.equal(gates.length, 1)
+    assert.equal(gates[0]?.issue, 374)
+    assert.equal(gates[0]?.phase, 'at-gate')
+  } finally {
+    h.cleanup()
+  }
+})
+
 test('a failed fetch fabricates nothing; the next successful tick announces', async () => {
   const h = freshHarness()
   try {

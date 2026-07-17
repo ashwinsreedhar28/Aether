@@ -330,6 +330,46 @@ export interface GateLedgerState {
   reminderTs: string | null
 }
 
+// ---- drain line family (#393) -------------------------------------------------
+// The drain proposer's bookkeeping: one 'drain' line records each proposal the
+// proposer armed (which issues, under which batch_id — the SAME batch_id its
+// lane request lines carry, so the proposal and its card are one unit), and one
+// dismissal line records that the Director dismissed that card, anchoring the
+// 24h candidate suppression window. Propose-only by construction: a drain line
+// never spawns anything — the lane request lines it rides with still wait for
+// the Director's tap like any work_on_issue batch.
+// Gate/telemetry's posture exactly: every line carries kind:'drain' so the
+// other folds skip it, and deliberately NO `status` field, so the Python
+// capacity folds (which key lifecycle on a string `status`) ignore it with
+// zero edits — a drain line never holds lane capacity.
+//   • proposal:  { id, ts, kind:'drain', batch_id, issues: [n, ...] }
+//   • dismissal: { id, ts, kind:'drain', dismissed:true }
+//     (the gate family's reminder:true shape — the dismissal line IS the
+//     suppression record, so an app restart never forgets one)
+
+// One proposal, folded. `dismissedTs` is the dismissal line's ts (null while
+// the card is pending or was approved) — the suppression window's anchor.
+export interface DrainRecord {
+  id: string
+  ts: string
+  proposedTs: string
+  batchId: string
+  issues: number[]
+  dismissedTs: string | null
+}
+
+// One lane the proposer arms: the request-line fields the Python
+// work_on_issue tool would record for the same issue (targets parsed from the
+// issue's ARCHITECT SPEC or the #268 defaults, ~ unexpanded — the fold
+// sanitizes and expands, one expansion authority).
+export interface DrainLaneArm {
+  issue: number
+  title: string
+  branch: string
+  worktree: string
+  submodules?: boolean
+}
+
 // kebab-case slug — MUST match the Python tool's _slugify so the branch/worktree
 // the Director sees on the card derive identically (feat/<slug>, ~/aether-<slug>).
 export function slugForName(name: string): string {
@@ -805,6 +845,57 @@ export class SpawnLedger {
     return byIssue
   }
 
+  /** Arm one drain proposal (#393): the proposal's own drain line plus one
+   * work_on_issue-shaped lane request line per candidate, all under ONE
+   * batch_id and ONE fsynced write — the card must never see half a batch
+   * after a crash (the Python _append_lines law), and a proposal must never
+   * exist without its batch or vice versa. The lane lines are byte-shape
+   * identical to raven's work_on_issue records, so the EXISTING approval
+   * card, approve/dismiss, capacity gate, and recipe run unchanged. */
+  armDrainProposal(lanes: DrainLaneArm[]): { proposalId: string; batchId: string } {
+    if (lanes.length === 0) throw new Error('a drain proposal needs at least one lane')
+    const proposalId = randomUUID()
+    const batchId = randomUUID()
+    const ts = new Date().toISOString()
+    const lines: Array<Record<string, unknown>> = [
+      { id: proposalId, ts, kind: 'drain', batch_id: batchId, issues: lanes.map((l) => l.issue) },
+    ]
+    for (const lane of lanes) {
+      const rec: Record<string, unknown> = {
+        id: randomUUID(),
+        ts,
+        kind: 'lane',
+        batch_id: batchId,
+        issue: lane.issue,
+        issue_title: lane.title,
+        branch: lane.branch,
+        worktree: lane.worktree,
+        status: 'requested',
+      }
+      // Sparse (#376): the key appears only when the spec opts in — an
+      // absent key IS the default-off record, so old lines fold unchanged.
+      if (lane.submodules) rec.submodules = true
+      lines.push(rec)
+    }
+    this.appendAll(lines)
+    return { proposalId, batchId }
+  }
+
+  /** Append the dismissal line for a proposal whose batch the Director
+   * dismissed — the durable anchor of the 24h candidate suppression, so an
+   * app restart never re-proposes what was just declined. */
+  markDrainDismissed(id: string): void {
+    this.append({ id, ts: new Date().toISOString(), kind: 'drain', dismissed: true })
+  }
+
+  /** Folded drain proposals, newest first (tests + the proposer's memory —
+   * derived from the fold on every call, no side state, the monitor's rule). */
+  listDrains(): DrainRecord[] {
+    return [...this.foldDrains().values()].sort((a, b) =>
+      b.proposedTs.localeCompare(a.proposedTs),
+    )
+  }
+
   /** Count the two allowlisted relay sentences DELIVERED to `issue`'s lane
    * since `sinceIso` (the record's spawned event — the laneGate doctrine: a
    * respawn on the same issue must never inherit the previous run's counts).
@@ -903,16 +994,19 @@ export class SpawnLedger {
       if (!id) continue
       const ts = typeof obj.ts === 'string' ? obj.ts : ''
 
-      // Relay (#310), teardown (#317), telemetry (#364), and gate (#378)
-      // lines fold separately (foldRelays / foldTeardowns / foldTelemetry /
-      // foldGates); without this skip a relay or teardown request would seed
-      // a ghost 'requested' spawn stub and a failed outcome would raise a
-      // SPAWN FAILED card for a record that never existed.
+      // Relay (#310), teardown (#317), telemetry (#364), gate (#378), and
+      // drain (#393) lines fold separately (foldRelays / foldTeardowns /
+      // foldTelemetry / foldGates / foldDrains); without this skip a relay or
+      // teardown request would seed a ghost 'requested' spawn stub and a
+      // failed outcome would raise a SPAWN FAILED card for a record that
+      // never existed. (Drain lines carry no `status` and would fall through
+      // inert anyway — the explicit skip keeps the family law in one place.)
       if (
         obj.kind === 'relay' ||
         obj.kind === 'teardown' ||
         obj.kind === 'telemetry' ||
-        obj.kind === 'gate'
+        obj.kind === 'gate' ||
+        obj.kind === 'drain'
       ) {
         continue
       }
@@ -1269,13 +1363,79 @@ export class SpawnLedger {
     return out
   }
 
+  // Fold the drain family (#393), oldest → newest — the kind:'drain' sibling
+  // of foldGates. A malformed line is skipped; a dismissal line for an
+  // unknown proposal id is dropped (the relay family's rule — a drain line
+  // could only reference a proposal this fold has seen).
+  private foldDrains(): Map<string, DrainRecord> {
+    const byId = new Map<string, DrainRecord>()
+    if (!existsSync(this.path)) return byId
+
+    let raw: string
+    try {
+      raw = readFileSync(this.path, 'utf8')
+    } catch {
+      return byId
+    }
+
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      let obj: Record<string, unknown>
+      try {
+        obj = JSON.parse(trimmed) as Record<string, unknown>
+      } catch {
+        continue /* skip malformed line */
+      }
+      if (obj.kind !== 'drain') continue
+      const id = typeof obj.id === 'string' ? obj.id : null
+      if (!id) continue
+      const ts = typeof obj.ts === 'string' ? obj.ts : ''
+
+      // Proposal line — carries the batch identity and its issues.
+      if (typeof obj.batch_id === 'string' && Array.isArray(obj.issues)) {
+        const issues = obj.issues.filter(
+          (n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1,
+        )
+        const existing = byId.get(id)
+        byId.set(id, {
+          id,
+          ts: existing?.ts || ts,
+          proposedTs: ts,
+          batchId: obj.batch_id,
+          issues,
+          // Preserve a dismissal already folded if a proposal line arrives late.
+          dismissedTs: existing?.dismissedTs ?? null,
+        })
+        continue
+      }
+
+      // Dismissal line — anchors the suppression window.
+      if (obj.dismissed === true) {
+        const existing = byId.get(id)
+        if (!existing) continue
+        existing.dismissedTs = ts
+        existing.ts = ts
+      }
+    }
+
+    return byId
+  }
+
   // One append + fsync — the durability path lives in exactly one place (the
   // retired intents store's pattern). Per-call open/close is fine: spawns fire
   // minutes apart.
   private append(obj: Record<string, unknown>): void {
+    this.appendAll([obj])
+  }
+
+  // The batch variant: every line in one write + one fsync, so a crash can
+  // never leave the card half a batch (parity with the Python tool's
+  // _append_lines, which fsyncs the whole batch the same way).
+  private appendAll(objs: Array<Record<string, unknown>>): void {
     const fd = openSync(this.path, 'a')
     try {
-      writeSync(fd, JSON.stringify(obj) + '\n')
+      writeSync(fd, objs.map((o) => JSON.stringify(o) + '\n').join(''))
       fsyncSync(fd)
     } finally {
       closeSync(fd)

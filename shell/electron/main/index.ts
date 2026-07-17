@@ -28,6 +28,7 @@ import { VisionDaemonManager } from './services/visionDaemonManager'
 import { CalendarDaemonManager } from './services/calendarDaemonManager'
 import { SpawnService } from './services/spawnService'
 import { LaneMonitor } from './services/laneMonitor'
+import { DrainProposer } from './services/drainProposer'
 import { REPO_ROOT, spawnsLedgerPath } from './services/paths'
 import { markQuitting } from './services/appLifecycle'
 import { registerPythonDaemonNode, waitForMeshReady } from './services/nodeRegistry'
@@ -649,6 +650,30 @@ const laneMonitor = new LaneMonitor({
 })
 laneMonitor.start()
 
+// Drain proposer (#393): self-staffing v0, propose-only — on boot, every 30
+// min, and on lane close-out it scans the open lane-labeled board for
+// ratified, unclaimed, un-HELD issues and, when capacity is free, arms ONE
+// batch through the SAME ledger request-line shapes work_on_issue writes —
+// the existing watcher raises the existing approval card; the Director's tap
+// remains the only spawn trigger. Dismissing the card suppresses those
+// candidates for 24h (a drain-family ledger line). Notifications ride the
+// same host_notifications.notify edge as the gate monitor's.
+const drainMaxEnv = parseInt(process.env.AETHER_DRAIN_MAX_LANES ?? '', 10)
+const drainTickEnv = parseInt(process.env.AETHER_DRAIN_TICK_MIN ?? '', 10)
+const drainProposer = new DrainProposer({
+  ledgerPath: spawnsLedgerPath(),
+  invoke: meshInvoke,
+  notify: (body) => {
+    void meshInvoke('host_notifications.notify', { title: 'Aether', body }).catch(() => {})
+  },
+  maxLanes: Number.isFinite(drainMaxEnv) && drainMaxEnv >= 1 ? drainMaxEnv : undefined,
+  tickMin: Number.isFinite(drainTickEnv) && drainTickEnv >= 1 ? drainTickEnv : undefined,
+})
+// The close-out trigger: every ledger change runs the proposer's cheap local
+// bookkeeping; a live-count drop (a lane freed its slot) triggers a scan.
+spawnService.on('changed', () => drainProposer.onLedgerChanged())
+drainProposer.start()
+
 // Spawn IPC. Renderer-facing surface is window.aether.spawn in preload. The
 // passphrase never crosses this boundary — it is verified inside raven-core
 // before a request ever reaches the ledger; the renderer only approves/dismisses
@@ -822,6 +847,7 @@ async function stopAllChildren(): Promise<void> {
     reminders.stop(),
     Promise.resolve(spawnService.stop()),
     Promise.resolve(laneMonitor.stop()),
+    Promise.resolve(drainProposer.stop()),
     Promise.resolve(stopViewerHost()),
     viewerNode?.stop() ?? Promise.resolve(),
   ])

@@ -483,6 +483,31 @@ test('duplicate lane arms fold per record — a dead newer arm never masks the l
       JSON.stringify({ id: 'arm-374-a', ts: '2026-07-15T00:28:09+00:00', status: 'closed' }) + '\n',
     )
     assert.equal(ledger.liveCount(), 1)
+
+    // Drain lines (#393) land in the same mixed table and change NOTHING for
+    // any family above — raw on-disk shapes, appended after the parity table
+    // so DUPLICATE_LANE_LINES itself stays byte-identical to its Python twin
+    // (raven-core's tests/lane_fixtures.py; extending the twin is fenced to a
+    // raven-core lane).
+    appendFileSync(
+      path,
+      JSON.stringify({ id: 'drain-1', ts: '2026-07-15T00:30:00+00:00', kind: 'drain', batch_id: 'batch-drain-1', issues: [390, 391] }) +
+        '\n' +
+        JSON.stringify({ id: 'drain-1', ts: '2026-07-15T00:31:00+00:00', kind: 'drain', dismissed: true }) +
+        '\n',
+    )
+    const refolded = ledger.list().filter((r) => r.kind === 'lane')
+    assert.equal(refolded.length, 3)
+    assert.equal(refolded.find((r) => r.id === 'arm-374-b')?.status, 'dismissed')
+    assert.equal(ledger.liveCount(), 1)
+    assert.equal(ledger.listRelays().length, 1)
+    assert.equal(ledger.listGates().length, 1)
+    assert.equal(ledger.listTeardowns().length, 1)
+    assert.equal(ledger.listTelemetry().length, 1)
+    const drains = ledger.listDrains()
+    assert.equal(drains.length, 1)
+    assert.deepEqual(drains[0]?.issues, [390, 391])
+    assert.equal(drains[0]?.dismissedTs, '2026-07-15T00:31:00+00:00')
   } finally {
     cleanup()
   }
@@ -1010,6 +1035,50 @@ test('mixed-family fixture: every fold sees only its own family, and gate lines 
     assert.equal(ledger.listTelemetry().length, 1)
     assert.equal(ledger.listGates().length, 2)
     assert.equal(ledger.lastGatePhases().get(372)?.phase, 'at-gate')
+
+    // The seventh family (#393): a drain proposal adds its bookkeeping line
+    // PLUS one ordinary lane request — the request is live machinery (the
+    // card), the drain line is inert bookkeeping in every fold above.
+    const { proposalId } = ledger.armDrainProposal([
+      { issue: 373, title: 'feat(y): queued thing', branch: 'lane/issue-373', worktree: '~/aether-lane-373' },
+    ])
+    ledger.markDrainDismissed(proposalId)
+    assert.equal(ledger.list().length, 3) // + the armed lane request, nothing else
+    assert.equal(ledger.liveCount(), 1) // drain lines hold no capacity
+    assert.equal(ledger.listRelays().length, 1)
+    assert.equal(ledger.listTeardowns().length, 1)
+    assert.equal(ledger.listTelemetry().length, 1)
+    assert.equal(ledger.listGates().length, 2)
+    assert.equal(ledger.listDrains().length, 1)
+    assert.ok(ledger.listDrains()[0]?.dismissedTs)
+  } finally {
+    cleanup()
+  }
+})
+
+test('drain family (#393): proposal + batch in one unit, folded by id, dismissal anchors — and the EXISTING approval unit resolves the batch', () => {
+  const { ledger, cleanup } = freshLedger()
+  try {
+    const { proposalId, batchId } = ledger.armDrainProposal([
+      { issue: 400, title: 'feat(a): x', branch: 'lane/issue-400', worktree: '~/aether-lane-400' },
+      { issue: 402, title: 'feat(b): y', branch: 'feat/custom', worktree: '~/aether-custom', submodules: true },
+    ])
+    const drains = ledger.listDrains()
+    assert.equal(drains.length, 1)
+    assert.equal(drains[0]?.batchId, batchId)
+    assert.deepEqual(drains[0]?.issues, [400, 402])
+    assert.equal(drains[0]?.dismissedTs, null)
+    // The armed lanes ARE the work_on_issue approval unit — one card,
+    // approve-all or cancel-all, resolved by the existing batch fold.
+    const batch = ledger.requestedBatch(batchId)
+    assert.equal(batch.length, 2)
+    assert.equal(batch[1]?.submodules, true)
+    assert.equal(ledger.liveCount(), 0) // requested awaits the tap; drain holds nothing
+    ledger.markDrainDismissed(proposalId)
+    assert.ok(ledger.listDrains()[0]?.dismissedTs)
+    // A dismissal for an id no proposal seeded is dropped (the relay rule).
+    ledger.markDrainDismissed('no-such-proposal')
+    assert.equal(ledger.listDrains().length, 1)
   } finally {
     cleanup()
   }

@@ -29,6 +29,13 @@ second call with ``confirmed: true`` arms it anyway — the Director's override
 is BY VOICE, never silent. gap-labeled issues get the same treatment (a gap
 WITH a spec comment passes like any other issue).
 
+Already-armed guard (#394): an issue that already holds a requested-or-live
+lane record (requested | spawned | teardown_failed — the capacity set) is
+refused at the source, pointing at the existing card or lane; batch calls
+arm the rest and name the skipped. The fold fix (#397) makes duplicates
+harmless; this guard makes them rare. Not overridable by ``confirmed`` —
+that flag belongs to the spec guard alone.
+
 Like request_spawn this is a SIDE-EFFECT tool: the ledger append is the only
 artifact, the return is a tiny signal, and raven speaks ONE line — it never
 reads specs, branches, or worktrees aloud.
@@ -128,6 +135,62 @@ def _committed_count() -> int:
     return sum(1 for s in latest.values() if s in ("requested", "spawned", "teardown_failed"))
 
 
+# The arming set (#394): the same statuses that hold capacity in
+# _committed_count — a pending card, a live lane, a failed teardown still
+# holding its worktree. Priority order for the spoken state: the liveliest
+# wins, so a pending duplicate card never masks the live lane beside it.
+_ARMED_STATUSES = ("spawned", "teardown_failed", "requested")
+
+
+def _already_armed(wanted: list[int]) -> dict[int, str]:
+    """Fold the ledger for the target issues' arming state: {issue: status}
+    for every issue already holding a requested-or-live lane record; an
+    issue absent from the map is clear to arm. Per-issue resolution is
+    status FIRST (spawned, then teardown_failed, then requested) — the
+    #383 law over the arming set, so a dead newer duplicate never masks the
+    live lane and dead records never block a fresh arm; only the winning
+    STATE is reported, so recency never matters within a status tier.
+    Relay (#310) and teardown (#317) lines are skipped wholesale by kind.
+    The shell's approve gate re-checks live state; this fold only shapes
+    the refusal."""
+    ledger = _ledger_path()
+    if not ledger.is_file():
+        return {}
+    try:
+        raw = ledger.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    ids_by_issue: dict[int, list[str]] = {n: [] for n in wanted}
+    status_by_id: dict[str, str] = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if obj.get("kind") in ("relay", "teardown"):
+            continue
+        rec_id = obj.get("id")
+        if not isinstance(rec_id, str):
+            continue
+        if obj.get("kind") == "lane":
+            ids = ids_by_issue.get(obj.get("issue"))
+            if ids is not None and rec_id not in ids:
+                ids.append(rec_id)
+        status = obj.get("status")
+        if isinstance(status, str):
+            status_by_id[rec_id] = status
+    armed: dict[int, str] = {}
+    for n, ids in ids_by_issue.items():
+        for state in _ARMED_STATUSES:
+            if any(status_by_id.get(i) == state for i in ids):
+                armed[n] = state
+                break
+    return armed
+
+
 # Branch:/Worktree: parsing — regex parity with the shell's
 # spawnLedger.parseDraftTargets (THE SLUG CONTRACT's sibling for issues):
 # both tokens are the first whitespace-delimited run after the colon.
@@ -225,7 +288,19 @@ async def _work_on_issue(number: Any, numbers: Any, confirmed: bool) -> dict[str
     if len(wanted) > BATCH_MAX:
         return {"ok": False, "error": f"too many issues in one breath (max {BATCH_MAX})"}
 
-    # Capacity first (#268 addendum 2): a batch that cannot fit is refused
+    # Already-armed guard (#394): an issue already holding a requested-or-
+    # live lane record is refused at the source — duplicates are harmless
+    # since the #397 fold; this makes them rare. Batches filter per-issue:
+    # arm the rest, name the skipped. Runs BEFORE capacity so the skipped
+    # (who already hold their slots) never inflate the capacity ask. Not
+    # overridable by `confirmed` — that flag belongs to the spec guard.
+    armed = _already_armed(wanted)
+    skipped = [{"issue": n, "state": armed[n]} for n in wanted if n in armed]
+    wanted = [n for n in wanted if n not in armed]
+    if not wanted:
+        return {"ok": False, "error": "already_armed", "already": skipped}
+
+    # Capacity next (#268 addendum 2): a batch that cannot fit is refused
     # WHOLE before any spec talk — raven names the cap and asks which to
     # start now. Not overridable by `confirmed`; the cap is the cap.
     cap = _max_lanes()
@@ -314,7 +389,12 @@ async def _work_on_issue(number: Any, numbers: Any, confirmed: bool) -> dict[str
         return {"ok": False, "error": "could not record request", "detail": str(e)}
 
     print(f"[WORK_ON_ISSUE] armed batch {batch_id}: {[lane['issue'] for lane in lanes]}")
-    return {"ok": True, "batch_id": batch_id, "count": len(lanes), "lanes": lanes}
+    result: dict[str, Any] = {"ok": True, "batch_id": batch_id, "count": len(lanes), "lanes": lanes}
+    # Sparse, like the submodules key: present only when the guard filtered
+    # the batch, so single-issue and clean-batch returns are unchanged.
+    if skipped:
+        result["skipped"] = skipped
+    return result
 
 
 _DESCRIPTION = (
@@ -332,6 +412,14 @@ _DESCRIPTION = (
     "{ ok: false, error: 'capacity', max_lanes, remaining } — the batch "
     "exceeds remaining lane capacity; name the cap and ask WHICH issues to "
     "start now (a follow-up call with that subset), never silently trim. "
+    "{ ok: false, error: 'already_armed', already: [{ issue, state }] } — "
+    "every named issue already has a lane in flight; refuse politely and "
+    "point at the existing state ('already armed, sir — approve the card' "
+    "for requested, 'lane #N is already live' for spawned, 'lane #N's "
+    "teardown needs closing out first' for teardown_failed). NEVER retry "
+    "with confirmed — duplicates are refused, period. A success may carry "
+    "skipped (same shape): those issues were already in flight and left "
+    "alone — name them alongside the armed ones. "
     "Other { ok: false } errors name the problem (closed issue, PR number, "
     "unreadable issue) — relay briefly. Distinct from report_gap (FILES a "
     "gap), review_gaps (PROPOSES), draft_lane (WRITES a prompt), and "

@@ -219,6 +219,9 @@ test('a dead newer duplicate never hides the live lane from the monitor (#383)',
       { id: 'arm-374-a', ts: '2026-07-14T23:49:19+00:00', status: 'spawned', worktree: '/x/aether-lane-374', branch: 'lane/issue-374' },
       { id: 'arm-374-b', ts: '2026-07-14T23:56:15+00:00', status: 'failed', step: 'preflight', error: 'worktree path already exists' },
       { id: 'arm-374-b', ts: '2026-07-14T23:56:17+00:00', status: 'dismissed' },
+      // A drain proposal line (#393) rides the same ledger and is invisible
+      // to the monitor — the assertions below hold unchanged.
+      { id: 'drain-1', ts: '2026-07-14T23:57:00+00:00', kind: 'drain', batch_id: 'batch-drain-1', issues: [390] },
     ],
   })
   try {
